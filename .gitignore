@@ -1,0 +1,77 @@
+# Environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials.json
+secrets/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+*.egg-info/
+.eggs/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Node / TypeScript
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.npm/
+.turbo/
+.next/
+out/
+*.tsbuildinfo
+
+# Database
+*.sql.gz
+*.dump
+*.backup
+pgdata/
+postgres-data/
+
+# Docker
+docker-compose.override.yml
+
+# Logs and local runtime
+logs/
+*.log
+tmp/
+temp/
+*.pid
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Editors / IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Cursor (local agent state; keep project rules if you add them)
+.cursor/
+!.cursor/rules/
+!.cursor/rules/**
+
+# Local notes and scratch
+*.local
+scratch/
