@@ -75,3 +75,6 @@ Desktop.ini
 # Local notes and scratch
 *.local
 scratch/
+
+# Firecrawl CLI cache
+.firecrawl/

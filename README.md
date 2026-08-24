@@ -34,7 +34,7 @@ An AI-assisted system for discovering jobs, researching companies, tailoring res
               ▼                                               ▼
      ┌─────────────────┐                            ┌─────────────────┐
      │ External APIs   │                            │ Redis (queues)  │
-     │ (OpenAI, etc.)  │                            └─────────────────┘
+     │ (via providers) │                            └─────────────────┘
      └─────────────────┘
                                        │
                                        ▼
@@ -44,12 +44,22 @@ An AI-assisted system for discovering jobs, researching companies, tailoring res
                               └─────────────────┘
 ```
 
+**Default provider targets** (swappable behind interfaces in `packages/providers/`):
+
+| Capability | Interface | Default target |
+|------------|-----------|----------------|
+| Auth | AuthProvider | Supabase Auth |
+| LLM / structured extraction | LLMProvider | Groq or Gemini |
+| Object storage | StorageProvider | Supabase Storage |
+| Web scraping | ScraperProvider | Self-hosted Firecrawl |
+| Web search | SearchProvider | Tavily |
+
 **Key principles:**
 
 - **PostgreSQL** stores all durable state (see `database/schema-notes.md`).
 - **Redis** backs job queues and caching.
 - **Workers** handle long-running or scheduled tasks (discovery, research, outreach, etc.).
-- **Provider adapters** isolate third-party SDKs behind interfaces in `packages/providers/`.
+- **Provider adapters** isolate third-party SDKs behind interfaces — vendors above are defaults, not hard-wired architecture.
 - **Tenant isolation** — every user-owned row is scoped to a user/tenant.
 - **MCP tools** expose capabilities to AI assistants but delegate to domain services.
 
@@ -93,7 +103,7 @@ career-agent/
    cp .env.example .env
    ```
 
-2. Fill in required keys (`DATABASE_URL`, `REDIS_URL`, provider API keys).
+2. Fill in required keys (`DATABASE_URL`, `REDIS_URL`, and provider vars from `.env.example` — Supabase Auth + Supabase Storage, Groq/Gemini, Firecrawl base URL, Tavily). For a private Supabase Storage bucket, object access uses signed URLs generated server-side; no `SUPABASE_JWT_SECRET` is required for that assumption. `SUPABASE_STORAGE_PUBLIC_URL` is optional and only relevant for public buckets.
 
 3. Read [AGENTS.md](./AGENTS.md) before making changes — it defines mandatory development rules for humans and AI agents.
 
