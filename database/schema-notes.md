@@ -491,7 +491,7 @@ Design documentation for the AI Career Agent PostgreSQL schema. **No SQL in this
 
 ## provider_usage
 
-**One row represents:** A record of a call to an external provider (OpenAI, Tavily, Firecrawl, email API) for metering and audit.
+**One row represents:** A record of a call to an external provider (LLM, Tavily, Firecrawl, storage, email API, etc.) for metering and audit.
 
 **Ownership / tenant:** Owned by `user_id`. Tenant-isolated.
 
