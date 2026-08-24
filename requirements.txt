@@ -1,0 +1,14 @@
+SQLAlchemy
+alembic
+psycopg[binary]
+psycopg2-binary
+python-dotenv
+pgvector
+fastapi
+uvicorn[standard]
+pydantic-settings
+redis
+httpx
+PyJWT[crypto]
+pytest
+pytest-asyncio
