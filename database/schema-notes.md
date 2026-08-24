@@ -17,6 +17,8 @@ Design documentation for the AI Career Agent PostgreSQL schema. **No SQL in this
 
 **Ownership / tenant:** Root tenant entity. Each user is their own tenant boundary for user-owned data.
 
+**Auth mapping:** `auth_subject` stores the Supabase Auth user id (`sub` claim). Created on first authenticated API request. JWT verification uses Supabase JWKS (no shared JWT secret in app config).
+
 **Important relationships:**
 - One-to-one (or one-to-few) with `user_profiles`, `user_preferences`.
 - One-to-many with nearly all tenant-scoped tables (`applications`, `resumes`, `job_matches`, `workflow_runs`, etc.).
