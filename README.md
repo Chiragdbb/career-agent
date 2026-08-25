@@ -53,6 +53,7 @@ An AI-assisted system for discovering jobs, researching companies, tailoring res
 | Object storage | StorageProvider | Supabase Storage |
 | Web scraping | ScraperProvider | Self-hosted Firecrawl |
 | Web search | SearchProvider | Tavily |
+| Outbound email | EmailSenderProvider | Resend |
 
 **Key principles:**
 
@@ -103,7 +104,7 @@ career-agent/
    cp .env.example .env
    ```
 
-2. Fill in required keys (`DATABASE_URL`, `REDIS_URL`, and provider vars from `.env.example` — Supabase Auth + Supabase Storage, Groq/Gemini, Firecrawl base URL, Tavily). For a private Supabase Storage bucket, object access uses signed URLs generated server-side; no `SUPABASE_JWT_SECRET` is required for that assumption. `SUPABASE_STORAGE_PUBLIC_URL` is optional and only relevant for public buckets.
+2. Fill in required keys (`DATABASE_URL`, `REDIS_URL`, and provider vars from `.env.example` — Supabase Auth + Supabase Storage, Groq/Gemini, Firecrawl base URL, Tavily, Resend for outbound email). Leave `RESEND_API_KEY` blank to use the mock email sender in CI/local. For a private Supabase Storage bucket, object access uses signed URLs generated server-side; no `SUPABASE_JWT_SECRET` is required for that assumption. `SUPABASE_STORAGE_PUBLIC_URL` is optional and only relevant for public buckets.
 
 3. Read [AGENTS.md](./AGENTS.md) before making changes — it defines mandatory development rules for humans and AI agents.
 

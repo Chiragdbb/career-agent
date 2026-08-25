@@ -8,33 +8,37 @@ import { AppNav } from "@/components/AppNav";
 import { apiFetch } from "@/lib/api";
 import { createClient } from "@/lib/supabase/client";
 
-type ScoreBreakdown = {
-  total: number;
-  role: number;
-  location: number;
-  work_arrangement: number;
-  salary: number;
-  skills: number;
-  seniority: number;
-  notes: string[];
-};
-
-type JobMatchDetail = {
-  id: string;
-  job_id: string;
-  status: string;
-  score: number | null;
-  title: string;
-  company_name: string | null;
-  location: string | null;
-  work_arrangement: string | null;
-  url: string | null;
-  description: string | null;
-  job_skills: string[];
-  matched_skills: string[];
-  missing_skills: string[];
-  score_breakdown: ScoreBreakdown | null;
-  explanation: string | null;
+type Workspace = {
+  match: {
+    id: string;
+    title: string;
+    company_name: string | null;
+    location: string | null;
+    work_arrangement: string | null;
+    score: number | null;
+    status: string;
+    url: string | null;
+    explanation: string | null;
+    matched_skills: string[];
+    missing_skills: string[];
+    description: string | null;
+    score_breakdown: {
+      role: number;
+      location: number;
+      work_arrangement: number;
+      salary: number;
+      skills: number;
+      seniority: number;
+    } | null;
+  };
+  company_research: { summary: string | null; status: string } | null;
+  people: { name: string | null; title: string | null; status: string }[];
+  contacts: { name: string | null; status: string; email_verifications: { email: string; status: string }[] }[];
+  strategy: { summary: string; recommended_actions: { action: string; priority: number }[] } | null;
+  application: { id: string; status: string } | null;
+  outreach: { id: string; subject: string | null; status: string }[];
+  documents: { id: string; filename: string | null; status: string }[];
+  timeline: { event_type: string; created_at?: string }[];
 };
 
 export default function JobDetailPage() {
@@ -45,23 +49,19 @@ export default function JobDetailPage() {
   const [loading, setLoading] = useState(true);
   const [rescoring, setRescoring] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [job, setJob] = useState<JobMatchDetail | null>(null);
+  const [workspace, setWorkspace] = useState<Workspace | null>(null);
 
-  async function fetchJob(rescore = false) {
-    const path = rescore
-      ? `/api/v1/jobs/${matchId}/score`
-      : `/api/v1/jobs/${matchId}`;
-    const response = await apiFetch(path, rescore ? { method: "POST" } : {});
+  async function fetchWorkspace() {
+    const response = await apiFetch(`/api/v1/jobs/${matchId}/workspace`);
     if (!response.ok) {
       const body = await response.json().catch(() => null);
       throw new Error(body?.error?.message || `API ${response.status}`);
     }
-    return (await response.json()) as JobMatchDetail;
+    return (await response.json()) as Workspace;
   }
 
   useEffect(() => {
     let cancelled = false;
-
     async function load() {
       try {
         const supabase = createClient();
@@ -72,8 +72,8 @@ export default function JobDetailPage() {
           router.replace("/login");
           return;
         }
-        const detail = await fetchJob(false);
-        if (!cancelled) setJob(detail);
+        const detail = await fetchWorkspace();
+        if (!cancelled) setWorkspace(detail);
       } catch (err) {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : "Failed to load job");
@@ -82,7 +82,6 @@ export default function JobDetailPage() {
         if (!cancelled) setLoading(false);
       }
     }
-
     void load();
     return () => {
       cancelled = true;
@@ -94,8 +93,14 @@ export default function JobDetailPage() {
     setRescoring(true);
     setError(null);
     try {
-      const detail = await fetchJob(true);
-      setJob(detail);
+      const response = await apiFetch(`/api/v1/jobs/${matchId}/score`, {
+        method: "POST",
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(body?.error?.message || `API ${response.status}`);
+      }
+      setWorkspace(await fetchWorkspace());
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to re-score job");
     } finally {
@@ -103,19 +108,17 @@ export default function JobDetailPage() {
     }
   }
 
+  const job = workspace?.match;
+
   return (
     <main className="mx-auto flex min-h-screen max-w-3xl flex-col gap-6 px-6 py-12">
       <AppNav active="jobs" />
-
       <Link href="/jobs" className="text-sm text-zinc-600 hover:text-zinc-900">
         ← Back to jobs
       </Link>
-
       {error ? <p className="text-sm text-red-600">{error}</p> : null}
-
-      {loading ? (
-        <p className="text-sm text-zinc-500">Loading…</p>
-      ) : job ? (
+      {loading ? <p className="text-sm text-zinc-500">Loading…</p> : null}
+      {job ? (
         <article className="space-y-6">
           <header className="space-y-2">
             <h1 className="text-2xl font-semibold text-zinc-900">{job.title}</h1>
@@ -152,82 +155,105 @@ export default function JobDetailPage() {
           </header>
 
           {job.explanation ? (
-            <section>
-              <h2 className="text-sm font-medium text-zinc-800">Match explanation</h2>
+            <section className="rounded border border-zinc-200 p-4">
+              <h2 className="text-sm font-medium text-zinc-800">Why it matches</h2>
               <p className="mt-2 text-sm text-zinc-700">{job.explanation}</p>
             </section>
           ) : null}
 
           <section className="grid gap-4 sm:grid-cols-2">
-            <div>
+            <div className="rounded border border-zinc-200 p-4">
               <h2 className="text-sm font-medium text-green-800">Matched skills</h2>
-              {job.matched_skills.length ? (
-                <ul className="mt-2 flex flex-wrap gap-2 text-sm">
-                  {job.matched_skills.map((skill) => (
-                    <li
-                      key={skill}
-                      className="rounded bg-green-50 px-2 py-1 text-green-900"
-                    >
-                      {skill}
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="mt-2 text-sm text-zinc-500">None identified</p>
-              )}
+              <p className="mt-2 text-sm text-zinc-700">
+                {job.matched_skills.join(", ") || "None"}
+              </p>
             </div>
-            <div>
-              <h2 className="text-sm font-medium text-amber-800">Missing skills</h2>
-              {job.missing_skills.length ? (
-                <ul className="mt-2 flex flex-wrap gap-2 text-sm">
-                  {job.missing_skills.map((skill) => (
-                    <li
-                      key={skill}
-                      className="rounded bg-amber-50 px-2 py-1 text-amber-900"
-                    >
-                      {skill}
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="mt-2 text-sm text-zinc-500">None identified</p>
-              )}
+            <div className="rounded border border-zinc-200 p-4">
+              <h2 className="text-sm font-medium text-amber-800">
+                Missing requirements
+              </h2>
+              <p className="mt-2 text-sm text-zinc-700">
+                {job.missing_skills.join(", ") || "None"}
+              </p>
             </div>
           </section>
 
-          {job.score_breakdown ? (
-            <section>
-              <h2 className="text-sm font-medium text-zinc-800">Score breakdown</h2>
-              <dl className="mt-2 grid grid-cols-2 gap-2 text-sm sm:grid-cols-3">
-                {(
-                  [
-                    ["Role", job.score_breakdown.role],
-                    ["Location", job.score_breakdown.location],
-                    ["Work arrangement", job.score_breakdown.work_arrangement],
-                    ["Salary", job.score_breakdown.salary],
-                    ["Skills", job.score_breakdown.skills],
-                    ["Seniority", job.score_breakdown.seniority],
-                  ] as const
-                ).map(([label, value]) => (
-                  <div key={label}>
-                    <dt className="text-zinc-500">{label}</dt>
-                    <dd className="font-medium text-zinc-900">
-                      {Math.round(value * 100)}%
-                    </dd>
-                  </div>
-                ))}
-              </dl>
-            </section>
-          ) : null}
+          <section className="rounded border border-zinc-200 p-4">
+            <h2 className="text-sm font-medium text-zinc-800">Company research</h2>
+            <p className="mt-2 text-sm text-zinc-700">
+              {workspace?.company_research?.summary || "Not researched yet"}
+            </p>
+          </section>
 
-          {job.description ? (
-            <section>
-              <h2 className="text-sm font-medium text-zinc-800">Description</h2>
-              <p className="mt-2 whitespace-pre-wrap text-sm text-zinc-700">
-                {job.description}
-              </p>
-            </section>
-          ) : null}
+          <section className="rounded border border-zinc-200 p-4">
+            <h2 className="text-sm font-medium text-zinc-800">People / contacts</h2>
+            <ul className="mt-2 space-y-1 text-sm text-zinc-700">
+              {(workspace?.contacts || []).map((c, idx) => (
+                <li key={`${c.name}-${idx}`}>
+                  {c.name || "Unknown"} · {c.status}
+                  {c.email_verifications?.length
+                    ? ` · ${c.email_verifications.map((v) => `${v.email} (${v.status})`).join(", ")}`
+                    : ""}
+                </li>
+              ))}
+              {!workspace?.contacts?.length ? (
+                <li className="text-zinc-500">No contacts yet</li>
+              ) : null}
+            </ul>
+          </section>
+
+          <section className="rounded border border-zinc-200 p-4">
+            <h2 className="text-sm font-medium text-zinc-800">Strategy</h2>
+            <p className="mt-2 text-sm text-zinc-700">
+              {workspace?.strategy?.summary || "—"}
+            </p>
+            <ul className="mt-2 space-y-1 text-sm text-zinc-600">
+              {(workspace?.strategy?.recommended_actions || []).map((a) => (
+                <li key={`${a.action}-${a.priority}`}>
+                  {a.priority}. {a.action}
+                </li>
+              ))}
+            </ul>
+          </section>
+
+          <section className="rounded border border-zinc-200 p-4">
+            <h2 className="text-sm font-medium text-zinc-800">
+              Application / documents / outreach
+            </h2>
+            <p className="mt-2 text-sm text-zinc-700">
+              Application:{" "}
+              {workspace?.application
+                ? `${workspace.application.status} (${workspace.application.id})`
+                : "None"}
+            </p>
+            <p className="mt-1 text-sm text-zinc-700">
+              Documents:{" "}
+              {(workspace?.documents || [])
+                .map((d) => d.filename || d.id)
+                .join(", ") || "None"}
+            </p>
+            <p className="mt-1 text-sm text-zinc-700">
+              Outreach:{" "}
+              {(workspace?.outreach || [])
+                .map((o) => `${o.subject || o.id} (${o.status})`)
+                .join(", ") || "None"}
+            </p>
+          </section>
+
+          <section className="rounded border border-zinc-200 p-4">
+            <h2 className="text-sm font-medium text-zinc-800">Timeline</h2>
+            <ul className="mt-2 space-y-1 text-sm text-zinc-700">
+              {(workspace?.timeline || []).map((e, idx) => (
+                <li key={`${e.event_type}-${idx}`}>
+                  {e.event_type}
+                  {e.created_at ? ` · ${e.created_at}` : ""}
+                </li>
+              ))}
+              {!workspace?.timeline?.length ? (
+                <li className="text-zinc-500">No events yet</li>
+              ) : null}
+            </ul>
+          </section>
         </article>
       ) : null}
     </main>

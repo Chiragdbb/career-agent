@@ -12,7 +12,15 @@ celery_app = Celery(
     "career_agent",
     broker=redis_url,
     backend=redis_url,
-    include=["workers.discovery.tasks"],
+    include=[
+        "workers.discovery.tasks",
+        "workers.research.tasks",
+        "workers.contacts.tasks",
+        "workers.documents.tasks",
+        "workers.applications.tasks",
+        "workers.outreach.tasks",
+        "workers.notifications.tasks",
+    ],
 )
 
 celery_app.conf.update(
