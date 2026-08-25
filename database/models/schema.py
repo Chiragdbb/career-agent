@@ -140,6 +140,7 @@ class ResumeVersion(UUIDMixin, TimestampMixin, Base):
     content_hash = sa.Column(sa.Text)
     plain_text = sa.Column(sa.Text)
     sections = sa.Column(sa.dialects.postgresql.JSONB)
+    parser_version = sa.Column(sa.Text)
 
 
 class Document(UUIDMixin, TimestampMixin, Base):
@@ -276,6 +277,7 @@ class Job(UUIDMixin, TimestampMixin, Base):
     url = sa.Column(sa.Text)
     external_id = sa.Column(sa.Text)
     description = sa.Column(sa.Text)
+    details = sa.Column(sa.dialects.postgresql.JSONB)
     posted_at = sa.Column(sa.DateTime(timezone=True))
 
     __table_args__ = (

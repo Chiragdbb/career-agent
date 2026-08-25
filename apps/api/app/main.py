@@ -16,7 +16,10 @@ from app.routers import (
     jobs_router,
     me_router,
     outreach_router,
+    preferences_router,
+    profile_router,
     resumes_router,
+    workflows_router,
 )
 
 
@@ -57,11 +60,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     prefix = settings.api_v1_prefix
     app.include_router(health_router, prefix=prefix)
     app.include_router(me_router, prefix=prefix)
+    app.include_router(profile_router, prefix=prefix)
+    app.include_router(preferences_router, prefix=prefix)
     app.include_router(jobs_router, prefix=prefix)
     app.include_router(applications_router, prefix=prefix)
     app.include_router(resumes_router, prefix=prefix)
     app.include_router(contacts_router, prefix=prefix)
     app.include_router(outreach_router, prefix=prefix)
+    app.include_router(workflows_router, prefix=prefix)
 
     return app
 

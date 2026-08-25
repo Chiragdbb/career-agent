@@ -15,6 +15,10 @@ from app.redis import get_redis
 from database.models.schema import User
 from packages.domain.exceptions import AuthenticationError
 from packages.domain.users import UserService
+from packages.providers.storage import MockStorageProvider, StorageProvider
+from packages.providers.supabase_storage import SupabaseStorageProvider
+
+from app.tasks import CeleryDiscoveryTaskClient, DiscoveryTaskClient, InlineDiscoveryTaskClient
 
 _bearer = HTTPBearer(auto_error=False)
 
@@ -52,6 +56,48 @@ def get_current_user_id(user: Annotated[User, Depends(get_current_user)]) -> UUI
     return user.id
 
 
+def get_storage_provider(
+    request: Request,
+    settings: Settings = Depends(get_settings),
+) -> StorageProvider:
+    """Return StorageProvider (tests may set app.state.storage_provider).
+
+    Uses Supabase Storage when URL + service role key are configured;
+    otherwise falls back to an in-memory MockStorageProvider (local/tests).
+    """
+    existing = getattr(request.app.state, "storage_provider", None)
+    if existing is not None:
+        return existing
+
+    if settings.supabase_url and settings.supabase_service_role_key:
+        provider: StorageProvider = SupabaseStorageProvider(
+            supabase_url=settings.supabase_url,
+            service_role_key=settings.supabase_service_role_key,
+        )
+    else:
+        provider = MockStorageProvider()
+
+    request.app.state.storage_provider = provider
+    return provider
+
+
+def get_storage_bucket(settings: Settings = Depends(get_settings)) -> str:
+    bucket = settings.supabase_storage_bucket
+    if bucket:
+        return bucket
+    return "resumes"
+
+
+def get_discovery_task_client(request: Request) -> DiscoveryTaskClient:
+    """Return task client (overridable in tests via app.state)."""
+    existing = getattr(request.app.state, "discovery_task_client", None)
+    if existing is not None:
+        return existing
+    client: DiscoveryTaskClient = CeleryDiscoveryTaskClient()
+    request.app.state.discovery_task_client = client
+    return client
+
+
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 DbSessionDep = Annotated[Session, Depends(get_db)]
 RedisDep = Annotated[Redis, Depends(get_redis)]
@@ -59,3 +105,6 @@ CorrelationIdDep = Annotated[str, Depends(get_correlation_id)]
 CurrentUserDep = Annotated[User, Depends(get_current_user)]
 CurrentUserIdDep = Annotated[UUID, Depends(get_current_user_id)]
 JwtVerifierDep = Annotated[JwtVerifier, Depends(get_jwt_verifier)]
+StorageProviderDep = Annotated[StorageProvider, Depends(get_storage_provider)]
+StorageBucketDep = Annotated[str, Depends(get_storage_bucket)]
+DiscoveryTaskClientDep = Annotated[DiscoveryTaskClient, Depends(get_discovery_task_client)]

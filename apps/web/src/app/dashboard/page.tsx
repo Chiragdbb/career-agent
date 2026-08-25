@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { AppNav } from "@/components/AppNav";
 import { apiFetch } from "@/lib/api";
 import { createClient } from "@/lib/supabase/client";
 
@@ -53,34 +54,16 @@ export default function DashboardPage() {
     };
   }, [router]);
 
-  async function signOut() {
-    const supabase = createClient();
-    await supabase.auth.signOut();
-    router.replace("/login");
-    router.refresh();
-  }
-
   return (
     <main className="mx-auto flex min-h-screen max-w-2xl flex-col gap-6 px-6 py-12">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <p className="text-sm uppercase tracking-wide text-zinc-500">
-            Career Agent
-          </p>
-          <h1 className="mt-1 text-2xl font-semibold text-zinc-900">
-            Dashboard
-          </h1>
-          <p className="mt-2 text-sm text-zinc-600">
-            Auth placeholder — full product UI lands in a later step.
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={() => void signOut()}
-          className="rounded border border-zinc-300 px-3 py-1.5 text-sm"
-        >
-          Sign out
-        </button>
+      <AppNav active="dashboard" />
+
+      <div>
+        <h1 className="text-2xl font-semibold text-zinc-900">Dashboard</h1>
+        <p className="mt-2 text-sm text-zinc-600">
+          Manage your profile and job preferences, then track applications in
+          later steps. Upload a master resume under Resumes.
+        </p>
       </div>
 
       <section className="rounded border border-zinc-200 p-4 text-sm">

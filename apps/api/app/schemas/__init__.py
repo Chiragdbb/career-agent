@@ -54,6 +54,12 @@ class ResumeResponse(BaseModel):
     status: str
 
 
+# Re-export richer resume schemas for convenience.
+from app.schemas.resumes import (  # noqa: E402
+    ResumeDetailResponse,
+    ResumeSummaryResponse,
+)
+
 class ContactResponse(BaseModel):
     id: UUID
     name: str | None = None

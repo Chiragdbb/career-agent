@@ -24,6 +24,11 @@ class Settings(BaseSettings):
 
     # Supabase Auth — used for JWKS-based JWT verification (no JWT secret).
     supabase_url: str = Field(default="", alias="SUPABASE_URL")
+    supabase_service_role_key: str = Field(default="", alias="SUPABASE_SERVICE_ROLE_KEY")
+
+    # Supabase Storage — private bucket; signed URLs for client access.
+    supabase_storage_bucket: str = Field(default="", alias="SUPABASE_STORAGE_BUCKET")
+    supabase_storage_public_url: str = Field(default="", alias="SUPABASE_STORAGE_PUBLIC_URL")
 
     @field_validator("database_url")
     @classmethod
@@ -46,6 +51,15 @@ class Settings(BaseSettings):
     @classmethod
     def normalize_supabase_url(cls, value: str) -> str:
         return (value or "").strip().rstrip("/")
+
+    @field_validator(
+        "supabase_service_role_key",
+        "supabase_storage_bucket",
+        "supabase_storage_public_url",
+    )
+    @classmethod
+    def strip_optional_strings(cls, value: str) -> str:
+        return (value or "").strip()
 
 
 @lru_cache
