@@ -130,10 +130,95 @@ Do not assume the paid Firecrawl cloud API. Adapter code should use the same `Sc
 ```bash
 # from repo root with Docker Postgres/Redis up and .env loaded
 $env:PYTHONPATH=".;apps/api"
-python -m pytest tests/test_auth.py tests/test_tenant_isolation.py -v
+python -m pytest tests/test_auth.py tests/test_tenant_isolation.py tests/test_profile_preferences.py tests/test_resumes.py tests/test_tavily_search.py tests/test_firecrawl_scraper.py tests/test_llm_providers.py tests/test_job_discovery.py tests/test_job_match.py tests/test_jobs_api.py tests/test_discovery_worker.py tests/test_company_research.py -v
 ```
 
 Auth tests use a **mocked JWT verifier** (no real Supabase network calls). Tenant isolation tests prove user A cannot read user B's jobs (job matches), applications, resumes, contacts, or outreach.
+
+Profile and preferences endpoints are always scoped to the authenticated user (`GET/PUT /api/v1/profile`, `GET/PUT /api/v1/preferences`). The web app exposes `/profile` and `/preferences` pages that call these routes with the Supabase access token.
+
+### Resumes (upload + structured parse)
+
+Create a **private** Supabase Storage bucket (default name `resumes` via `SUPABASE_STORAGE_BUCKET`) and ensure `SUPABASE_SERVICE_ROLE_KEY` is set in the root `.env`. The API stores originals under `{user_id}/resumes/...` and returns signed URLs for download — no `SUPABASE_JWT_SECRET` is used.
+
+```bash
+# Extra deps for PDF/DOCX extraction (also in requirements.txt)
+pip install PyMuPDF python-docx python-multipart
+python -m alembic upgrade head   # adds resume_versions.parser_version
+```
+
+Authenticated endpoints:
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `POST` | `/api/v1/resumes` | Multipart upload (`file`, optional `name` / `description`) |
+| `GET` | `/api/v1/resumes` | List own resumes |
+| `GET` | `/api/v1/resumes/{id}` | Detail: extracted text, structured resume, signed URL |
+
+The web app page is `/resumes` (nav link). Structured parsing is heuristic (`parser_version=heuristic-v1`); LLM parsing is optional later and not required for CI.
+
+### Job discovery / matching (mocked in CI)
+
+Domain services:
+
+- `JobDiscoveryService` — preferences → search → scrape → LLM extract → validate → company → fingerprint/dedupe → `jobs` + `job_matches` + workflow events
+- `JobMatchService` — deterministic scoring against preferences (no embeddings)
+- `JobListingService` — tenant-scoped list/detail/rescore for API
+- `DiscoveryTriggerService` — queues discovery workflow runs (async via Celery)
+
+Authenticated job endpoints:
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `POST` | `/api/v1/jobs/discover` | Queue async discovery (returns `workflow_run_id` + Celery `task_id`) |
+| `GET` | `/api/v1/jobs` | List own job matches with scores |
+| `GET` | `/api/v1/jobs/{match_id}` | Detail with match breakdown, skills, explanation |
+| `POST` | `/api/v1/jobs/{match_id}/score` | Re-score synchronously |
+| `GET` | `/api/v1/workflows/{run_id}` | Discovery workflow status |
+
+Web UI: `/jobs` (list + discover button), `/jobs/[id]` (detail + re-score).
+
+### Celery worker (job discovery)
+
+Install deps (includes `celery[redis]`):
+
+```bash
+pip install -r requirements.txt
+```
+
+Ensure Postgres + Redis are up, then from the **repo root**:
+
+```bash
+$env:PYTHONPATH=".;apps/api"   # PowerShell
+celery -A workers.celery_app.celery_app worker --loglevel=info
+```
+
+The API enqueues `discover_jobs` on `POST /api/v1/jobs/discover`. Tests use `InlineDiscoveryTaskClient` (runs discovery in-process with mock providers when env keys are absent).
+
+Provider adapters (real HTTP; CI uses mocks / monkeypatched HTTP):
+
+- `TavilySearchProvider` (`TAVILY_API_KEY`)
+- `FirecrawlScraperProvider` (`FIRECRAWL_BASE_URL`, optional `FIRECRAWL_API_KEY`)
+- `GroqLLMProvider` / `GeminiLLMProvider` (`LLM_PROVIDER`, `GROQ_*` / `GEMINI_*`)
+
+### Company + people research (mocked in CI)
+
+- `CompanyResearchService` — search → scrape → LLM → cached `company_research`
+- `PeopleResearchService` — role-priority people discovery (recruiter → … → referral); optional email enrich via EmailFinder/Verifier; never invents emails
+- Optional real adapters: `ApolloPeopleProvider` (`APOLLO_API_KEY`), `HunterEmailFinderProvider` / `HunterEmailVerifierProvider` (`HUNTER_API_KEY`); mocks used when keys absent
+
+### Application strategy / documents / engine (domain, mocked LLM/storage)
+
+- `ApplicationStrategyService` — recommended actions + approvals (no send/submit)
+- `ResumeCustomizationService` — tailor structured resume; rejects fabrications
+- `render_resume_pdf` / `ResumePdfService` — deterministic ATS PDF via fixed template + StorageProvider upload
+- `ApplicationContentService` — versioned prompts in `packages/prompts/application_content.py`
+- `ApplicationEngine` — PREPARED → … → SUBMITTED state machine; SUBMITTED requires evidence
+- `BrowserProvider` — mock for CI; optional `PlaywrightBrowserProvider` if Playwright installed
+
+```bash
+python -m pytest tests/test_auth.py tests/test_tenant_isolation.py tests/test_profile_preferences.py tests/test_resumes.py tests/test_tavily_search.py tests/test_firecrawl_scraper.py tests/test_llm_providers.py tests/test_job_discovery.py tests/test_job_match.py tests/test_jobs_api.py tests/test_discovery_worker.py tests/test_company_research.py tests/test_people_research.py tests/test_application_strategy.py tests/test_resume_customization.py tests/test_resume_pdf.py tests/test_application_content.py tests/test_browser_provider.py tests/test_application_engine.py -v
+```
 
 ## Notes
 

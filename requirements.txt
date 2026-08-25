@@ -8,7 +8,11 @@ fastapi
 uvicorn[standard]
 pydantic-settings
 redis
+celery[redis]
 httpx
 PyJWT[crypto]
+python-multipart
+PyMuPDF
+python-docx
 pytest
 pytest-asyncio

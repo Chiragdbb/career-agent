@@ -35,6 +35,16 @@ def _error_response(
     return JSONResponse(status_code=status_code, content=payload.model_dump())
 
 
+def _sanitize_for_json(value: object) -> object:
+    if isinstance(value, Exception):
+        return str(value)
+    if isinstance(value, dict):
+        return {key: _sanitize_for_json(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_sanitize_for_json(item) for item in value]
+    return value
+
+
 def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(AuthenticationError)
     async def authentication_error_handler(
@@ -105,7 +115,7 @@ def register_exception_handlers(app: FastAPI) -> None:
             status_code=422,
             code="validation_error",
             message="Request validation failed",
-            details={"errors": exc.errors()},
+            details={"errors": _sanitize_for_json(exc.errors())},
         )
 
     @app.exception_handler(Exception)
