@@ -37,7 +37,16 @@ export async function updateSession(request: NextRequest) {
     path.startsWith("/dashboard") ||
     path.startsWith("/profile") ||
     path.startsWith("/preferences") ||
-    path.startsWith("/resumes");
+    path.startsWith("/resumes") ||
+    path.startsWith("/jobs") ||
+    path.startsWith("/tasks") ||
+    path.startsWith("/applications") ||
+    path.startsWith("/contacts") ||
+    path.startsWith("/outreach") ||
+    path.startsWith("/interviews") ||
+    path.startsWith("/documents") ||
+    path.startsWith("/analytics") ||
+    path.startsWith("/settings");
   const isAuthPage = path === "/login" || path === "/signup";
 
   if (isProtected && !user) {

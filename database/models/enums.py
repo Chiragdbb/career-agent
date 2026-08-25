@@ -152,6 +152,14 @@ class NotificationStatus(str, enum.Enum):
     dismissed = "dismissed"
 
 
+class FollowUpStatus(str, enum.Enum):
+    scheduled = "scheduled"
+    pending_approval = "pending_approval"
+    sent = "sent"
+    cancelled = "cancelled"
+    completed = "completed"
+
+
 class WorkflowRunStatus(str, enum.Enum):
     queued = "queued"
     running = "running"

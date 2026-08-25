@@ -8,6 +8,7 @@ Product defaults:
 - ScraperProvider → self-hosted Firecrawl (`FirecrawlScraperProvider`)
 - LLMProvider → Groq or Gemini (`GroqLLMProvider` / `GeminiLLMProvider`)
 - StorageProvider → Supabase Storage (`SupabaseStorageProvider`)
+- EmailSenderProvider → Resend (`ResendEmailSenderProvider`)
 - Auth is Supabase Auth and is intentionally not part of this layer
 """
 
@@ -38,10 +39,32 @@ from packages.providers.email_finder import (
     MockEmailFinderProvider,
 )
 from packages.providers.email_sender import (
+    EmailDeliveryState,
     EmailSenderProvider,
     EmailSendRequest,
     EmailSendResponse,
     MockEmailSenderProvider,
+    OptionalSesEmailSenderProvider,
+    ResendEmailSenderProvider,
+    SmtpEmailSenderProvider,
+)
+from packages.providers.ats import (
+    ATSAdapter,
+    ATSDetectResult,
+    ATSPauseReason,
+)
+from packages.providers.greenhouse_ats import GreenhouseATSAdapter
+from packages.providers.mailbox import (
+    EncryptedTokenBlob,
+    MailboxConnectionInfo,
+    MailboxConnectionStatus,
+    MailboxProvider,
+    MailboxProviderKind,
+    MockMailboxProvider,
+    StubGmailMailboxProvider,
+    StubOutlookMailboxProvider,
+    decrypt_token,
+    encrypt_token,
 )
 from packages.providers.email_verifier import (
     EmailVerificationStatus,
@@ -125,6 +148,9 @@ from packages.providers.supabase_storage import SupabaseStorageProvider
 from packages.providers.tavily_search import TavilySearchProvider
 
 __all__ = [
+    "ATSAdapter",
+    "ATSDetectResult",
+    "ATSPauseReason",
     "DEFAULT_TIMEOUT_SECONDS",
     "BrowserAction",
     "BrowserActionRequest",
@@ -137,12 +163,14 @@ __all__ = [
     "CrawlRequest",
     "CrawlResponse",
     "EmailCandidate",
+    "EmailDeliveryState",
     "EmailFindRequest",
     "EmailFindResponse",
     "EmailFinderProvider",
     "EmailSendRequest",
     "EmailSendResponse",
     "EmailSenderProvider",
+    "EncryptedTokenBlob",
     "EmailVerificationStatus",
     "EmailVerifierProvider",
     "EmailVerifyRequest",
@@ -152,17 +180,23 @@ __all__ = [
     "EmbeddingResponse",
     "FirecrawlScraperProvider",
     "GeminiLLMProvider",
+    "GreenhouseATSAdapter",
     "GroqLLMProvider",
     "LLMMessage",
     "LLMProvider",
     "LLMRequest",
     "LLMResponse",
+    "MailboxConnectionInfo",
+    "MailboxConnectionStatus",
+    "MailboxProvider",
+    "MailboxProviderKind",
     "MockBrowserProvider",
     "MockEmailFinderProvider",
     "MockEmailSenderProvider",
     "MockEmailVerifierProvider",
     "MockEmbeddingProvider",
     "MockLLMProvider",
+    "MockMailboxProvider",
     "MockNotificationProvider",
     "MockPeopleProvider",
     "MockProviders",
@@ -173,6 +207,8 @@ __all__ = [
     "NotificationProvider",
     "NotificationSendRequest",
     "NotificationSendResponse",
+    "OptionalSesEmailSenderProvider",
+    "ResendEmailSenderProvider",
     "PeopleProvider",
     "PeopleSearchRequest",
     "PeopleSearchResponse",
@@ -193,6 +229,7 @@ __all__ = [
     "SearchProvider",
     "SearchRequest",
     "SearchResponse",
+    "SmtpEmailSenderProvider",
     "StorageDeleteRequest",
     "StorageDeleteResponse",
     "StorageGetRequest",
@@ -202,10 +239,14 @@ __all__ = [
     "StoragePutRequest",
     "StorageSignedUrlRequest",
     "StorageSignedUrlResponse",
+    "StubGmailMailboxProvider",
+    "StubOutlookMailboxProvider",
     "SupabaseStorageProvider",
     "TavilySearchProvider",
     "TimeoutMixin",
     "UsageInfo",
     "create_mock_providers",
+    "decrypt_token",
+    "encrypt_token",
     "parse_llm_json",
 ]

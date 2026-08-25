@@ -84,6 +84,11 @@ class PreferenceSettings(BaseModel):
     outreach_approval_mode: OutreachApprovalMode = OutreachApprovalMode.approve_each
     daily_application_limit: int = Field(default=5, ge=0, le=100)
     daily_outreach_limit: int = Field(default=10, ge=0, le=100)
+    # Follow-ups / notifications (user-provided; never invent emails)
+    follow_up_days_after_send: int = Field(default=7, ge=1, le=90)
+    follow_up_auto_send: bool = False
+    email_notifications_enabled: bool = True
+    notification_email: str | None = None
 
     @field_validator("target_roles", "locations", "industries", mode="before")
     @classmethod
@@ -107,6 +112,18 @@ class PreferenceSettings(BaseModel):
         if value is not None and value < 0:
             raise ValueError("minimum_salary must be non-negative")
         return value
+
+    @field_validator("notification_email")
+    @classmethod
+    def validate_notification_email(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = value.strip().lower()
+        if not cleaned:
+            return None
+        if "@" not in cleaned or "." not in cleaned.split("@")[-1]:
+            raise ValueError("notification_email looks invalid")
+        return cleaned
 
 
 class PreferencesService:

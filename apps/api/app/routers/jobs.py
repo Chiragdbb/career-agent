@@ -14,6 +14,7 @@ from app.schemas.jobs import (
     WorkflowRunResponse,
 )
 from packages.domain.jobs import DiscoveryTriggerService, JobListingService
+from packages.domain.dashboard import DashboardService
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
@@ -111,6 +112,16 @@ def get_job(
 ) -> JobMatchDetailResponse:
     row = _listing(session, user_id).get_match_detail(match_id)
     return _to_detail(row)
+
+
+@router.get("/{match_id}/workspace")
+def get_job_workspace(
+    match_id: UUID,
+    session: DbSessionDep,
+    user_id: CurrentUserIdDep,
+) -> dict:
+    workspace = DashboardService(session, user_id).get_job_workspace(match_id)
+    return workspace.model_dump(mode="json")
 
 
 @router.post("/{match_id}/score", response_model=JobMatchDetailResponse)

@@ -3,16 +3,39 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
+type NavKey =
+  | "dashboard"
+  | "jobs"
+  | "applications"
+  | "contacts"
+  | "outreach"
+  | "interviews"
+  | "documents"
+  | "analytics"
+  | "tasks"
+  | "profile"
+  | "settings"
+  | "resumes"
+  | "preferences";
+
 type AppNavProps = {
-  active?: "dashboard" | "profile" | "preferences" | "resumes" | "jobs";
+  active?: NavKey;
 };
 
-const links = [
-  { href: "/dashboard", key: "dashboard" as const, label: "Dashboard" },
-  { href: "/jobs", key: "jobs" as const, label: "Jobs" },
-  { href: "/profile", key: "profile" as const, label: "Profile" },
-  { href: "/preferences", key: "preferences" as const, label: "Job Preferences" },
-  { href: "/resumes", key: "resumes" as const, label: "Resumes" },
+const links: { href: string; key: NavKey; label: string }[] = [
+  { href: "/dashboard", key: "dashboard", label: "Dashboard" },
+  { href: "/jobs", key: "jobs", label: "Jobs" },
+  { href: "/applications", key: "applications", label: "Applications" },
+  { href: "/contacts", key: "contacts", label: "Contacts" },
+  { href: "/outreach", key: "outreach", label: "Outreach" },
+  { href: "/interviews", key: "interviews", label: "Interviews" },
+  { href: "/documents", key: "documents", label: "Documents" },
+  { href: "/analytics", key: "analytics", label: "Analytics" },
+  { href: "/tasks", key: "tasks", label: "Tasks" },
+  { href: "/resumes", key: "resumes", label: "Resumes" },
+  { href: "/profile", key: "profile", label: "Profile" },
+  { href: "/preferences", key: "preferences", label: "Preferences" },
+  { href: "/settings", key: "settings", label: "Settings" },
 ];
 
 export function AppNav({ active }: AppNavProps) {

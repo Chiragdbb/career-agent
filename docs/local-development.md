@@ -215,10 +215,61 @@ Provider adapters (real HTTP; CI uses mocks / monkeypatched HTTP):
 - `ApplicationContentService` — versioned prompts in `packages/prompts/application_content.py`
 - `ApplicationEngine` — PREPARED → … → SUBMITTED state machine; SUBMITTED requires evidence
 - `BrowserProvider` — mock for CI; optional `PlaywrightBrowserProvider` if Playwright installed
+- `ATSAdapter` / `GreenhouseATSAdapter` — Greenhouse job-board forms via BrowserProvider (pause on CAPTCHA/unknown; submit only when permitted)
+- `HumanTaskService` — CAPTCHA / unknown Q / login / approval pauses; `GET/POST /api/v1/human-tasks`
+- `OutreachService` — DRAFT → approval → send via EmailSenderProvider; daily limits; never invents emails
+- `EmailSenderProvider` — Resend when `RESEND_API_KEY` (+ `RESEND_FROM_EMAIL`) is set; otherwise mock (CI-safe). Optional SMTP fallback via `SMTP_HOST`; optional SES stub (not required)
+- `MailboxProvider` — mock + encrypted token design; Gmail/Outlook stubs (no OAuth required)
+- `CareerWorkflowService` — per-job pipeline with approval pause + resume; Celery workers for research/contacts/applications (+ stubs)
 
 ```bash
-python -m pytest tests/test_auth.py tests/test_tenant_isolation.py tests/test_profile_preferences.py tests/test_resumes.py tests/test_tavily_search.py tests/test_firecrawl_scraper.py tests/test_llm_providers.py tests/test_job_discovery.py tests/test_job_match.py tests/test_jobs_api.py tests/test_discovery_worker.py tests/test_company_research.py tests/test_people_research.py tests/test_application_strategy.py tests/test_resume_customization.py tests/test_resume_pdf.py tests/test_application_content.py tests/test_browser_provider.py tests/test_application_engine.py -v
+python -m pytest tests/test_auth.py tests/test_tenant_isolation.py tests/test_profile_preferences.py tests/test_resumes.py tests/test_tavily_search.py tests/test_firecrawl_scraper.py tests/test_llm_providers.py tests/test_job_discovery.py tests/test_job_match.py tests/test_jobs_api.py tests/test_discovery_worker.py tests/test_company_research.py tests/test_people_research.py tests/test_application_strategy.py tests/test_resume_customization.py tests/test_resume_pdf.py tests/test_application_content.py tests/test_browser_provider.py tests/test_application_engine.py tests/test_greenhouse_ats.py tests/test_human_tasks.py tests/test_outreach.py tests/test_email_mailbox.py tests/test_career_workflow.py -v
 ```
+
+Web UI: `/tasks` for open human tasks. Mailbox status stub: `GET /api/v1/settings/mailbox`.
+
+### Dashboard / SaaS UI (STEPs 30–34)
+
+Authenticated Next.js pages (Tailwind; no business logic in React):
+
+| Path | Purpose |
+|------|---------|
+| `/dashboard` | Summary counts + unread notifications + live SSE refresh |
+| `/jobs`, `/jobs/[id]` | Matches + workspace (research, people, strategy, timeline) |
+| `/applications`, `/applications/[id]` | Pipeline state, evidence, outreach, follow-ups, interviews/offers |
+| `/contacts`, `/outreach`, `/interviews`, `/documents`, `/analytics` | List/detail surfaces |
+| `/tasks` | Human tasks |
+| `/settings` | Notifications + mailbox stub |
+| `/profile`, `/preferences`, `/resumes` | Existing profile/prefs/resume flows |
+
+New/expanded API (all tenant-scoped, Bearer auth):
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `GET` | `/api/v1/dashboard/summary` | Pipeline counts |
+| `GET` | `/api/v1/jobs/{id}/workspace` | Job detail aggregation |
+| `GET` | `/api/v1/applications` / `/{id}` | Enriched application list/detail |
+| `GET` | `/api/v1/events/stream` | Authenticated SSE (Redis pub/sub) |
+| `GET/POST` | `/api/v1/notifications` | List / mark read |
+| `GET/POST` | `/api/v1/follow-ups` | Schedule + process due follow-ups |
+| `GET/POST/PATCH` | `/api/v1/interviews`, `/api/v1/offers` | Interview & offer tracking |
+| `GET` | `/api/v1/documents`, `/api/v1/analytics/summary` | Documents + analytics |
+
+Domain services: `DashboardService`, `UserEventPublisher`, `NotificationService` (dedupe + optional Resend email), `FollowUpService`, `InterviewService`, `OfferService`.
+
+```bash
+python -m alembic upgrade head   # adds notifications.dedupe_key, follow_ups, interview fields
+python -m pytest tests/test_saas_pipeline.py tests/test_outreach.py tests/test_human_tasks.py tests/test_career_workflow.py -v
+```
+
+### Celery workers (expanded)
+
+```bash
+$env:PYTHONPATH=".;apps/api"   # PowerShell
+celery -A workers.celery_app.celery_app worker --loglevel=info
+```
+
+Registered task modules: discovery, research, contacts, documents, applications, outreach, notifications.
 
 ## Notes
 

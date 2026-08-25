@@ -19,6 +19,13 @@ class Settings(BaseSettings):
     app_env: str = Field(default="development", alias="APP_ENV")
     api_v1_prefix: str = Field(default="/api/v1", alias="API_V1_PREFIX")
 
+    # Comma-separated browser origins allowed to call the API (CORS).
+    # Example: https://career-agent.in,https://www.career-agent.in
+    cors_allow_origins: str = Field(
+        default="http://localhost:3000,http://127.0.0.1:3000",
+        alias="CORS_ALLOW_ORIGINS",
+    )
+
     database_url: str = Field(alias="DATABASE_URL")
     redis_url: str = Field(alias="REDIS_URL")
 
@@ -56,10 +63,22 @@ class Settings(BaseSettings):
         "supabase_service_role_key",
         "supabase_storage_bucket",
         "supabase_storage_public_url",
+        "cors_allow_origins",
     )
     @classmethod
     def strip_optional_strings(cls, value: str) -> str:
         return (value or "").strip()
+
+    def cors_origins_list(self) -> list[str]:
+        origins = [
+            origin.strip().rstrip("/")
+            for origin in self.cors_allow_origins.split(",")
+            if origin.strip()
+        ]
+        return origins or [
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+        ]
 
 
 @lru_cache

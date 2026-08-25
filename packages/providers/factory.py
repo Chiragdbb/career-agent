@@ -34,6 +34,8 @@ class ProviderSettings:
     firecrawl_api_key: str = ""
     apollo_api_key: str = ""
     hunter_api_key: str = ""
+    resend_api_key: str = ""
+    resend_from_email: str = ""
 
     @classmethod
     def from_env(cls) -> ProviderSettings:
@@ -48,6 +50,8 @@ class ProviderSettings:
             firecrawl_api_key=(os.getenv("FIRECRAWL_API_KEY") or "").strip(),
             apollo_api_key=(os.getenv("APOLLO_API_KEY") or "").strip(),
             hunter_api_key=(os.getenv("HUNTER_API_KEY") or "").strip(),
+            resend_api_key=(os.getenv("RESEND_API_KEY") or "").strip(),
+            resend_from_email=(os.getenv("RESEND_FROM_EMAIL") or "").strip(),
         )
 
 
@@ -106,3 +110,42 @@ def create_email_verifier_provider(
     if settings.hunter_api_key:
         return HunterEmailVerifierProvider(api_key=settings.hunter_api_key)
     return create_mock_providers().email_verifier
+
+
+def create_email_sender_provider(
+    settings: ProviderSettings | None = None,
+):
+    """Resend when RESEND_API_KEY is set; else optional SMTP; else mock (CI-safe)."""
+    from packages.providers.email_sender import (
+        MockEmailSenderProvider,
+        OptionalSesEmailSenderProvider,
+        ResendEmailSenderProvider,
+        SmtpEmailSenderProvider,
+    )
+
+    settings = settings or ProviderSettings.from_env()
+    if settings.resend_api_key:
+        return ResendEmailSenderProvider(
+            api_key=settings.resend_api_key,
+            from_email=settings.resend_from_email,
+        )
+    smtp_host = (os.getenv("SMTP_HOST") or "").strip()
+    if smtp_host:
+        return SmtpEmailSenderProvider(
+            host=smtp_host,
+            port=int(os.getenv("SMTP_PORT") or "587"),
+            username=(os.getenv("SMTP_USERNAME") or "").strip() or None,
+            password=(os.getenv("SMTP_PASSWORD") or "").strip() or None,
+            use_tls=(os.getenv("SMTP_USE_TLS") or "true").strip().lower()
+            in ("1", "true", "yes"),
+            from_email=(os.getenv("SMTP_FROM_EMAIL") or "").strip() or "noreply@localhost",
+        )
+    if (os.getenv("SES_ENABLED") or "").strip().lower() in ("1", "true", "yes"):
+        return OptionalSesEmailSenderProvider(
+            region=(os.getenv("SES_REGION") or "").strip(),
+            access_key_id=(os.getenv("AWS_ACCESS_KEY_ID") or "").strip(),
+            secret_access_key=(os.getenv("AWS_SECRET_ACCESS_KEY") or "").strip(),
+            from_email=(os.getenv("SES_FROM_EMAIL") or "").strip(),
+            enabled=True,
+        )
+    return MockEmailSenderProvider()

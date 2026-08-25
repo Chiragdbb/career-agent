@@ -16,6 +16,7 @@ from database.models.enums import (
     ContactStatus,
     DocumentStatus,
     EmailVerificationStatus,
+    FollowUpStatus,
     HumanTaskStatus,
     InterviewStatus,
     JobMatchStatus,
@@ -625,6 +626,9 @@ class Interview(UUIDMixin, TimestampMixin, Base):
     title = sa.Column(sa.Text)
     scheduled_at = sa.Column(sa.DateTime(timezone=True))
     notes = sa.Column(sa.Text)
+    round = sa.Column(sa.Integer)
+    format = sa.Column(sa.Text)
+    interviewer = sa.Column(sa.Text)
 
 
 class Offer(UUIDMixin, TimestampMixin, Base):
@@ -674,6 +678,50 @@ class Notification(UUIDMixin, TimestampMixin, Base):
     title = sa.Column(sa.Text)
     body = sa.Column(sa.Text)
     data = sa.Column(sa.dialects.postgresql.JSONB)
+    dedupe_key = sa.Column(sa.Text)
+
+
+class FollowUp(UUIDMixin, TimestampMixin, Base):
+    __tablename__ = "follow_ups"
+
+    user_id = sa.Column(
+        PG_UUID(as_uuid=True),
+        sa.ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    application_id = sa.Column(
+        PG_UUID(as_uuid=True),
+        sa.ForeignKey("applications.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+
+    outreach_id = sa.Column(
+        PG_UUID(as_uuid=True),
+        sa.ForeignKey("outreach.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+
+    status = sa.Column(
+        sa.Enum(FollowUpStatus, name="follow_up_status"),
+        nullable=False,
+        default=FollowUpStatus.scheduled,
+    )
+
+    next_action_at = sa.Column(sa.DateTime(timezone=True), nullable=False, index=True)
+    dedupe_key = sa.Column(sa.Text, nullable=False)
+    subject = sa.Column(sa.Text)
+    body = sa.Column(sa.Text)
+    reason = sa.Column(sa.Text)
+    cancelled_reason = sa.Column(sa.Text)
+    metadata_json = sa.Column(sa.dialects.postgresql.JSONB)
+
+    __table_args__ = (
+        sa.UniqueConstraint("user_id", "dedupe_key", name="uq_follow_ups_user_dedupe"),
+    )
 
 
 class WorkflowRun(UUIDMixin, TimestampMixin, Base):
