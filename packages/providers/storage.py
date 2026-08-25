@@ -1,6 +1,6 @@
 """StorageProvider — object storage for resumes and documents.
 
-Product default target (not implemented here): Supabase Storage
+Product default: Supabase Storage via `SupabaseStorageProvider`
 (private buckets + signed URLs; no JWT secret required in .env for that flow).
 Do not add AWS S3 adapters in this step.
 """

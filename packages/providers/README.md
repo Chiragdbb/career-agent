@@ -1,16 +1,16 @@
 # Provider abstraction layer
 
 Business services depend on **interfaces** in this package. Vendor SDKs belong
-only in future adapter modules (not added yet).
+only in adapter modules (e.g. `supabase_storage.py`).
 
-## Product defaults (documentation only)
+## Product defaults
 
-| Interface | Default target |
-|-----------|----------------|
-| `SearchProvider` | Tavily |
-| `ScraperProvider` | Self-hosted Firecrawl |
-| `LLMProvider` | Groq or Gemini |
-| `StorageProvider` | Supabase Storage (private buckets, signed URLs) |
+| Interface | Default target | Adapter |
+|-----------|----------------|---------|
+| `SearchProvider` | Tavily | `TavilySearchProvider` |
+| `ScraperProvider` | Self-hosted Firecrawl | `FirecrawlScraperProvider` |
+| `LLMProvider` | Groq or Gemini | `GroqLLMProvider` / `GeminiLLMProvider` |
+| `StorageProvider` | Supabase Storage (private buckets, signed URLs) | `SupabaseStorageProvider` |
 
 Auth uses **Supabase Auth** and is not modeled as a provider here.
 
