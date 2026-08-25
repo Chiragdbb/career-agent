@@ -10,11 +10,21 @@ from app.database import init_db
 from app.middleware import CorrelationIdMiddleware, register_exception_handlers
 from app.redis import close_redis, init_redis
 from app.routers import (
+    analytics_router,
     applications_router,
     contacts_router,
+    dashboard_router,
+    documents_router,
+    events_router,
+    follow_ups_router,
     health_router,
+    human_tasks_router,
+    interviews_router,
     jobs_router,
+    mailbox_router,
     me_router,
+    notifications_router,
+    offers_router,
     outreach_router,
     preferences_router,
     profile_router,
@@ -43,13 +53,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.state.settings = settings
 
-    # Local Next.js (apps/web) calls the API with a Bearer token from the browser.
+    # Browser clients (apps/web) call the API with a Bearer token.
+    # Origins come from CORS_ALLOW_ORIGINS (comma-separated).
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=[
-            "http://localhost:3000",
-            "http://127.0.0.1:3000",
-        ],
+        allow_origins=settings.cors_origins_list(),
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -67,7 +75,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(resumes_router, prefix=prefix)
     app.include_router(contacts_router, prefix=prefix)
     app.include_router(outreach_router, prefix=prefix)
+    app.include_router(human_tasks_router, prefix=prefix)
+    app.include_router(mailbox_router, prefix=prefix)
     app.include_router(workflows_router, prefix=prefix)
+    app.include_router(dashboard_router, prefix=prefix)
+    app.include_router(events_router, prefix=prefix)
+    app.include_router(notifications_router, prefix=prefix)
+    app.include_router(follow_ups_router, prefix=prefix)
+    app.include_router(interviews_router, prefix=prefix)
+    app.include_router(offers_router, prefix=prefix)
+    app.include_router(documents_router, prefix=prefix)
+    app.include_router(analytics_router, prefix=prefix)
 
     return app
 

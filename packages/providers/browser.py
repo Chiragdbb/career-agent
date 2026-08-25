@@ -155,6 +155,22 @@ class MockBrowserProvider(BrowserProvider):
     def metadata(self) -> ProviderMetadata:
         return self._meta
 
+    def seed_html(self, session_id: str, html: str, *, url: str | None = None) -> None:
+        """Test helper: set page HTML for an existing session."""
+        if session_id not in self._sessions:
+            raise ProviderValidationError(
+                "unknown session",
+                provider="mock-browser",
+                operation="seed_html",
+            )
+        page = self._pages.setdefault(
+            session_id, {"url": "about:blank", "title": "", "html": "", "fields": {}}
+        )
+        page["html"] = html
+        if url is not None:
+            page["url"] = url
+            self._sessions[session_id].url = url
+
     def create_session(self, *, timeout_seconds: float = 30.0) -> BrowserSession:
         self._behavior.before_call(operation="create_session", timeout_seconds=timeout_seconds)
         session_id = f"mock-session-{uuid.uuid4().hex[:8]}"
@@ -180,11 +196,18 @@ class MockBrowserProvider(BrowserProvider):
         url = str(request.url)
         session.url = url
         session.title = "Mock Browser Page"
+        # Preserve seeded HTML for ATS fixtures when URL matches a Greenhouse board.
+        existing = self._pages.get(session_id, {})
+        seeded = existing.get("html") or ""
+        if "application_form" in seeded or "greenhouse" in seeded.lower():
+            html = seeded
+        else:
+            html = f"<html><body><h1>Mock</h1><a href='{url}'>link</a></body></html>"
         self._pages[session_id] = {
             "url": url,
             "title": session.title,
-            "html": f"<html><body><h1>Mock</h1><a href='{url}'>link</a></body></html>",
-            "fields": {},
+            "html": html,
+            "fields": existing.get("fields") or {},
         }
         return BrowserSessionResponse(
             session_id=session_id,

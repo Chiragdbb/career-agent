@@ -4,6 +4,26 @@ API route handlers and MCP tools must call into this package; they must not
 embed business rules or talk to vendor SDKs directly.
 """
 
+from packages.domain.career_workflow import (
+    CareerWorkflowResult,
+    CareerWorkflowService,
+    CareerWorkflowStart,
+    CareerWorkflowStep,
+)
+from packages.domain.human_tasks import (
+    HumanTaskCreate,
+    HumanTaskResolveInput,
+    HumanTaskService,
+    HumanTaskType,
+    HumanTaskView,
+)
+from packages.domain.outreach import (
+    EmailDeliveryState as OutreachEmailDeliveryState,
+    OutreachDraftInput,
+    OutreachService,
+    OutreachType,
+    OutreachView,
+)
 from packages.domain.exceptions import (
     AuthenticationError,
     AuthorizationError,
@@ -49,6 +69,10 @@ __all__ = [
     "ApplicationStrategyService",
     "AuthenticationError",
     "AuthorizationError",
+    "CareerWorkflowResult",
+    "CareerWorkflowService",
+    "CareerWorkflowStart",
+    "CareerWorkflowStep",
     "CompanyResearchService",
     "DEFAULT_FRESHNESS_DAYS",
     "DiscoveredPerson",
@@ -57,12 +81,22 @@ __all__ = [
     "EngineState",
     "ExtractedJob",
     "GeneratedContent",
+    "HumanTaskCreate",
+    "HumanTaskResolveInput",
+    "HumanTaskService",
+    "HumanTaskType",
+    "HumanTaskView",
     "JobDiscoveryService",
     "JobListingService",
     "JobMatchService",
     "LLMTaskService",
     "MatchWeights",
     "NotFoundError",
+    "OutreachDraftInput",
+    "OutreachEmailDeliveryState",
+    "OutreachService",
+    "OutreachType",
+    "OutreachView",
     "PARSER_VERSION",
     "PeopleResearchResult",
     "PeopleResearchService",
