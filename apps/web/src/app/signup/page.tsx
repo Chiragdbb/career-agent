@@ -4,6 +4,8 @@ import Link from "next/link";
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { Button } from "@/components/ui/Button";
+import { Input } from "@/components/ui/Input";
 import { createClient } from "@/lib/supabase/client";
 
 export default function SignupPage() {
@@ -42,60 +44,65 @@ export default function SignupPage() {
   }
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-md flex-col justify-center gap-6 px-6">
-      <div>
-        <p className="text-sm uppercase tracking-wide text-zinc-500">
-          Career Agent
-        </p>
-        <h1 className="mt-1 text-2xl font-semibold text-zinc-900">
-          Create account
-        </h1>
-        <p className="mt-2 text-sm text-zinc-600">
-          Email/password via Supabase Auth. OAuth can be added later.
-        </p>
+    <main className="flex min-h-screen">
+      <div className="hidden flex-1 flex-col justify-between bg-sidebar p-12 lg:flex">
+        <div className="flex items-center gap-2.5">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
+            <span className="font-serif text-base text-primary-foreground">C</span>
+          </div>
+          <span className="text-sm font-semibold text-sidebar-foreground">
+            Career Agent
+          </span>
+        </div>
+        <div>
+          <h2 className="font-serif text-3xl leading-tight text-sidebar-foreground">
+            Start your free trial today.
+          </h2>
+          <p className="mt-4 max-w-md text-sm leading-relaxed text-sidebar-muted">
+            Free for 14 days · No credit card · Cancel anytime
+          </p>
+        </div>
+        <p className="text-xs text-sidebar-muted">Pro workspace</p>
       </div>
 
-      <form onSubmit={onSubmit} className="flex flex-col gap-4">
-        <label className="flex flex-col gap-1 text-sm">
-          Email
-          <input
-            type="email"
-            required
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className="rounded border border-zinc-300 px-3 py-2"
-            autoComplete="email"
-          />
-        </label>
-        <label className="flex flex-col gap-1 text-sm">
-          Password
-          <input
-            type="password"
-            required
-            minLength={6}
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className="rounded border border-zinc-300 px-3 py-2"
-            autoComplete="new-password"
-          />
-        </label>
-        {error ? <p className="text-sm text-red-600">{error}</p> : null}
-        {message ? <p className="text-sm text-emerald-700">{message}</p> : null}
-        <button
-          type="submit"
-          disabled={loading}
-          className="rounded bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
-        >
-          {loading ? "Creating…" : "Sign up"}
-        </button>
-      </form>
-
-      <p className="text-sm text-zinc-600">
-        Already have an account?{" "}
-        <Link href="/login" className="underline">
-          Sign in
-        </Link>
-      </p>
+      <div className="flex flex-1 flex-col justify-center px-6 py-12 sm:px-12">
+        <div className="mx-auto w-full max-w-sm">
+          <h1 className="font-serif text-2xl text-foreground">Create account</h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Email/password via Supabase Auth.
+          </p>
+          <form onSubmit={onSubmit} className="mt-8 flex flex-col gap-4">
+            <Input
+              label="Email"
+              type="email"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              autoComplete="email"
+            />
+            <Input
+              label="Password"
+              type="password"
+              required
+              minLength={6}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              autoComplete="new-password"
+            />
+            {error ? <p className="text-sm text-destructive">{error}</p> : null}
+            {message ? <p className="text-sm text-primary">{message}</p> : null}
+            <Button type="submit" disabled={loading} className="w-full">
+              {loading ? "Creating…" : "Sign up"}
+            </Button>
+          </form>
+          <p className="mt-6 text-center text-sm text-muted-foreground">
+            Already have an account?{" "}
+            <Link href="/login" className="font-medium text-primary hover:underline">
+              Sign in
+            </Link>
+          </p>
+        </div>
+      </div>
     </main>
   );
 }
