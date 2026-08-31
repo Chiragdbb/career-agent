@@ -2,8 +2,13 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { ChevronDown } from "lucide-react";
 
-import { AppNav } from "@/components/AppNav";
+import { AppShell } from "@/components/AppShell";
+import { Card } from "@/components/ui/Card";
+import { MetricCard } from "@/components/ui/MetricCard";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { CardGridSkeleton } from "@/components/ui/Skeleton";
 import { apiFetch } from "@/lib/api";
 import { createClient } from "@/lib/supabase/client";
 
@@ -18,10 +23,22 @@ type Analytics = {
   unread_notifications: number;
 };
 
+const metricLabels: Record<keyof Analytics, string> = {
+  jobs_count: "Jobs discovered",
+  applications_count: "Applications sent",
+  contacts_count: "Contacts",
+  outreach_count: "Outreach messages",
+  interviews_count: "Interviews",
+  offers_count: "Offers",
+  open_human_tasks: "Open tasks",
+  unread_notifications: "Unread notifications",
+};
+
 export default function AnalyticsPage() {
   const router = useRouter();
   const [data, setData] = useState<Analytics | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
@@ -45,6 +62,8 @@ export default function AnalyticsPage() {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : "Failed to load");
         }
+      } finally {
+        if (!cancelled) setLoading(false);
       }
     }
     void load();
@@ -53,32 +72,61 @@ export default function AnalyticsPage() {
     };
   }, [router]);
 
+  const primaryMetrics: (keyof Analytics)[] = [
+    "applications_count",
+    "interviews_count",
+    "outreach_count",
+    "offers_count",
+  ];
+
   return (
-    <main className="mx-auto flex min-h-screen max-w-3xl flex-col gap-6 px-6 py-12">
-      <AppNav active="analytics" />
-      <div>
-        <h1 className="text-2xl font-semibold text-zinc-900">Analytics</h1>
-        <p className="mt-2 text-sm text-zinc-600">
-          High-level counts across your career pipeline.
-        </p>
-      </div>
-      {error ? <p className="text-sm text-red-600">{error}</p> : null}
-      {data ? (
-        <dl className="grid gap-3 sm:grid-cols-2">
-          {Object.entries(data).map(([key, value]) => (
-            <div key={key} className="rounded border border-zinc-200 p-4">
-              <dt className="text-xs uppercase tracking-wide text-zinc-500">
-                {key.replace(/_/g, " ")}
-              </dt>
-              <dd className="mt-2 text-2xl font-semibold text-zinc-900">
-                {value}
-              </dd>
-            </div>
-          ))}
-        </dl>
-      ) : !error ? (
-        <p className="text-sm text-zinc-500">Loading…</p>
+    <AppShell active="analytics" wide>
+      <PageHeader
+        title="Analytics"
+        subtitle="High-level counts across your career pipeline."
+        actions={
+          <div className="flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-xs text-muted-foreground">
+            Last 30 days
+            <ChevronDown className="h-3.5 w-3.5" />
+          </div>
+        }
+      />
+
+      {error ? <p className="mb-4 text-sm text-destructive">{error}</p> : null}
+
+      {loading ? (
+        <CardGridSkeleton count={4} />
+      ) : data ? (
+        <div className="space-y-6">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {primaryMetrics.map((key) => (
+              <MetricCard
+                key={key}
+                label={metricLabels[key]}
+                value={data[key]}
+              />
+            ))}
+          </div>
+          <Card>
+            <h2 className="mb-4 text-sm font-semibold text-foreground">
+              Pipeline breakdown
+            </h2>
+            <dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              {(Object.keys(data) as (keyof Analytics)[])
+                .filter((k) => !primaryMetrics.includes(k))
+                .map((key) => (
+                  <div
+                    key={key}
+                    className="flex items-center justify-between border-b border-border py-2 text-sm"
+                  >
+                    <dt className="text-muted-foreground">{metricLabels[key]}</dt>
+                    <dd className="font-semibold text-foreground">{data[key]}</dd>
+                  </div>
+                ))}
+            </dl>
+          </Card>
+        </div>
       ) : null}
-    </main>
+    </AppShell>
   );
 }

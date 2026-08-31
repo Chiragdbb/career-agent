@@ -3,16 +3,30 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { AppNav } from "@/components/AppNav";
+import { AppShell } from "@/components/AppShell";
+import { ContactRow } from "@/components/ui/ContactRow";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { ListSkeleton } from "@/components/ui/Skeleton";
+import { SegmentedTabs } from "@/components/ui/SegmentedTabs";
 import { apiFetch } from "@/lib/api";
 import { createClient } from "@/lib/supabase/client";
 
 type Contact = { id: string; name: string | null; status: string };
 
+const tabs = [
+  { id: "all" as const, label: "All" },
+  { id: "recruiters" as const, label: "Recruiters" },
+  { id: "hiring" as const, label: "Hiring Managers" },
+  { id: "referrals" as const, label: "Referrals" },
+];
+
 export default function ContactsPage() {
   const router = useRouter();
   const [rows, setRows] = useState<Contact[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<(typeof tabs)[number]["id"]>("all");
 
   useEffect(() => {
     let cancelled = false;
@@ -36,6 +50,8 @@ export default function ContactsPage() {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : "Failed to load");
         }
+      } finally {
+        if (!cancelled) setLoading(false);
       }
     }
     void load();
@@ -44,27 +60,47 @@ export default function ContactsPage() {
     };
   }, [router]);
 
+  const filtered = rows.filter((row) => {
+    if (activeTab === "all") return true;
+    const s = row.status.toLowerCase();
+    if (activeTab === "recruiters") return s.includes("recruit");
+    if (activeTab === "hiring") return s.includes("hiring") || s.includes("manager");
+    if (activeTab === "referrals") return s.includes("referral");
+    return true;
+  });
+
   return (
-    <main className="mx-auto flex min-h-screen max-w-3xl flex-col gap-6 px-6 py-12">
-      <AppNav active="contacts" />
-      <div>
-        <h1 className="text-2xl font-semibold text-zinc-900">Contacts</h1>
-        <p className="mt-2 text-sm text-zinc-600">
-          People linked to companies in your pipeline.
-        </p>
-      </div>
-      {error ? <p className="text-sm text-red-600">{error}</p> : null}
-      <ul className="divide-y divide-zinc-200 rounded border border-zinc-200">
-        {rows.map((row) => (
-          <li key={row.id} className="px-4 py-3 text-sm">
-            <p className="font-medium text-zinc-900">{row.name || "Unnamed"}</p>
-            <p className="text-zinc-600">{row.status}</p>
-          </li>
-        ))}
-        {!rows.length && !error ? (
-          <li className="px-4 py-6 text-sm text-zinc-500">No contacts yet</li>
-        ) : null}
-      </ul>
-    </main>
+    <AppShell active="contacts" wide>
+      <PageHeader title="Contacts" large serif subtitle="People tied to your applications — recruiters, hiring managers, referrals." />
+
+      <SegmentedTabs
+        tabs={tabs}
+        active={activeTab}
+        onChange={setActiveTab}
+        className="mb-4"
+      />
+
+      {error ? <p className="mb-4 text-sm text-destructive">{error}</p> : null}
+
+      {loading ? (
+        <ListSkeleton />
+      ) : filtered.length === 0 ? (
+        <EmptyState
+          title="No contacts yet"
+          description="Contacts discovered during research and outreach will appear here."
+        />
+      ) : (
+        <div className="overflow-hidden rounded-lg border border-border bg-card">
+          {filtered.map((row) => (
+            <ContactRow
+              key={row.id}
+              id={row.id}
+              name={row.name || "Unnamed"}
+              status={row.status}
+            />
+          ))}
+        </div>
+      )}
+    </AppShell>
   );
 }
