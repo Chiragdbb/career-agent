@@ -3,7 +3,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { AppNav } from "@/components/AppNav";
+import { AppShell } from "@/components/AppShell";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { ListSkeleton } from "@/components/ui/Skeleton";
+import { PageHeader } from "@/components/ui/PageHeader";
 import { apiFetch } from "@/lib/api";
 import { createClient } from "@/lib/supabase/client";
 
@@ -22,6 +27,7 @@ export default function HumanTasksPage() {
   const router = useRouter();
   const [tasks, setTasks] = useState<HumanTask[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -50,6 +56,8 @@ export default function HumanTasksPage() {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : "Failed to load");
         }
+      } finally {
+        if (!cancelled) setLoading(false);
       }
     }
     void init();
@@ -84,40 +92,39 @@ export default function HumanTasksPage() {
   }
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-2xl flex-col gap-6 px-6 py-12">
-      <AppNav active="tasks" />
-      <div>
-        <h1 className="text-2xl font-semibold text-zinc-900">Human tasks</h1>
-        <p className="mt-2 text-sm text-zinc-600">
-          Approvals, CAPTCHAs, unknown questions, and other pauses that need you.
-        </p>
-      </div>
-      {error ? <p className="text-sm text-red-600">{error}</p> : null}
-      {tasks.length === 0 ? (
-        <p className="text-sm text-zinc-600">No open tasks.</p>
+    <AppShell active="automations">
+      <PageHeader
+        title="Automations"
+        subtitle="Approvals, CAPTCHAs, unknown questions, and other pauses that need you."
+      />
+      {error ? <p className="mb-4 text-sm text-destructive">{error}</p> : null}
+      {loading ? (
+        <ListSkeleton rows={3} />
+      ) : tasks.length === 0 ? (
+        <EmptyState
+          title="No open automations"
+          description="Human-in-the-loop tasks will appear here when workflows need your input."
+        />
       ) : (
         <ul className="space-y-3">
           {tasks.map((task) => (
-            <li
-              key={task.id}
-              className="rounded border border-zinc-200 p-4 text-sm"
-            >
-              <p className="font-medium text-zinc-900">
+            <Card key={task.id}>
+              <p className="text-sm font-medium text-foreground">
                 {task.title || task.task_type}
               </p>
-              <p className="mt-1 text-zinc-600">{task.task_type}</p>
-              <button
-                type="button"
-                className="mt-3 rounded border border-zinc-300 px-3 py-1.5"
+              <p className="mt-1 text-sm text-muted-foreground">{task.task_type}</p>
+              <Button
+                variant="secondary"
+                className="mt-3"
                 disabled={busyId === task.id}
                 onClick={() => void resolveTask(task.id)}
               >
                 {busyId === task.id ? "Resolving…" : "Resolve & resume"}
-              </button>
-            </li>
+              </Button>
+            </Card>
           ))}
         </ul>
       )}
-    </main>
+    </AppShell>
   );
 }

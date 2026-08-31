@@ -4,6 +4,8 @@ import Link from "next/link";
 import { FormEvent, Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
+import { Button } from "@/components/ui/Button";
+import { Input } from "@/components/ui/Input";
 import { createClient } from "@/lib/supabase/client";
 
 function LoginForm() {
@@ -40,41 +42,31 @@ function LoginForm() {
   return (
     <>
       <form onSubmit={onSubmit} className="flex flex-col gap-4">
-        <label className="flex flex-col gap-1 text-sm">
-          Email
-          <input
-            type="email"
-            required
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className="rounded border border-zinc-300 px-3 py-2"
-            autoComplete="email"
-          />
-        </label>
-        <label className="flex flex-col gap-1 text-sm">
-          Password
-          <input
-            type="password"
-            required
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className="rounded border border-zinc-300 px-3 py-2"
-            autoComplete="current-password"
-          />
-        </label>
-        {error ? <p className="text-sm text-red-600">{error}</p> : null}
-        <button
-          type="submit"
-          disabled={loading}
-          className="rounded bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
-        >
+        <Input
+          label="Email"
+          type="email"
+          required
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          autoComplete="email"
+        />
+        <Input
+          label="Password"
+          type="password"
+          required
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          autoComplete="current-password"
+        />
+        {error ? <p className="text-sm text-destructive">{error}</p> : null}
+        <Button type="submit" disabled={loading} className="w-full">
           {loading ? "Signing in…" : "Sign in"}
-        </button>
+        </Button>
       </form>
 
-      <p className="text-sm text-zinc-600">
+      <p className="text-center text-sm text-muted-foreground">
         No account?{" "}
-        <Link href="/signup" className="underline">
+        <Link href="/signup" className="font-medium text-primary hover:underline">
           Create one
         </Link>
       </p>
@@ -84,19 +76,49 @@ function LoginForm() {
 
 export default function LoginPage() {
   return (
-    <main className="mx-auto flex min-h-screen max-w-md flex-col justify-center gap-6 px-6">
-      <div>
-        <p className="text-sm uppercase tracking-wide text-zinc-500">
-          Career Agent
-        </p>
-        <h1 className="mt-1 text-2xl font-semibold text-zinc-900">Sign in</h1>
-        <p className="mt-2 text-sm text-zinc-600">
-          Use your Supabase Auth email and password.
-        </p>
+    <main className="flex min-h-screen">
+      <div className="hidden flex-1 flex-col justify-between bg-sidebar p-12 lg:flex">
+        <div className="flex items-center gap-2.5">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
+            <span className="font-serif text-base text-primary-foreground">C</span>
+          </div>
+          <span className="text-sm font-semibold text-sidebar-foreground">
+            Career Agent
+          </span>
+        </div>
+        <div>
+          <h2 className="font-serif text-3xl leading-tight text-sidebar-foreground">
+            Your job search, finally organized.
+          </h2>
+          <p className="mt-4 max-w-md text-sm leading-relaxed text-sidebar-muted">
+            Connect jobs, applications, contacts, and outreach into one intelligent
+            workspace.
+          </p>
+        </div>
+        <p className="text-xs text-sidebar-muted">Pro workspace</p>
       </div>
-      <Suspense fallback={<p className="text-sm text-zinc-500">Loading…</p>}>
-        <LoginForm />
-      </Suspense>
+
+      <div className="flex flex-1 flex-col justify-center px-6 py-12 sm:px-12">
+        <div className="mx-auto w-full max-w-sm">
+          <div className="mb-8 lg:hidden">
+            <div className="mb-4 flex items-center gap-2.5">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
+                <span className="font-serif text-base text-primary-foreground">C</span>
+              </div>
+              <span className="text-sm font-semibold">Career Agent</span>
+            </div>
+          </div>
+          <h1 className="font-serif text-2xl text-foreground">Sign in</h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Use your email and password to access your workspace.
+          </p>
+          <div className="mt-8 flex flex-col gap-6">
+            <Suspense fallback={<p className="text-sm text-muted-foreground">Loading…</p>}>
+              <LoginForm />
+            </Suspense>
+          </div>
+        </div>
+      </div>
     </main>
   );
 }

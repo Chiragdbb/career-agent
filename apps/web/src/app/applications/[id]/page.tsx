@@ -4,7 +4,9 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 
-import { AppNav } from "@/components/AppNav";
+import { AppShell } from "@/components/AppShell";
+import { Badge } from "@/components/ui/Badge";
+import { Card, CardTitle } from "@/components/ui/Card";
 import { apiFetch } from "@/lib/api";
 import { createClient } from "@/lib/supabase/client";
 
@@ -66,31 +68,31 @@ export default function ApplicationDetailPage() {
   }, [params.id, router]);
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-3xl flex-col gap-6 px-6 py-12">
-      <AppNav active="applications" />
-      <Link href="/applications" className="text-sm text-zinc-600 hover:text-zinc-900">
+    <AppShell active="applications" wide>
+      <Link href="/applications" className="mb-4 inline-block text-sm text-muted-foreground hover:text-foreground">
         ← Back to applications
       </Link>
-      {error ? <p className="text-sm text-red-600">{error}</p> : null}
-      {!detail && !error ? <p className="text-sm text-zinc-500">Loading…</p> : null}
+      {error ? <p className="mb-4 text-sm text-destructive">{error}</p> : null}
+      {!detail && !error ? <p className="text-sm text-muted-foreground">Loading…</p> : null}
       {detail ? (
         <article className="space-y-6">
           <header>
-            <h1 className="text-2xl font-semibold text-zinc-900">
+            <h1 className="font-serif text-2xl text-foreground">
               {detail.job_title || "Application"}
             </h1>
-            <p className="mt-1 text-sm text-zinc-600">
-              {[detail.company_name, detail.status].filter(Boolean).join(" · ")}
-            </p>
+            <div className="mt-2 flex items-center gap-2">
+              <p className="text-sm text-muted-foreground">{detail.company_name}</p>
+              <Badge variant="primary">{detail.status}</Badge>
+            </div>
           </header>
 
           <Section title="Submission evidence">
             {detail.submission_evidence ? (
-              <pre className="overflow-x-auto text-xs text-zinc-700">
+              <pre className="overflow-x-auto text-xs text-muted-foreground">
                 {JSON.stringify(detail.submission_evidence, null, 2)}
               </pre>
             ) : (
-              <p className="text-sm text-zinc-500">No evidence recorded</p>
+              <p className="text-sm text-muted-foreground">No evidence recorded</p>
             )}
           </Section>
 
@@ -150,7 +152,7 @@ export default function ApplicationDetailPage() {
           </Section>
         </article>
       ) : null}
-    </main>
+    </AppShell>
   );
 }
 
@@ -162,19 +164,19 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <section className="rounded border border-zinc-200 p-4">
-      <h2 className="text-sm font-medium text-zinc-800">{title}</h2>
+    <Card>
+      <CardTitle>{title}</CardTitle>
       <div className="mt-2">{children}</div>
-    </section>
+    </Card>
   );
 }
 
 function EventList({ items }: { items: string[] }) {
   if (!items.length) {
-    return <p className="text-sm text-zinc-500">None</p>;
+    return <p className="text-sm text-muted-foreground">None</p>;
   }
   return (
-    <ul className="space-y-1 text-sm text-zinc-700">
+    <ul className="space-y-1 text-sm text-muted-foreground">
       {items.map((item, idx) => (
         <li key={`${item}-${idx}`}>{item}</li>
       ))}

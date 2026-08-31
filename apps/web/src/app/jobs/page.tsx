@@ -4,8 +4,12 @@ import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { AppNav } from "@/components/AppNav";
+import { AppShell } from "@/components/AppShell";
+import { Badge } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
+import { PageHeader } from "@/components/ui/PageHeader";
 import { apiFetch } from "@/lib/api";
+import { SegmentedTabs } from "@/components/ui/SegmentedTabs";
 import { createClient } from "@/lib/supabase/client";
 
 type JobMatchSummary = {
@@ -20,6 +24,8 @@ type JobMatchSummary = {
   url: string | null;
 };
 
+const tabs = ["All", "Saved", "New", "High Match", "Applied"] as const;
+
 export default function JobsPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
@@ -27,6 +33,7 @@ export default function JobsPage() {
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [jobs, setJobs] = useState<JobMatchSummary[]>([]);
+  const [activeTab, setActiveTab] = useState<(typeof tabs)[number]>("All");
 
   async function loadJobs() {
     const response = await apiFetch("/api/v1/jobs");
@@ -97,66 +104,113 @@ export default function JobsPage() {
     }
   }
 
+  const filteredJobs = jobs.filter((job) => {
+    if (activeTab === "All") return true;
+    if (activeTab === "High Match") return job.score != null && job.score >= 0.8;
+    if (activeTab === "Applied") return job.status.toLowerCase().includes("applied");
+    if (activeTab === "New") return job.status.toLowerCase().includes("new");
+    if (activeTab === "Saved") return job.status.toLowerCase().includes("saved");
+    return true;
+  });
+
   return (
-    <main className="mx-auto flex min-h-screen max-w-3xl flex-col gap-6 px-6 py-12">
-      <AppNav active="jobs" />
+    <AppShell active="jobs" wide>
+      <PageHeader
+        title="Jobs"
+        actions={
+          <form onSubmit={(e) => void onDiscover(e)} className="w-full sm:w-auto">
+            <Button type="submit" disabled={discovering} className="w-full sm:w-auto">
+              {discovering ? "Queueing…" : "Discover More"}
+            </Button>
+          </form>
+        }
+      />
 
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold text-zinc-900">Discovered Jobs</h1>
-          <p className="mt-2 text-sm text-zinc-600">
-            Jobs matched to your preferences with deterministic scores.
-          </p>
-        </div>
-        <form onSubmit={(e) => void onDiscover(e)}>
-          <button
-            type="submit"
-            disabled={discovering}
-            className="rounded bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
-          >
-            {discovering ? "Queueing…" : "Discover jobs"}
-          </button>
-        </form>
-      </div>
+      <SegmentedTabs
+        tabs={tabs.map((t) => ({ id: t, label: t }))}
+        active={activeTab}
+        onChange={setActiveTab}
+        variant="underline"
+        className="mb-4"
+      />
 
-      {error ? <p className="text-sm text-red-600">{error}</p> : null}
-      {message ? <p className="text-sm text-green-700">{message}</p> : null}
+      {error ? <p className="mb-4 text-sm text-destructive">{error}</p> : null}
+      {message ? <p className="mb-4 text-sm text-primary">{message}</p> : null}
 
       {loading ? (
-        <p className="text-sm text-zinc-500">Loading…</p>
-      ) : jobs.length === 0 ? (
-        <p className="text-sm text-zinc-500">
+        <p className="py-8 text-sm text-muted-foreground">Loading…</p>
+      ) : filteredJobs.length === 0 ? (
+        <p className="py-8 text-sm text-muted-foreground">
           No jobs yet. Set preferences and run discovery.
         </p>
       ) : (
-        <ul className="divide-y divide-zinc-200 rounded border border-zinc-200">
-          {jobs.map((job) => (
-            <li key={job.id} className="p-4">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <Link
-                    href={`/jobs/${job.id}`}
-                    className="font-medium text-zinc-900 hover:underline"
-                  >
-                    {job.title}
-                  </Link>
-                  <p className="mt-1 text-sm text-zinc-600">
+        <>
+          <ul className="space-y-2 md:hidden">
+            {filteredJobs.map((job) => (
+              <li key={job.id}>
+                <Link
+                  href={`/jobs/${job.id}`}
+                  className="block rounded-lg border border-border bg-card p-4 transition-colors hover:bg-muted/30"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="font-medium text-foreground">{job.title}</p>
+                    <span className="shrink-0 text-xs font-semibold text-primary">
+                      {job.score != null ? `${Math.round(job.score * 100)}%` : "—"}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-xs text-muted-foreground">
                     {[job.company_name, job.location, job.work_arrangement]
                       .filter(Boolean)
                       .join(" · ")}
                   </p>
-                </div>
-                <div className="text-right text-sm">
-                  <p className="font-medium text-zinc-900">
+                  <Badge variant="default" className="mt-2 capitalize">
+                    {job.status}
+                  </Badge>
+                </Link>
+              </li>
+            ))}
+          </ul>
+
+          <div className="hidden overflow-hidden rounded-lg border border-border bg-card md:block">
+            <div className="grid grid-cols-[1fr_120px_100px_80px] gap-4 border-b border-border bg-muted px-4 py-3 text-xs text-muted-foreground">
+              <span>Job</span>
+              <span>Location</span>
+              <span>Match</span>
+              <span>Status</span>
+            </div>
+            <ul>
+              {filteredJobs.map((job) => (
+                <li
+                  key={job.id}
+                  className="grid grid-cols-[1fr_120px_100px_80px] gap-4 border-b border-border px-4 py-3.5 last:border-0 hover:bg-muted/30"
+                >
+                  <div>
+                    <Link
+                      href={`/jobs/${job.id}`}
+                      className="text-sm font-medium text-foreground hover:text-primary"
+                    >
+                      {job.title}
+                    </Link>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      {job.company_name}
+                      {job.work_arrangement ? ` · ${job.work_arrangement}` : ""}
+                    </p>
+                  </div>
+                  <span className="text-xs text-muted-foreground">
+                    {job.location || "—"}
+                  </span>
+                  <span className="text-xs font-semibold text-primary">
                     {job.score != null ? `${Math.round(job.score * 100)}%` : "—"}
-                  </p>
-                  <p className="text-zinc-500">{job.status}</p>
-                </div>
-              </div>
-            </li>
-          ))}
-        </ul>
+                  </span>
+                  <Badge variant="default" className="w-fit capitalize">
+                    {job.status}
+                  </Badge>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </>
       )}
-    </main>
+    </AppShell>
   );
 }

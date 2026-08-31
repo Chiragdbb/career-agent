@@ -3,7 +3,10 @@
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { AppNav } from "@/components/AppNav";
+import { AppShell } from "@/components/AppShell";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
+import { PageHeader } from "@/components/ui/PageHeader";
 import { apiFetch } from "@/lib/api";
 import { createClient } from "@/lib/supabase/client";
 
@@ -181,7 +184,7 @@ export default function PreferencesPage() {
   ) {
     return (
       <fieldset className="text-sm">
-        <legend className="font-medium text-zinc-800">{label}</legend>
+        <legend className="font-medium text-foreground">{label}</legend>
         <div className="mt-2 flex flex-wrap gap-3">
           {options.map((option) => (
             <label key={option} className="inline-flex items-center gap-2">
@@ -189,8 +192,9 @@ export default function PreferencesPage() {
                 type="checkbox"
                 checked={selected.includes(option)}
                 onChange={() => onChange(toggleInList(selected, option))}
+                className="rounded border-input text-primary focus:ring-ring"
               />
-              <span className="text-zinc-700">{option.replace(/_/g, " ")}</span>
+              <span className="text-muted-foreground">{option.replace(/_/g, " ")}</span>
             </label>
           ))}
         </div>
@@ -199,29 +203,22 @@ export default function PreferencesPage() {
   }
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-2xl flex-col gap-6 px-6 py-12">
-      <AppNav active="preferences" />
+    <AppShell active="discover">
+      <PageHeader title="Discover" large serif subtitle="Target roles, locations, automation limits, and approval rules for your search." />
 
-      <div>
-        <h1 className="text-2xl font-semibold text-zinc-900">Job Preferences</h1>
-        <p className="mt-2 text-sm text-zinc-600">
-          Target roles, locations, automation limits, and approval rules for your
-          search.
-        </p>
-      </div>
-
-      {error ? <p className="text-sm text-red-600">{error}</p> : null}
-      {success ? <p className="text-sm text-green-700">{success}</p> : null}
+      {error ? <p className="mb-4 text-sm text-destructive">{error}</p> : null}
+      {success ? <p className="mb-4 text-sm text-primary">{success}</p> : null}
 
       {loading ? (
-        <p className="text-sm text-zinc-500">Loading…</p>
+        <p className="text-sm text-muted-foreground">Loading…</p>
       ) : (
-        <form onSubmit={(e) => void onSubmit(e)} className="space-y-6">
+        <Card>
+          <form onSubmit={(e) => void onSubmit(e)} className="space-y-6">
           <label className="block text-sm">
-            <span className="font-medium text-zinc-800">Target roles</span>
-            <span className="ml-2 text-zinc-500">(comma-separated)</span>
+            <span className="font-medium text-foreground">Target roles</span>
+            <span className="ml-2 text-muted-foreground">(comma-separated)</span>
             <input
-              className="mt-1 w-full rounded border border-zinc-300 px-3 py-2"
+              className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring/30"
               value={targetRolesText}
               onChange={(e) => setTargetRolesText(e.target.value)}
               placeholder="Backend Engineer, Platform Engineer"
@@ -229,10 +226,10 @@ export default function PreferencesPage() {
           </label>
 
           <label className="block text-sm">
-            <span className="font-medium text-zinc-800">Locations</span>
+            <span className="font-medium text-foreground">Locations</span>
             <span className="ml-2 text-zinc-500">(comma-separated)</span>
             <input
-              className="mt-1 w-full rounded border border-zinc-300 px-3 py-2"
+              className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring/30"
               value={locationsText}
               onChange={(e) => setLocationsText(e.target.value)}
               placeholder="Remote, New York NY"
@@ -247,11 +244,11 @@ export default function PreferencesPage() {
           )}
 
           <label className="block text-sm">
-            <span className="font-medium text-zinc-800">Minimum salary (USD)</span>
+            <span className="font-medium text-foreground">Minimum salary (USD)</span>
             <input
               type="number"
               min={0}
-              className="mt-1 w-full rounded border border-zinc-300 px-3 py-2"
+              className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring/30"
               value={settings.minimum_salary ?? ""}
               onChange={(e) =>
                 setSettings((s) => ({
@@ -267,10 +264,10 @@ export default function PreferencesPage() {
           )}
 
           <label className="block text-sm">
-            <span className="font-medium text-zinc-800">Industries</span>
-            <span className="ml-2 text-zinc-500">(comma-separated)</span>
+            <span className="font-medium text-foreground">Industries</span>
+            <span className="ml-2 text-muted-foreground">(comma-separated)</span>
             <input
-              className="mt-1 w-full rounded border border-zinc-300 px-3 py-2"
+              className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring/30"
               value={industriesText}
               onChange={(e) => setIndustriesText(e.target.value)}
             />
@@ -291,9 +288,9 @@ export default function PreferencesPage() {
           )}
 
           <label className="block text-sm">
-            <span className="font-medium text-zinc-800">Job freshness</span>
+            <span className="font-medium text-foreground">Job freshness</span>
             <select
-              className="mt-1 w-full rounded border border-zinc-300 px-3 py-2"
+              className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring/30"
               value={settings.job_freshness}
               onChange={(e) =>
                 setSettings((s) => ({ ...s, job_freshness: e.target.value }))
@@ -308,11 +305,11 @@ export default function PreferencesPage() {
           </label>
 
           <label className="block text-sm">
-            <span className="font-medium text-zinc-800">
+            <span className="font-medium text-foreground">
               Application automation mode
             </span>
             <select
-              className="mt-1 w-full rounded border border-zinc-300 px-3 py-2"
+              className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring/30"
               value={settings.application_automation_mode}
               onChange={(e) =>
                 setSettings((s) => ({
@@ -330,9 +327,9 @@ export default function PreferencesPage() {
           </label>
 
           <label className="block text-sm">
-            <span className="font-medium text-zinc-800">Outreach approval mode</span>
+            <span className="font-medium text-foreground">Outreach approval mode</span>
             <select
-              className="mt-1 w-full rounded border border-zinc-300 px-3 py-2"
+              className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring/30"
               value={settings.outreach_approval_mode}
               onChange={(e) =>
                 setSettings((s) => ({
@@ -351,14 +348,14 @@ export default function PreferencesPage() {
 
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="block text-sm">
-              <span className="font-medium text-zinc-800">
+              <span className="font-medium text-foreground">
                 Daily application limit
               </span>
               <input
                 type="number"
                 min={0}
                 max={100}
-                className="mt-1 w-full rounded border border-zinc-300 px-3 py-2"
+                className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring/30"
                 value={settings.daily_application_limit}
                 onChange={(e) =>
                   setSettings((s) => ({
@@ -369,14 +366,14 @@ export default function PreferencesPage() {
               />
             </label>
             <label className="block text-sm">
-              <span className="font-medium text-zinc-800">
+              <span className="font-medium text-foreground">
                 Daily outreach limit
               </span>
               <input
                 type="number"
                 min={0}
                 max={100}
-                className="mt-1 w-full rounded border border-zinc-300 px-3 py-2"
+                className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring/30"
                 value={settings.daily_outreach_limit}
                 onChange={(e) =>
                   setSettings((s) => ({
@@ -388,15 +385,12 @@ export default function PreferencesPage() {
             </label>
           </div>
 
-          <button
-            type="submit"
-            disabled={saving}
-            className="rounded bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
-          >
+          <Button type="submit" disabled={saving}>
             {saving ? "Saving…" : "Save preferences"}
-          </button>
-        </form>
+          </Button>
+          </form>
+        </Card>
       )}
-    </main>
+    </AppShell>
   );
 }

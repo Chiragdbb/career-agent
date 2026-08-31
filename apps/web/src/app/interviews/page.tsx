@@ -3,7 +3,10 @@
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { AppNav } from "@/components/AppNav";
+import { AppShell } from "@/components/AppShell";
+import { Button } from "@/components/ui/Button";
+import { Card, CardTitle } from "@/components/ui/Card";
+import { PageHeader } from "@/components/ui/PageHeader";
 import { apiFetch } from "@/lib/api";
 import { createClient } from "@/lib/supabase/client";
 
@@ -108,82 +111,79 @@ export default function InterviewsPage() {
   }
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-3xl flex-col gap-6 px-6 py-12">
-      <AppNav active="interviews" />
-      <div>
-        <h1 className="text-2xl font-semibold text-zinc-900">
-          Interviews & offers
-        </h1>
-        <p className="mt-2 text-sm text-zinc-600">
-          Track rounds and offer decisions on your applications.
-        </p>
-      </div>
-      {error ? <p className="text-sm text-red-600">{error}</p> : null}
+    <AppShell active="interviews" wide>
+      <PageHeader
+        title="Interviews & offers"
+        subtitle="Track rounds and offer decisions on your applications."
+      />
+      {error ? <p className="mb-4 text-sm text-destructive">{error}</p> : null}
 
-      <form
-        onSubmit={(e) => void onCreateInterview(e)}
-        className="flex flex-wrap items-end gap-3 rounded border border-zinc-200 p-4"
-      >
-        <label className="text-sm">
-          <span className="text-zinc-600">Application</span>
-          <select
-            className="mt-1 block rounded border border-zinc-300 px-2 py-1"
-            value={applicationId}
-            onChange={(e) => setApplicationId(e.target.value)}
-            required
-          >
-            {applications.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.job_title || a.id} {a.company_name ? `· ${a.company_name}` : ""}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="text-sm">
-          <span className="text-zinc-600">Title</span>
-          <input
-            className="mt-1 block rounded border border-zinc-300 px-2 py-1"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-          />
-        </label>
-        <button
-          type="submit"
-          className="rounded border border-zinc-300 px-3 py-1.5 text-sm"
-          disabled={!applicationId}
+      <Card className="mb-4">
+        <form
+          onSubmit={(e) => void onCreateInterview(e)}
+          className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end"
         >
-          Add interview
-        </button>
-      </form>
+          <label className="w-full text-sm sm:w-auto sm:min-w-[12rem]">
+            <span className="text-muted-foreground">Application</span>
+            <select
+              className="mt-1 block w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm"
+              value={applicationId}
+              onChange={(e) => setApplicationId(e.target.value)}
+              required
+            >
+              {applications.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.job_title || a.id} {a.company_name ? `· ${a.company_name}` : ""}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="w-full text-sm sm:w-auto sm:min-w-[10rem]">
+            <span className="text-muted-foreground">Title</span>
+            <input
+              className="mt-1 block w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+            />
+          </label>
+          <Button type="submit" variant="secondary" disabled={!applicationId} className="w-full sm:w-auto">
+            Add interview
+          </Button>
+        </form>
+      </Card>
 
-      <section className="rounded border border-zinc-200 p-4">
-        <h2 className="font-medium text-zinc-900">Interviews</h2>
-        <ul className="mt-3 space-y-2 text-sm">
-          {interviews.map((i) => (
-            <li key={i.id}>
-              {i.title || "Interview"} · round {i.round ?? "—"} · {i.status}
-              {i.scheduled_at ? ` · ${i.scheduled_at}` : ""}
-            </li>
-          ))}
-          {!interviews.length ? (
-            <li className="text-zinc-500">No interviews yet</li>
-          ) : null}
-        </ul>
-      </section>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card>
+          <CardTitle>Interviews</CardTitle>
+          <ul className="mt-3 space-y-2 text-sm">
+            {interviews.map((i) => (
+              <li key={i.id} className="text-muted-foreground">
+                {i.title || "Interview"} · round {i.round ?? "—"} · {i.status}
+                {i.scheduled_at ? ` · ${i.scheduled_at}` : ""}
+              </li>
+            ))}
+            {!interviews.length ? (
+              <li className="text-muted-foreground">No interviews yet</li>
+            ) : null}
+          </ul>
+        </Card>
 
-      <section className="rounded border border-zinc-200 p-4">
-        <h2 className="font-medium text-zinc-900">Offers</h2>
-        <ul className="mt-3 space-y-2 text-sm">
-          {offers.map((o) => (
-            <li key={o.id}>
-              {o.status}
-              {o.compensation ? ` · ${o.compensation}` : ""}
-              {o.location ? ` · ${o.location}` : ""}
-            </li>
-          ))}
-          {!offers.length ? <li className="text-zinc-500">No offers yet</li> : null}
-        </ul>
-      </section>
-    </main>
+        <Card>
+          <CardTitle>Offers</CardTitle>
+          <ul className="mt-3 space-y-2 text-sm">
+            {offers.map((o) => (
+              <li key={o.id} className="text-muted-foreground">
+                {o.status}
+                {o.compensation ? ` · ${o.compensation}` : ""}
+                {o.location ? ` · ${o.location}` : ""}
+              </li>
+            ))}
+            {!offers.length ? (
+              <li className="text-muted-foreground">No offers yet</li>
+            ) : null}
+          </ul>
+        </Card>
+      </div>
+    </AppShell>
   );
 }

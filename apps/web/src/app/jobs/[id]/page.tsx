@@ -4,7 +4,10 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 
-import { AppNav } from "@/components/AppNav";
+import { AppShell } from "@/components/AppShell";
+import { Badge } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
+import { Card, CardTitle } from "@/components/ui/Card";
 import { apiFetch } from "@/lib/api";
 import { createClient } from "@/lib/supabase/client";
 
@@ -111,83 +114,78 @@ export default function JobDetailPage() {
   const job = workspace?.match;
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-3xl flex-col gap-6 px-6 py-12">
-      <AppNav active="jobs" />
-      <Link href="/jobs" className="text-sm text-zinc-600 hover:text-zinc-900">
+    <AppShell active="jobs" wide>
+      <Link href="/jobs" className="mb-4 inline-block text-sm text-muted-foreground hover:text-foreground">
         ← Back to jobs
       </Link>
-      {error ? <p className="text-sm text-red-600">{error}</p> : null}
-      {loading ? <p className="text-sm text-zinc-500">Loading…</p> : null}
+      {error ? <p className="mb-4 text-sm text-destructive">{error}</p> : null}
+      {loading ? <p className="text-sm text-muted-foreground">Loading…</p> : null}
       {job ? (
         <article className="space-y-6">
           <header className="space-y-2">
-            <h1 className="text-2xl font-semibold text-zinc-900">{job.title}</h1>
-            <p className="text-sm text-zinc-600">
+            <h1 className="font-serif text-2xl text-foreground">{job.title}</h1>
+            <p className="text-sm text-muted-foreground">
               {[job.company_name, job.location, job.work_arrangement]
                 .filter(Boolean)
                 .join(" · ")}
             </p>
             <div className="flex flex-wrap items-center gap-4 text-sm">
-              <span className="font-medium text-zinc-900">
-                Match score:{" "}
-                {job.score != null ? `${Math.round(job.score * 100)}%` : "—"}
-              </span>
-              <span className="text-zinc-500">Status: {job.status}</span>
+              <Badge variant="primary">
+                Match: {job.score != null ? `${Math.round(job.score * 100)}%` : "—"}
+              </Badge>
+              <Badge variant="default">{job.status}</Badge>
               {job.url ? (
                 <a
                   href={job.url}
                   target="_blank"
                   rel="noreferrer"
-                  className="text-blue-700 hover:underline"
+                  className="text-primary hover:underline"
                 >
                   View posting
                 </a>
               ) : null}
-              <button
-                type="button"
+              <Button
+                variant="secondary"
                 onClick={() => void onRescore()}
                 disabled={rescoring}
-                className="rounded border border-zinc-300 px-3 py-1 text-sm disabled:opacity-60"
               >
                 {rescoring ? "Re-scoring…" : "Re-score"}
-              </button>
+              </Button>
             </div>
           </header>
 
           {job.explanation ? (
-            <section className="rounded border border-zinc-200 p-4">
-              <h2 className="text-sm font-medium text-zinc-800">Why it matches</h2>
-              <p className="mt-2 text-sm text-zinc-700">{job.explanation}</p>
-            </section>
+            <Card>
+              <CardTitle>Why it matches</CardTitle>
+              <p className="mt-2 text-sm text-muted-foreground">{job.explanation}</p>
+            </Card>
           ) : null}
 
           <section className="grid gap-4 sm:grid-cols-2">
-            <div className="rounded border border-zinc-200 p-4">
-              <h2 className="text-sm font-medium text-green-800">Matched skills</h2>
-              <p className="mt-2 text-sm text-zinc-700">
+            <Card>
+              <CardTitle className="text-success">Matched skills</CardTitle>
+              <p className="mt-2 text-sm text-muted-foreground">
                 {job.matched_skills.join(", ") || "None"}
               </p>
-            </div>
-            <div className="rounded border border-zinc-200 p-4">
-              <h2 className="text-sm font-medium text-amber-800">
-                Missing requirements
-              </h2>
-              <p className="mt-2 text-sm text-zinc-700">
+            </Card>
+            <Card>
+              <CardTitle className="text-warning">Missing requirements</CardTitle>
+              <p className="mt-2 text-sm text-muted-foreground">
                 {job.missing_skills.join(", ") || "None"}
               </p>
-            </div>
+            </Card>
           </section>
 
-          <section className="rounded border border-zinc-200 p-4">
-            <h2 className="text-sm font-medium text-zinc-800">Company research</h2>
-            <p className="mt-2 text-sm text-zinc-700">
+          <Card>
+            <CardTitle>Company research</CardTitle>
+            <p className="mt-2 text-sm text-muted-foreground">
               {workspace?.company_research?.summary || "Not researched yet"}
             </p>
-          </section>
+          </Card>
 
-          <section className="rounded border border-zinc-200 p-4">
-            <h2 className="text-sm font-medium text-zinc-800">People / contacts</h2>
-            <ul className="mt-2 space-y-1 text-sm text-zinc-700">
+          <Card>
+            <CardTitle>People / contacts</CardTitle>
+            <ul className="mt-2 space-y-1 text-sm text-muted-foreground">
               {(workspace?.contacts || []).map((c, idx) => (
                 <li key={`${c.name}-${idx}`}>
                   {c.name || "Unknown"} · {c.status}
@@ -197,52 +195,50 @@ export default function JobDetailPage() {
                 </li>
               ))}
               {!workspace?.contacts?.length ? (
-                <li className="text-zinc-500">No contacts yet</li>
+                <li className="text-muted-foreground">No contacts yet</li>
               ) : null}
             </ul>
-          </section>
+          </Card>
 
-          <section className="rounded border border-zinc-200 p-4">
-            <h2 className="text-sm font-medium text-zinc-800">Strategy</h2>
-            <p className="mt-2 text-sm text-zinc-700">
+          <Card>
+            <CardTitle>Strategy</CardTitle>
+            <p className="mt-2 text-sm text-muted-foreground">
               {workspace?.strategy?.summary || "—"}
             </p>
-            <ul className="mt-2 space-y-1 text-sm text-zinc-600">
+            <ul className="mt-2 space-y-1 text-sm text-muted-foreground">
               {(workspace?.strategy?.recommended_actions || []).map((a) => (
                 <li key={`${a.action}-${a.priority}`}>
                   {a.priority}. {a.action}
                 </li>
               ))}
             </ul>
-          </section>
+          </Card>
 
-          <section className="rounded border border-zinc-200 p-4">
-            <h2 className="text-sm font-medium text-zinc-800">
-              Application / documents / outreach
-            </h2>
-            <p className="mt-2 text-sm text-zinc-700">
+          <Card>
+            <CardTitle>Application / documents / outreach</CardTitle>
+            <p className="mt-2 text-sm text-muted-foreground">
               Application:{" "}
               {workspace?.application
                 ? `${workspace.application.status} (${workspace.application.id})`
                 : "None"}
             </p>
-            <p className="mt-1 text-sm text-zinc-700">
+            <p className="mt-1 text-sm text-muted-foreground">
               Documents:{" "}
               {(workspace?.documents || [])
                 .map((d) => d.filename || d.id)
                 .join(", ") || "None"}
             </p>
-            <p className="mt-1 text-sm text-zinc-700">
+            <p className="mt-1 text-sm text-muted-foreground">
               Outreach:{" "}
               {(workspace?.outreach || [])
                 .map((o) => `${o.subject || o.id} (${o.status})`)
                 .join(", ") || "None"}
             </p>
-          </section>
+          </Card>
 
-          <section className="rounded border border-zinc-200 p-4">
-            <h2 className="text-sm font-medium text-zinc-800">Timeline</h2>
-            <ul className="mt-2 space-y-1 text-sm text-zinc-700">
+          <Card>
+            <CardTitle>Timeline</CardTitle>
+            <ul className="mt-2 space-y-1 text-sm text-muted-foreground">
               {(workspace?.timeline || []).map((e, idx) => (
                 <li key={`${e.event_type}-${idx}`}>
                   {e.event_type}
@@ -250,12 +246,12 @@ export default function JobDetailPage() {
                 </li>
               ))}
               {!workspace?.timeline?.length ? (
-                <li className="text-zinc-500">No events yet</li>
+                <li className="text-muted-foreground">No events yet</li>
               ) : null}
             </ul>
-          </section>
+          </Card>
         </article>
       ) : null}
-    </main>
+    </AppShell>
   );
 }
