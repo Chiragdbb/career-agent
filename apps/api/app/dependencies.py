@@ -88,12 +88,22 @@ def get_storage_bucket(settings: Settings = Depends(get_settings)) -> str:
     return "resumes"
 
 
-def get_discovery_task_client(request: Request) -> DiscoveryTaskClient:
-    """Return task client (overridable in tests via app.state)."""
+def get_discovery_task_client(
+    request: Request,
+    settings: Settings = Depends(get_settings),
+) -> DiscoveryTaskClient:
+    """Return task client (overridable in tests via app.state).
+
+    In development, discovery runs inline so a Celery worker is not required.
+    Production uses Celery for async execution.
+    """
     existing = getattr(request.app.state, "discovery_task_client", None)
     if existing is not None:
         return existing
-    client: DiscoveryTaskClient = CeleryDiscoveryTaskClient()
+    if settings.app_env == "development":
+        client: DiscoveryTaskClient = InlineDiscoveryTaskClient()
+    else:
+        client = CeleryDiscoveryTaskClient()
     request.app.state.discovery_task_client = client
     return client
 
