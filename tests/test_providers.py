@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from uuid import uuid4
 
 import pytest
@@ -94,6 +95,28 @@ def test_scraper_and_llm_mocks() -> None:
     assert llm.content.startswith("{")
     assert llm.usage.unit_type == "tokens"
     assert llm.usage.extra["prompt_tokens"] == 10.0
+
+
+def test_mock_llm_returns_valid_extract_job_payload() -> None:
+    llm = MockLLMProvider()
+    response = llm.complete(
+        LLMRequest(
+            messages=[
+                LLMMessage(role="system", content="Extract structured job fields"),
+                LLMMessage(role="user", content="URL: https://jobs.example.com/mock/backend\n\nMARKDOWN:\n# Job"),
+            ]
+        )
+    )
+    payload = json.loads(response.content)
+    assert payload["title"]
+    assert payload["url"] == "https://jobs.example.com/mock/backend"
+
+
+def test_mock_search_generates_unique_urls_per_query() -> None:
+    provider = MockSearchProvider()
+    first = provider.search(SearchRequest(query="python jobs remote", max_results=1))
+    second = provider.search(SearchRequest(query="java jobs bangalore", max_results=1))
+    assert first.results[0].url != second.results[0].url
 
 
 def test_embedding_mock_dimensions() -> None:

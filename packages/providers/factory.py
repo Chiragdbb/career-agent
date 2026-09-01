@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass
 
@@ -9,26 +10,36 @@ from packages.providers.apollo_people import ApolloPeopleProvider
 from packages.providers.email_finder import EmailFinderProvider
 from packages.providers.email_verifier import EmailVerifierProvider
 from packages.providers.firecrawl_scraper import FirecrawlScraperProvider
+from packages.providers.groq_models import DEFAULT_GROQ_MODEL, normalize_groq_model
 from packages.providers.hunter_email import (
     HunterEmailFinderProvider,
     HunterEmailVerifierProvider,
 )
 from packages.providers.llm import LLMProvider, MockLLMProvider
-from packages.providers.llm_adapters import GeminiLLMProvider, GroqLLMProvider
+from packages.providers.llm_adapters import GeminiLLMProvider, GroqLLMProvider, OpenAILLMProvider
 from packages.providers.mocks import create_mock_providers
 from packages.providers.people import PeopleProvider
 from packages.providers.scraper import ScraperProvider
+from packages.providers.scraper_fallback import FallbackScraperProvider
 from packages.providers.search import SearchProvider
 from packages.providers.tavily_search import TavilySearchProvider
+
+logger = logging.getLogger("career.providers")
+
+FIRECRAWL_CLOUD_URL = "https://api.firecrawl.dev"
 
 
 @dataclass(frozen=True)
 class ProviderSettings:
     llm_provider: str = "groq"
     groq_api_key: str = ""
-    groq_model: str = "llama-3.3-70b-versatile"
+    groq_model: str = DEFAULT_GROQ_MODEL
     gemini_api_key: str = ""
     gemini_model: str = "gemini-2.0-flash"
+    openai_api_key: str = ""
+    openai_model: str = "gpt-4o-mini"
+    extraction_llm_provider: str = ""
+    extraction_llm_model: str = ""
     tavily_api_key: str = ""
     firecrawl_base_url: str = ""
     firecrawl_api_key: str = ""
@@ -42,9 +53,13 @@ class ProviderSettings:
         return cls(
             llm_provider=(os.getenv("LLM_PROVIDER") or "groq").strip().lower(),
             groq_api_key=(os.getenv("GROQ_API_KEY") or "").strip(),
-            groq_model=(os.getenv("GROQ_MODEL") or "llama-3.3-70b-versatile").strip(),
+            groq_model=normalize_groq_model(os.getenv("GROQ_MODEL") or DEFAULT_GROQ_MODEL),
             gemini_api_key=(os.getenv("GEMINI_API_KEY") or "").strip(),
             gemini_model=(os.getenv("GEMINI_MODEL") or "gemini-2.0-flash").strip(),
+            openai_api_key=(os.getenv("OPENAI_API_KEY") or "").strip(),
+            openai_model=(os.getenv("OPENAI_MODEL") or "gpt-4o-mini").strip(),
+            extraction_llm_provider=(os.getenv("EXTRACTION_LLM_PROVIDER") or "").strip().lower(),
+            extraction_llm_model=(os.getenv("EXTRACTION_LLM_MODEL") or "").strip(),
             tavily_api_key=(os.getenv("TAVILY_API_KEY") or "").strip(),
             firecrawl_base_url=(os.getenv("FIRECRAWL_BASE_URL") or "").strip().rstrip("/"),
             firecrawl_api_key=(os.getenv("FIRECRAWL_API_KEY") or "").strip(),
@@ -64,27 +79,86 @@ def create_search_provider(settings: ProviderSettings | None = None) -> SearchPr
 
 def create_scraper_provider(settings: ProviderSettings | None = None) -> ScraperProvider:
     settings = settings or ProviderSettings.from_env()
+    scrapers: list[ScraperProvider] = []
+
     if settings.firecrawl_base_url:
-        return FirecrawlScraperProvider(
-            base_url=settings.firecrawl_base_url,
-            api_key=settings.firecrawl_api_key or None,
+        scrapers.append(
+            FirecrawlScraperProvider(
+                base_url=settings.firecrawl_base_url,
+                api_key=settings.firecrawl_api_key or None,
+            )
         )
-    return create_mock_providers().scraper
+
+    cloud_configured = bool(settings.firecrawl_api_key) and (
+        not settings.firecrawl_base_url
+        or settings.firecrawl_base_url.rstrip("/") != FIRECRAWL_CLOUD_URL
+    )
+    if cloud_configured:
+        scrapers.append(
+            FirecrawlScraperProvider(
+                base_url=FIRECRAWL_CLOUD_URL,
+                api_key=settings.firecrawl_api_key,
+            )
+        )
+
+    if not scrapers:
+        return create_mock_providers().scraper
+    if len(scrapers) == 1:
+        return scrapers[0]
+    return FallbackScraperProvider(scrapers)
 
 
 def create_llm_provider(settings: ProviderSettings | None = None) -> LLMProvider:
     settings = settings or ProviderSettings.from_env()
+    if settings.llm_provider == "openai" and settings.openai_api_key:
+        return OpenAILLMProvider(
+            api_key=settings.openai_api_key,
+            model=settings.openai_model,
+        )
     if settings.llm_provider == "gemini" and settings.gemini_api_key:
         return GeminiLLMProvider(
             api_key=settings.gemini_api_key,
-            default_model=settings.gemini_model,
+            model=settings.gemini_model,
         )
     if settings.groq_api_key:
+        model = normalize_groq_model(settings.groq_model)
+        if model != settings.groq_model:
+            logger.warning(
+                "GROQ_MODEL %r is deprecated; using %r instead",
+                settings.groq_model,
+                model,
+            )
         return GroqLLMProvider(
             api_key=settings.groq_api_key,
-            default_model=settings.groq_model,
+            model=model,
+        )
+    if settings.openai_api_key:
+        return OpenAILLMProvider(
+            api_key=settings.openai_api_key,
+            model=settings.openai_model,
         )
     return MockLLMProvider()
+
+
+def create_extraction_llm_provider(settings: ProviderSettings | None = None) -> LLMProvider:
+    """LLM for job extraction — prefers OpenAI structured output when configured."""
+    settings = settings or ProviderSettings.from_env()
+    provider = settings.extraction_llm_provider or (
+        "openai" if settings.openai_api_key else settings.llm_provider
+    )
+    model = settings.extraction_llm_model or settings.openai_model
+
+    if provider == "openai" and settings.openai_api_key:
+        return OpenAILLMProvider(api_key=settings.openai_api_key, model=model)
+    if provider == "gemini" and settings.gemini_api_key:
+        gemini_model = settings.extraction_llm_model or settings.gemini_model
+        return GeminiLLMProvider(api_key=settings.gemini_api_key, model=gemini_model)
+    if provider == "groq" and settings.groq_api_key:
+        groq_model = normalize_groq_model(
+            settings.extraction_llm_model or settings.groq_model
+        )
+        return GroqLLMProvider(api_key=settings.groq_api_key, model=groq_model)
+    return create_llm_provider(settings)
 
 
 def create_people_provider(settings: ProviderSettings | None = None) -> PeopleProvider:
@@ -149,3 +223,28 @@ def create_email_sender_provider(
             enabled=True,
         )
     return MockEmailSenderProvider()
+
+
+def log_active_providers(settings: ProviderSettings | None = None) -> dict[str, str]:
+    """Log which provider adapters are active (real vs mock)."""
+    settings = settings or ProviderSettings.from_env()
+    active = {
+        "search": create_search_provider(settings).metadata.name,
+        "scraper": create_scraper_provider(settings).metadata.name,
+        "llm": create_llm_provider(settings).metadata.name,
+        "extraction_llm": create_extraction_llm_provider(settings).metadata.name,
+        "people": create_people_provider(settings).metadata.name,
+        "email_finder": create_email_finder_provider(settings).metadata.name,
+        "email_verifier": create_email_verifier_provider(settings).metadata.name,
+        "email_sender": create_email_sender_provider(settings).metadata.name,
+    }
+    for capability, name in active.items():
+        kind = "mock" if name.startswith("mock-") else "live"
+        logger.info("provider %s=%s (%s)", capability, name, kind)
+    mocks = [cap for cap, name in active.items() if name.startswith("mock-")]
+    if mocks and os.getenv("APP_ENV", "development") != "test":
+        logger.warning(
+            "Using mock providers for: %s — set API keys in root .env for live data",
+            ", ".join(mocks),
+        )
+    return active

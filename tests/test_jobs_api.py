@@ -196,6 +196,17 @@ def test_discover_jobs_queues_and_runs_inline(auth_client, monkeypatch) -> None:
             .filter(WorkflowRun.id == uuid.UUID(payload["workflow_run_id"]))
             .one()
         )
+        import time
+
+        for _ in range(50):
+            session.refresh(run)
+            if run.status in (
+                WorkflowRunStatus.completed,
+                WorkflowRunStatus.failed,
+                WorkflowRunStatus.cancelled,
+            ):
+                break
+            time.sleep(0.1)
         assert run.status == WorkflowRunStatus.completed
         matches = session.query(JobMatch).filter(JobMatch.user_id == run.user_id).all()
         assert any(m.score is not None for m in matches)

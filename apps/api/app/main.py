@@ -9,6 +9,11 @@ from app.config import Settings, get_settings
 from app.database import init_db
 from app.middleware import CorrelationIdMiddleware, register_exception_handlers
 from app.redis import close_redis, init_redis
+from packages.shared.env import load_project_env
+from packages.shared.logging import configure_logging
+from packages.providers.factory import log_active_providers
+
+load_project_env()
 from app.routers import (
     analytics_router,
     applications_router,
@@ -35,7 +40,10 @@ from app.routers import (
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    load_project_env()
     settings: Settings = app.state.settings
+    configure_logging(level="DEBUG" if settings.app_env == "development" else "INFO")
+    log_active_providers()
     init_db(settings)
     init_redis(settings)
     yield

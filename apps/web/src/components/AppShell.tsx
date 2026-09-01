@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 
 import { AppSidebar, type NavKey } from "@/components/AppSidebar";
+import { ActivityBar } from "@/components/ActivityBar";
 import { cn } from "@/lib/cn";
 
 type AppShellProps = {
@@ -41,7 +42,12 @@ function MobileHeader({ onOpenMenu }: { onOpenMenu: () => void }) {
   );
 }
 
-function AppShellInner({ children, active, className, wide }: AppShellProps) {
+function AppShellInner({
+  children,
+  active,
+  className,
+  wide,
+}: AppShellProps) {
   const pathname = usePathname();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
@@ -59,7 +65,7 @@ function AppShellInner({ children, active, className, wide }: AppShellProps) {
   }, [mobileNavOpen]);
 
   return (
-    <div className="flex min-h-screen bg-background">
+    <div className="flex h-screen overflow-hidden bg-background">
       {mobileNavOpen ? (
         <button
           type="button"
@@ -75,15 +81,16 @@ function AppShellInner({ children, active, className, wide }: AppShellProps) {
         onClose={() => setMobileNavOpen(false)}
       />
 
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <MobileHeader onOpenMenu={() => setMobileNavOpen(true)} />
         <main
           className={cn(
-            "flex-1 overflow-x-hidden px-4 py-5 sm:px-6 md:px-9 md:py-7",
+            "flex-1 overflow-y-auto overflow-x-hidden px-4 py-5 sm:px-6 md:px-9 md:py-7",
             !wide && "md:max-w-[1200px]",
             className,
           )}
         >
+          <ActivityBar />
           {children}
         </main>
       </div>

@@ -84,6 +84,7 @@ from packages.providers.exceptions import (
     ProviderError,
     ProviderNotConfiguredError,
     ProviderRateLimitError,
+    ProviderStructuredOutputError,
     ProviderTimeoutError,
     ProviderUnavailableError,
     ProviderValidationError,
@@ -99,6 +100,7 @@ from packages.providers.llm import (
 from packages.providers.llm_adapters import (
     GeminiLLMProvider,
     GroqLLMProvider,
+    OpenAILLMProvider,
     parse_llm_json,
 )
 from packages.providers.mocks import MockProviders, create_mock_providers
@@ -207,6 +209,7 @@ __all__ = [
     "NotificationProvider",
     "NotificationSendRequest",
     "NotificationSendResponse",
+    "OpenAILLMProvider",
     "OptionalSesEmailSenderProvider",
     "ResendEmailSenderProvider",
     "PeopleProvider",
@@ -218,6 +221,7 @@ __all__ = [
     "ProviderMetadata",
     "ProviderNotConfiguredError",
     "ProviderRateLimitError",
+    "ProviderStructuredOutputError",
     "ProviderTimeoutError",
     "ProviderUnavailableError",
     "ProviderValidationError",

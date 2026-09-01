@@ -3,11 +3,13 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { ArrowRight, Bookmark, Play } from "lucide-react";
 
 import { AppShell } from "@/components/AppShell";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card, CardTitle } from "@/components/ui/Card";
+import { ErrorBanner } from "@/components/ui/ErrorBanner";
 import { apiFetch } from "@/lib/api";
 import { createClient } from "@/lib/supabase/client";
 
@@ -51,7 +53,11 @@ export default function JobDetailPage() {
 
   const [loading, setLoading] = useState(true);
   const [rescoring, setRescoring] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [lastAction, setLastAction] = useState<"save" | "start" | null>(null);
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
 
   async function fetchWorkspace() {
@@ -111,7 +117,70 @@ export default function JobDetailPage() {
     }
   }
 
+  async function onSaveJob() {
+    setActionError(null);
+    setLastAction("save");
+    setSaving(true);
+    try {
+      const response = await apiFetch(`/api/v1/jobs/${matchId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ status: "saved" }),
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(body?.error?.message || `API ${response.status}`);
+      }
+      setWorkspace(await fetchWorkspace());
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Failed to save job");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function onStartApplication() {
+    setActionError(null);
+    setLastAction("start");
+    setStarting(true);
+    try {
+      const response = await apiFetch("/api/v1/jobs/actions/batch", {
+        method: "POST",
+        body: JSON.stringify({
+          match_ids: [matchId],
+          action: "start_pipeline",
+        }),
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(body?.error?.message || `API ${response.status}`);
+      }
+      const payload = (await response.json()) as {
+        workflows?: { application_id?: string | null }[];
+      };
+      const applicationId =
+        payload.workflows?.[0]?.application_id ?? workspace?.application?.id;
+      const refreshed = await fetchWorkspace();
+      setWorkspace(refreshed);
+      const targetId = applicationId ?? refreshed.application?.id;
+      if (targetId) {
+        router.push(`/applications/${targetId}`);
+      }
+    } catch (err) {
+      setActionError(
+        err instanceof Error ? err.message : "Failed to start application",
+      );
+    } finally {
+      setStarting(false);
+    }
+  }
+
+  function retryAction() {
+    if (lastAction === "save") void onSaveJob();
+    else if (lastAction === "start") void onStartApplication();
+  }
+
   const job = workspace?.match;
+  const hasApplication = Boolean(workspace?.application);
 
   return (
     <AppShell active="jobs" wide>
@@ -119,6 +188,9 @@ export default function JobDetailPage() {
         ← Back to jobs
       </Link>
       {error ? <p className="mb-4 text-sm text-destructive">{error}</p> : null}
+      {actionError ? (
+        <ErrorBanner message={actionError} onRetry={retryAction} />
+      ) : null}
       {loading ? <p className="text-sm text-muted-foreground">Loading…</p> : null}
       {job ? (
         <article className="space-y-6">
@@ -129,30 +201,62 @@ export default function JobDetailPage() {
                 .filter(Boolean)
                 .join(" · ")}
             </p>
-            <div className="flex flex-wrap items-center gap-4 text-sm">
+            <div className="flex flex-wrap items-center gap-2">
               <Badge variant="primary">
                 Match: {job.score != null ? `${Math.round(job.score * 100)}%` : "—"}
               </Badge>
               <Badge variant="default">{job.status}</Badge>
-              {job.url ? (
-                <a
-                  href={job.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-primary hover:underline"
-                >
-                  View posting
-                </a>
-              ) : null}
-              <Button
-                variant="secondary"
-                onClick={() => void onRescore()}
-                disabled={rescoring}
-              >
-                {rescoring ? "Re-scoring…" : "Re-score"}
-              </Button>
             </div>
           </header>
+
+          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-muted/30 px-4 py-3">
+            {hasApplication ? (
+              <Link href={`/applications/${workspace!.application!.id}`}>
+                <Button variant="secondary">
+                  View Application
+                  <ArrowRight className="h-4 w-4" />
+                </Button>
+              </Link>
+            ) : (
+              <>
+                <Button
+                  variant="secondary"
+                  disabled={saving || starting}
+                  onClick={() => void onSaveJob()}
+                >
+                  <Bookmark className="h-4 w-4" />
+                  {saving ? "Saving…" : "Save Job"}
+                </Button>
+                <Button
+                  disabled={saving || starting}
+                  onClick={() => void onStartApplication()}
+                >
+                  <Play className="h-4 w-4" />
+                  {starting ? "Starting…" : "Start Application"}
+                </Button>
+              </>
+            )}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-4 text-sm">
+            {job.url ? (
+              <a
+                href={job.url}
+                target="_blank"
+                rel="noreferrer"
+                className="text-primary hover:underline"
+              >
+                View posting
+              </a>
+            ) : null}
+            <Button
+              variant="secondary"
+              onClick={() => void onRescore()}
+              disabled={rescoring}
+            >
+              {rescoring ? "Re-scoring…" : "Re-score"}
+            </Button>
+          </div>
 
           {job.explanation ? (
             <Card>

@@ -17,3 +17,7 @@ class AuthorizationError(DomainError):
 
 class NotFoundError(DomainError):
     """Requested entity does not exist (or is outside the caller's tenant)."""
+
+
+class DiscoveryCancelledError(DomainError):
+    """Discovery workflow was cancelled by the user."""

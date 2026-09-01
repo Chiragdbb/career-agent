@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { CheckCircle2 } from "lucide-react";
 
 import { AppShell } from "@/components/AppShell";
 import { Button } from "@/components/ui/Button";
@@ -102,8 +103,9 @@ export default function HumanTasksPage() {
         <ListSkeleton rows={3} />
       ) : tasks.length === 0 ? (
         <EmptyState
-          title="No open automations"
-          description="Human-in-the-loop tasks will appear here when workflows need your input."
+          icon={CheckCircle2}
+          title="You're all caught up"
+          description="No automations need your input right now. New tasks appear here when workflows pause for approval."
         />
       ) : (
         <ul className="space-y-3">
