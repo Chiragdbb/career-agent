@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Users } from "lucide-react";
 
 import { AppShell } from "@/components/AppShell";
 import { ContactRow } from "@/components/ui/ContactRow";
@@ -86,8 +87,9 @@ export default function ContactsPage() {
         <ListSkeleton />
       ) : filtered.length === 0 ? (
         <EmptyState
+          icon={Users}
           title="No contacts yet"
-          description="Contacts discovered during research and outreach will appear here."
+          description="Contacts appear here after job discovery and company research identify recruiters, hiring managers, and referral paths."
         />
       ) : (
         <div className="overflow-hidden rounded-lg border border-border bg-card">

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import random
 import time
 from collections.abc import Callable
@@ -13,9 +14,30 @@ from packages.providers.exceptions import (
     ProviderAuthError,
     ProviderError,
     ProviderRateLimitError,
+    ProviderStructuredOutputError,
     ProviderTimeoutError,
     ProviderUnavailableError,
 )
+
+
+def parse_error_response_body(body: str) -> dict[str, Any]:
+    """Best-effort parse of vendor JSON error payloads."""
+    text = (body or "").strip()
+    if not text:
+        return {}
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        return {"raw_body": text[:8000]}
+    if not isinstance(data, dict):
+        return {"raw_body": text[:8000]}
+    details: dict[str, Any] = {"raw_body": text[:8000]}
+    error = data.get("error")
+    if isinstance(error, dict):
+        for key in ("message", "type", "code", "failed_generation"):
+            if key in error and error[key] is not None:
+                details[key if key != "code" else "error_code"] = error[key]
+    return details
 
 
 def classify_http_error(
@@ -26,28 +48,41 @@ def classify_http_error(
     operation: str,
 ) -> ProviderError:
     detail = (body or "")[:400]
+    error_details = parse_error_response_body(body)
+    error_code = str(error_details.get("error_code") or "")
+    if error_code == "json_validate_failed":
+        return ProviderStructuredOutputError(
+            f"{provider} {operation} failed ({status_code}): {detail}",
+            provider=provider,
+            operation=operation,
+            details=error_details,
+        )
     if status_code in {401, 403}:
         return ProviderAuthError(
             f"{provider} auth failed ({status_code}): {detail}",
             provider=provider,
             operation=operation,
+            details=error_details,
         )
-    if status_code == 429:
+    if status_code in {413, 429}:
         return ProviderRateLimitError(
-            f"{provider} rate limited: {detail}",
+            f"{provider} rate limited ({status_code}): {detail}",
             provider=provider,
             operation=operation,
+            details=error_details,
         )
     if status_code >= 500:
         return ProviderUnavailableError(
             f"{provider} unavailable ({status_code}): {detail}",
             provider=provider,
             operation=operation,
+            details=error_details,
         )
     return ProviderError(
         f"{provider} {operation} failed ({status_code}): {detail}",
         provider=provider,
         operation=operation,
+        details=error_details,
     )
 
 

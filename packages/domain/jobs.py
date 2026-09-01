@@ -8,12 +8,13 @@ from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
-from database.models.enums import ResumeVersionStatus, WorkflowRunStatus
+from database.models.enums import JobMatchStatus, ResumeVersionStatus, WorkflowRunStatus
 from database.models.schema import Company, Job, JobMatch, Resume, ResumeVersion, WorkflowRun
 from packages.domain.exceptions import DomainError, NotFoundError
 from packages.domain.job_match import JobMatchService, ScoreBreakdown
 from packages.domain.preferences import PreferencesService
 from packages.domain.resume_models import StructuredResume
+from packages.domain.workflow_cancellation import WorkflowCancellation
 
 
 @dataclass(frozen=True)
@@ -63,16 +64,60 @@ class JobListingService:
         self._session = session
         self._user_id = user_id
 
-    def list_matches(self) -> list[JobMatchSummary]:
-        rows = (
+    def list_matches(self, *, include_dismissed: bool = False) -> list[JobMatchSummary]:
+        query = (
             self._session.query(JobMatch, Job, Company)
             .join(Job, Job.id == JobMatch.job_id)
             .join(Company, Company.id == Job.company_id)
             .filter(JobMatch.user_id == self._user_id)
-            .order_by(JobMatch.score.desc().nullslast(), JobMatch.created_at.desc())
+        )
+        if not include_dismissed:
+            query = query.filter(JobMatch.status != JobMatchStatus.dismissed)
+        rows = query.order_by(
+            JobMatch.score.desc().nullslast(), JobMatch.created_at.desc()
+        ).all()
+        return [self._to_summary(match, job, company) for match, job, company in rows]
+
+    def update_match_status(self, match_id: uuid.UUID, status: JobMatchStatus) -> JobMatchSummary:
+        row = (
+            self._session.query(JobMatch, Job, Company)
+            .join(Job, Job.id == JobMatch.job_id)
+            .join(Company, Company.id == Job.company_id)
+            .filter(JobMatch.id == match_id, JobMatch.user_id == self._user_id)
+            .one_or_none()
+        )
+        if row is None:
+            raise NotFoundError("Job not found")
+        match, job, company = row
+        match.status = status
+        self._session.commit()
+        self._session.refresh(match)
+        return self._to_summary(match, job, company)
+
+    def bulk_update_status(
+        self, match_ids: list[uuid.UUID], status: JobMatchStatus
+    ) -> list[JobMatchSummary]:
+        if not match_ids:
+            return []
+        matches = (
+            self._session.query(JobMatch)
+            .filter(
+                JobMatch.user_id == self._user_id,
+                JobMatch.id.in_(match_ids),
+            )
             .all()
         )
-        return [self._to_summary(match, job, company) for match, job, company in rows]
+        if len(matches) != len(set(match_ids)):
+            raise NotFoundError("One or more jobs not found")
+        for match in matches:
+            match.status = status
+        self._session.commit()
+        updated_ids = {match.id for match in matches}
+        return [
+            summary
+            for summary in self.list_matches(include_dismissed=True)
+            if summary.id in updated_ids
+        ]
 
     def get_match_detail(self, match_id: uuid.UUID) -> JobMatchDetail:
         row = (
@@ -231,6 +276,30 @@ class DiscoveryTriggerService:
             status=run.status.value,
             idempotency_key=idempotency_key,
         )
+
+    def attach_task_id(self, run_id: uuid.UUID, task_id: str) -> None:
+        run = self.get_run(run_id)
+        metadata = dict(run.metadata_json or {})
+        metadata["task_id"] = task_id
+        run.metadata_json = metadata
+        self._session.commit()
+
+    def cancel(self, run_id: uuid.UUID, *, cancellation: WorkflowCancellation | None = None) -> WorkflowRun:
+        run = self.get_run(run_id)
+        if run.status not in self.ACTIVE_STATUSES:
+            raise DomainError("Workflow is not active")
+        run.status = WorkflowRunStatus.cancelled
+        metadata = dict(run.metadata_json or {})
+        metadata["current_step"] = "cancelled"
+        metadata["status_message"] = "Cancelled by user"
+        metadata["cancelled_at"] = datetime.now(timezone.utc).isoformat()
+        run.metadata_json = metadata
+        run.error = None
+        self._session.commit()
+        if cancellation is not None:
+            cancellation.request_cancel(run_id)
+        self._session.refresh(run)
+        return run
 
     def get_run(self, run_id: uuid.UUID) -> WorkflowRun:
         row = (

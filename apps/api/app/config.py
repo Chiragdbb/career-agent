@@ -5,12 +5,14 @@ from functools import lru_cache
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from packages.shared.env import project_env_file
+
 
 class Settings(BaseSettings):
     """Application settings loaded from environment / `.env`."""
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=project_env_file(),
         env_file_encoding="utf-8",
         extra="ignore",
     )

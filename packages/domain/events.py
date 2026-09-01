@@ -12,6 +12,9 @@ from pydantic import BaseModel, Field
 
 
 class UserEventType(StrEnum):
+    workflow_progress = "workflow_progress"
+    workflow_completed = "workflow_completed"
+    workflow_cancelled = "workflow_cancelled"
     jobs_discovered = "jobs_discovered"
     scores_calculated = "scores_calculated"
     research_completed = "research_completed"

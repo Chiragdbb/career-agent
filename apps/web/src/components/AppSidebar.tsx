@@ -170,12 +170,12 @@ export function AppSidebar({ active, mobileOpen = false, onClose }: AppSidebarPr
     <aside
       className={cn(
         "flex h-full w-[min(100vw-3rem,17.5rem)] shrink-0 flex-col justify-between border-r border-sidebar-border bg-sidebar px-3 py-4 md:h-screen md:w-60",
-        "fixed inset-y-0 left-0 z-50 transition-transform duration-200 ease-out md:static md:translate-x-0",
+        "fixed inset-y-0 left-0 z-50 transition-transform duration-200 ease-out md:sticky md:top-0 md:translate-x-0",
         mobileOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0",
       )}
       aria-label="Main navigation"
     >
-      <div className="flex flex-col gap-4 overflow-y-auto">
+      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto">
         <div className="flex items-center justify-between gap-2.5 px-2 py-1">
           <div className="flex items-center gap-2.5">
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">

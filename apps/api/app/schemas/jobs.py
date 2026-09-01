@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -59,3 +60,28 @@ class WorkflowRunResponse(BaseModel):
     metadata: dict | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
+    task_count: int = 0
+    completed_task_count: int = 0
+    failed_task_count: int = 0
+
+
+class WorkflowTaskResponse(BaseModel):
+    id: UUID
+    workflow_run_id: UUID
+    task_type: str
+    status: str
+    input_payload: dict | None = None
+    output_payload: dict | None = None
+    error: str | None = None
+    attempt: int | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class JobMatchUpdateRequest(BaseModel):
+    status: Literal["new", "reviewed", "saved", "dismissed", "applied"]
+
+
+class JobBatchActionRequest(BaseModel):
+    match_ids: list[UUID] = Field(min_length=1, max_length=50)
+    action: Literal["save", "dismiss", "start_pipeline"]

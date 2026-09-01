@@ -14,6 +14,7 @@ from app.database import get_db
 from app.redis import get_redis
 from database.models.schema import User
 from packages.domain.exceptions import AuthenticationError
+from packages.domain.events import EventBus, RedisEventBus, UserEventPublisher
 from packages.domain.users import UserService
 from packages.providers.storage import MockStorageProvider, StorageProvider
 from packages.providers.supabase_storage import SupabaseStorageProvider
@@ -108,6 +109,24 @@ def get_discovery_task_client(
     return client
 
 
+def get_event_bus(
+    request: Request,
+    redis_client: Redis = Depends(get_redis),
+) -> EventBus:
+    existing = getattr(request.app.state, "event_bus", None)
+    if existing is not None:
+        return existing
+    bus: EventBus = RedisEventBus(redis_client)
+    request.app.state.event_bus = bus
+    return bus
+
+
+def get_event_publisher(
+    bus: Annotated[EventBus, Depends(get_event_bus)],
+) -> UserEventPublisher:
+    return UserEventPublisher(bus)
+
+
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 DbSessionDep = Annotated[Session, Depends(get_db)]
 RedisDep = Annotated[Redis, Depends(get_redis)]
@@ -118,3 +137,4 @@ JwtVerifierDep = Annotated[JwtVerifier, Depends(get_jwt_verifier)]
 StorageProviderDep = Annotated[StorageProvider, Depends(get_storage_provider)]
 StorageBucketDep = Annotated[str, Depends(get_storage_bucket)]
 DiscoveryTaskClientDep = Annotated[DiscoveryTaskClient, Depends(get_discovery_task_client)]
+EventPublisherDep = Annotated[UserEventPublisher, Depends(get_event_publisher)]

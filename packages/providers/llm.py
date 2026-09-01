@@ -1,11 +1,12 @@
 """LLMProvider — chat / structured generation.
 
-Product default target (not implemented here): Groq or Gemini.
-Do not add OpenAI adapters in this step.
+Product default target: Groq or Gemini; OpenAI supported for structured extraction.
 """
 
 from __future__ import annotations
 
+import json
+import re
 from abc import ABC, abstractmethod
 from typing import Any
 
@@ -31,6 +32,7 @@ class LLMRequest(TimeoutMixin):
     max_tokens: int | None = Field(default=1024, ge=1)
     response_format: str | None = None  # e.g. "json" | "text"
     json_schema: dict[str, Any] | None = None
+    json_schema_name: str | None = None
 
 
 class LLMResponse(BaseModel):
@@ -52,10 +54,12 @@ class LLMProvider(ABC):
 
 
 class MockLLMProvider(LLMProvider):
+    _DEFAULT_CONTENT = '{"ok": true}'
+
     def __init__(
         self,
         *,
-        content: str = '{"ok": true}',
+        content: str | None = None,
         model: str = "mock-llm",
         fail_with: Exception | None = None,
         simulate_timeout: bool = False,
@@ -63,7 +67,7 @@ class MockLLMProvider(LLMProvider):
         prompt_tokens: float = 10.0,
         completion_tokens: float = 5.0,
     ) -> None:
-        self._content = content
+        self._content = content if content is not None else self._DEFAULT_CONTENT
         self._model = model
         self._prompt_tokens = prompt_tokens
         self._completion_tokens = completion_tokens
@@ -87,7 +91,7 @@ class MockLLMProvider(LLMProvider):
         self._behavior.before_call(operation="complete", timeout_seconds=request.timeout_seconds)
         total = self._prompt_tokens + self._completion_tokens
         return LLMResponse(
-            content=self._content,
+            content=self._resolve_content(request),
             model=request.model or self._model,
             usage=self._behavior.usage(
                 operation="complete",
@@ -99,3 +103,28 @@ class MockLLMProvider(LLMProvider):
                 },
             ),
         )
+
+    def _resolve_content(self, request: LLMRequest) -> str:
+        system = next((m.content for m in request.messages if m.role == "system"), "")
+        user = next((m.content for m in request.messages if m.role == "user"), "")
+        if "Extract structured job" in system and self._content == self._DEFAULT_CONTENT:
+            return self._mock_extract_job_json(user)
+        return self._content
+
+    @staticmethod
+    def _mock_extract_job_json(user_content: str) -> str:
+        url_match = re.search(r"URL:\s*(\S+)", user_content)
+        url = url_match.group(1) if url_match else "https://jobs.example.com/mock/job"
+        slug = url.rstrip("/").split("/")[-1].replace("-", " ").title() or "Software Engineer"
+        payload = {
+            "title": f"{slug} (Mock)",
+            "company_name": "Example Corp",
+            "location": "Remote",
+            "work_arrangement": "remote",
+            "employment_type": "full_time",
+            "seniority": "mid",
+            "skills": ["Python", "TypeScript", "PostgreSQL"],
+            "url": url,
+            "description": "Mock job posting generated for local development.",
+        }
+        return json.dumps(payload)

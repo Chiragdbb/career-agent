@@ -1,7 +1,8 @@
 "use client";
 
-import { FormEvent, Suspense, useEffect, useState } from "react";
+import { FormEvent, Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { FileText } from "lucide-react";
 
 import { AppShell } from "@/components/AppShell";
 import { Badge } from "@/components/ui/Badge";
@@ -63,6 +64,7 @@ function DocumentsContent() {
   const [uploading, setUploading] = useState(false);
   const [resumeName, setResumeName] = useState("");
   const [success, setSuccess] = useState<string | null>(null);
+  const uploadFormRef = useRef<HTMLFormElement>(null);
 
   async function loadDocs() {
     const response = await apiFetch("/api/v1/documents");
@@ -195,7 +197,7 @@ function DocumentsContent() {
       ) : (
         <div className="space-y-4">
           <Card>
-            <form onSubmit={(e) => void onUpload(e)} className="space-y-3">
+            <form ref={uploadFormRef} onSubmit={(e) => void onUpload(e)} className="space-y-3">
               <Input
                 label="Display name (optional)"
                 value={resumeName}
@@ -219,8 +221,17 @@ function DocumentsContent() {
 
           {resumes.length === 0 ? (
             <EmptyState
-              title="No resumes uploaded"
+              icon={FileText}
+              title="No resume uploaded"
               description="Upload a PDF or DOCX master resume. Extracted facts become your canonical candidate source."
+              primaryActionLabel="Upload resume"
+              onPrimaryAction={() => {
+                uploadFormRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+                const fileInput = uploadFormRef.current?.elements.namedItem(
+                  "file",
+                ) as HTMLInputElement | null;
+                fileInput?.focus();
+              }}
             />
           ) : (
             <div className="overflow-hidden rounded-lg border border-border bg-card">

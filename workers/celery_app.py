@@ -5,6 +5,12 @@ from __future__ import annotations
 import os
 
 from celery import Celery
+from celery.signals import worker_process_init
+
+from packages.shared.env import load_project_env
+from packages.shared.logging import configure_logging
+
+load_project_env()
 
 redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 
@@ -36,3 +42,9 @@ celery_app.conf.update(
     task_time_limit=900,
     task_soft_time_limit=840,
 )
+
+
+@worker_process_init.connect
+def _configure_worker_logging(**_kwargs: object) -> None:
+    level = os.getenv("LOG_LEVEL", "INFO")
+    configure_logging(level=level)

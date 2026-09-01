@@ -3,9 +3,11 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { FileCheck } from "lucide-react";
 
 import { AppShell } from "@/components/AppShell";
 import { Badge } from "@/components/ui/Badge";
+import { EmptyState } from "@/components/ui/EmptyState";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { apiFetch } from "@/lib/api";
 import { cn } from "@/lib/cn";
@@ -41,6 +43,7 @@ export default function ApplicationsPage() {
   const router = useRouter();
   const [rows, setRows] = useState<Application[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
   const [view, setView] = useState<"board" | "list">("board");
 
   useEffect(() => {
@@ -65,6 +68,8 @@ export default function ApplicationsPage() {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : "Failed to load");
         }
+      } finally {
+        if (!cancelled) setLoading(false);
       }
     }
     void load();
@@ -118,7 +123,17 @@ export default function ApplicationsPage() {
 
       {error ? <p className="mb-4 text-sm text-destructive">{error}</p> : null}
 
-      {view === "board" ? (
+      {loading ? (
+        <p className="py-8 text-sm text-muted-foreground">Loading…</p>
+      ) : !loading && rows.length === 0 && !error ? (
+        <EmptyState
+          icon={FileCheck}
+          title="No applications yet"
+          description="Save a job and start an application to track your pipeline here."
+          primaryActionLabel="Browse jobs"
+          actionHref="/jobs"
+        />
+      ) : view === "board" ? (
         <div className="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-4 md:snap-none">
           {pipelineColumns.map((col) => (
             <div
@@ -184,11 +199,6 @@ export default function ApplicationsPage() {
                 </Link>
               </li>
             ))}
-            {!rows.length && !error ? (
-              <li className="px-4 py-8 text-sm text-muted-foreground">
-                No applications yet
-              </li>
-            ) : null}
           </ul>
         </div>
       )}
