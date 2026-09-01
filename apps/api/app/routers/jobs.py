@@ -4,17 +4,24 @@ from uuid import UUID
 
 from fastapi import APIRouter
 
-from app.dependencies import CurrentUserIdDep, DbSessionDep, DiscoveryTaskClientDep
+from app.dependencies import CurrentUserIdDep, DbSessionDep, DiscoveryTaskClientDep, EventPublisherDep
 from app.schemas.jobs import (
     DiscoverJobsRequest,
     DiscoverJobsResponse,
+    JobBatchActionRequest,
     JobMatchDetailResponse,
     JobMatchSummaryResponse,
+    JobMatchUpdateRequest,
     ScoreBreakdownResponse,
     WorkflowRunResponse,
 )
+from packages.domain.career_workflow import CareerWorkflowService, CareerWorkflowStart
 from packages.domain.jobs import DiscoveryTriggerService, JobListingService
 from packages.domain.dashboard import DashboardService
+from packages.domain.events import UserEventType
+from packages.domain.exceptions import DomainError
+from database.models.enums import JobMatchStatus
+from packages.providers.notification import MockNotificationProvider
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
@@ -76,6 +83,7 @@ def discover_jobs(
     session: DbSessionDep,
     user_id: CurrentUserIdDep,
     task_client: DiscoveryTaskClientDep,
+    events: EventPublisherDep,
 ) -> DiscoverJobsResponse:
     trigger = DiscoveryTriggerService(session, user_id)
     queued = trigger.enqueue(
@@ -86,6 +94,22 @@ def discover_jobs(
         user_id=user_id,
         workflow_run_id=queued.workflow_run_id,
         max_results=body.max_results,
+    )
+    trigger.attach_task_id(queued.workflow_run_id, task_id)
+    events.publish(
+        user_id,
+        UserEventType.workflow_progress,
+        {
+            "workflow_run_id": str(queued.workflow_run_id),
+            "workflow_type": "job_discovery",
+            "step": "queued",
+            "message": "Job discovery queued",
+            "data": {
+                "task_id": task_id,
+                "status": "queued",
+                "max_results": body.max_results,
+            },
+        },
     )
     return DiscoverJobsResponse(
         workflow_run_id=queued.workflow_run_id,
@@ -99,9 +123,52 @@ def discover_jobs(
 def list_jobs(
     session: DbSessionDep,
     user_id: CurrentUserIdDep,
+    include_dismissed: bool = False,
 ) -> list[JobMatchSummaryResponse]:
-    rows = _listing(session, user_id).list_matches()
+    rows = _listing(session, user_id).list_matches(include_dismissed=include_dismissed)
     return [_to_summary(row) for row in rows]
+
+
+@router.post("/actions/batch")
+def batch_job_actions(
+    body: JobBatchActionRequest,
+    session: DbSessionDep,
+    user_id: CurrentUserIdDep,
+) -> dict:
+    service = _listing(session, user_id)
+    if body.action == "save":
+        updated = service.bulk_update_status(body.match_ids, JobMatchStatus.saved)
+        return {"action": body.action, "updated": len(updated), "matches": [_to_summary(r) for r in updated]}
+    if body.action == "dismiss":
+        updated = service.bulk_update_status(body.match_ids, JobMatchStatus.dismissed)
+        return {"action": body.action, "updated": len(updated), "matches": [_to_summary(r) for r in updated]}
+    if body.action == "start_pipeline":
+        workflow = CareerWorkflowService(
+            session, user_id, notifications=MockNotificationProvider()
+        )
+        results = []
+        for match_id in body.match_ids:
+            result = workflow.start_or_resume(
+                CareerWorkflowStart(job_match_id=match_id, permit_submit=False)
+            )
+            results.append(result.model_dump(mode="json"))
+        return {"action": body.action, "started": len(results), "workflows": results}
+    raise DomainError(f"Unknown action: {body.action}")
+
+
+@router.patch("/{match_id}", response_model=JobMatchSummaryResponse)
+def update_job(
+    match_id: UUID,
+    body: JobMatchUpdateRequest,
+    session: DbSessionDep,
+    user_id: CurrentUserIdDep,
+) -> JobMatchSummaryResponse:
+    try:
+        status = JobMatchStatus(body.status)
+    except ValueError as exc:
+        raise DomainError(f"Invalid status: {body.status}") from exc
+    row = _listing(session, user_id).update_match_status(match_id, status)
+    return _to_summary(row)
 
 
 @router.get("/{match_id}", response_model=JobMatchDetailResponse)

@@ -5,6 +5,7 @@ Product default target (not implemented here): Tavily.
 
 from __future__ import annotations
 
+import re
 from abc import ABC, abstractmethod
 
 from pydantic import BaseModel, Field, HttpUrl
@@ -56,14 +57,7 @@ class MockSearchProvider(SearchProvider):
         simulate_timeout: bool = False,
         latency_ms: float = 1.0,
     ) -> None:
-        self._results = results or [
-            SearchHit(
-                title="Mock result",
-                url="https://example.com/mock",
-                snippet="Mock search snippet",
-                score=1.0,
-            )
-        ]
+        self._results = results
         self._behavior = MockBehavior(
             fail_with=fail_with,
             simulate_timeout=simulate_timeout,
@@ -82,7 +76,18 @@ class MockSearchProvider(SearchProvider):
 
     def search(self, request: SearchRequest) -> SearchResponse:
         self._behavior.before_call(operation="search", timeout_seconds=request.timeout_seconds)
-        hits = self._results[: request.max_results]
+        if self._results is not None:
+            hits = self._results[: request.max_results]
+        else:
+            slug = re.sub(r"[^a-z0-9]+", "-", request.query.lower()).strip("-")[:48] or "job"
+            hits = [
+                SearchHit(
+                    title=f"{request.query.title()}",
+                    url=f"https://jobs.example.com/mock/{slug}",
+                    snippet=f"Mock listing for: {request.query}",
+                    score=1.0,
+                )
+            ]
         return SearchResponse(
             results=hits,
             usage=self._behavior.usage(operation="search", unit_type="searches", units=1.0),

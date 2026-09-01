@@ -28,7 +28,10 @@ def test_firecrawl_requires_base_url() -> None:
 
 
 def test_firecrawl_scrape_url_normalizes(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict = {}
+
     def fake_request(**kwargs):
+        captured.update(kwargs.get("json") or {})
         assert kwargs["url"].endswith("/v1/scrape")
         return _FakeResponse(
             200,
@@ -49,6 +52,7 @@ def test_firecrawl_scrape_url_normalizes(monkeypatch: pytest.MonkeyPatch) -> Non
     provider = FirecrawlScraperProvider(base_url="http://localhost:3002")
     page = provider.scrape_url(ScrapeRequest(url="https://example.com/jobs/1"))
     assert isinstance(page, ScrapedPage)
+    assert captured.get("onlyMainContent") is True
     assert page.title == "Role"
     assert "Untrusted" in page.markdown
     assert page.links == ["https://example.com"]
