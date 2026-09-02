@@ -9,6 +9,7 @@ import hashlib
 import logging
 import uuid
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse, urlunparse
 
 from sqlalchemy.exc import IntegrityError
@@ -22,6 +23,7 @@ from database.models.enums import (
     WorkflowTaskStatus,
 )
 from database.models.schema import Company, Job, JobMatch, WorkflowRun, WorkflowTask
+from packages.domain.discovery_lock import DiscoveryLock
 from packages.domain.discovery_logger import DiscoveryFileLogger
 from packages.domain.exceptions import DiscoveryCancelledError, DomainError, NotFoundError
 from packages.domain.extraction_constants import extraction_prefilter_max_chars_for_provider
@@ -29,6 +31,7 @@ from packages.domain.events import UserEventPublisher, UserEventType
 from packages.domain.job_match import JobMatchService
 from packages.domain.job_urls import is_likely_listing_page
 from packages.domain.workflow_cancellation import WorkflowCancellation
+from packages.providers.base import UsageInfo
 from packages.providers.exceptions import ProviderError
 from packages.domain.job_models import ExtractedJob
 from packages.domain.jobs import load_resume_skills
@@ -49,6 +52,11 @@ class DiscoveryResult:
     duplicate_jobs: list[uuid.UUID] = field(default_factory=list)
     skipped_invalid: int = 0
     errors: list[str] = field(default_factory=list)
+    scrapes_fresh: int = 0
+    scrapes_cached: int = 0
+
+
+DEFAULT_SCRAPE_FRESHNESS_DAYS = 14
 
 
 class JobDiscoveryService:
@@ -66,6 +74,8 @@ class JobDiscoveryService:
         max_results: int = 5,
         events: UserEventPublisher | None = None,
         cancellation: WorkflowCancellation | None = None,
+        discovery_lock: DiscoveryLock | None = None,
+        scrape_freshness_days: int = DEFAULT_SCRAPE_FRESHNESS_DAYS,
     ) -> None:
         self._session = session
         self._user_id = user_id
@@ -77,8 +87,11 @@ class JobDiscoveryService:
         self._max_results = max_results
         self._events = events
         self._cancellation = cancellation
+        self._discovery_lock = discovery_lock
+        self._scrape_freshness_days = scrape_freshness_days
         self._url_context: dict[str, dict[str, str]] = {}
         self._file_log: DiscoveryFileLogger | None = None
+        self._current_run_id: uuid.UUID | None = None
 
     def run(
         self,
@@ -126,6 +139,7 @@ class JobDiscoveryService:
             self._session.flush()
 
         result = DiscoveryResult(workflow_run_id=run.id)
+        self._current_run_id = run.id
         self._file_log = DiscoveryFileLogger(run.id)
         self._llm_tasks = LLMTaskService(
             self._llm,
@@ -243,14 +257,28 @@ class JobDiscoveryService:
             logger.error("ERROR discovery run_id=%s error=%s", run.id, exc, exc_info=True)
             self._file_log.log("discovery_failed", error=str(exc), errors=result.errors)
             raise
+        finally:
+            if self._discovery_lock is not None:
+                self._discovery_lock.release(self._user_id)
+            if self._cancellation is not None and self._current_run_id is not None:
+                self._cancellation.clear(self._current_run_id)
         return result
 
     def _ensure_not_cancelled(self, run: WorkflowRun) -> None:
         self._session.refresh(run)
-        if run.status == WorkflowRunStatus.cancelled:
+        if run.status in (WorkflowRunStatus.cancelled, WorkflowRunStatus.cancelling):
+            if run.status == WorkflowRunStatus.cancelling:
+                run.status = WorkflowRunStatus.cancelled
+                metadata = dict(run.metadata_json or {})
+                metadata["cancelled_at"] = datetime.now(timezone.utc).isoformat()
+                run.metadata_json = metadata
+                self._session.flush()
             raise DiscoveryCancelledError("Discovery cancelled by user")
         if self._cancellation is not None and self._cancellation.is_cancelled(run.id):
             run.status = WorkflowRunStatus.cancelled
+            metadata = dict(run.metadata_json or {})
+            metadata["cancelled_at"] = datetime.now(timezone.utc).isoformat()
+            run.metadata_json = metadata
             self._session.flush()
             raise DiscoveryCancelledError("Discovery cancelled by user")
 
@@ -263,6 +291,13 @@ class JobDiscoveryService:
         resume_skills = load_resume_skills(self._session, self._user_id)
         matcher = JobMatchService(self._session, self._user_id)
         for job_id in job_ids:
+            run = (
+                self._session.query(WorkflowRun)
+                .filter(WorkflowRun.id == self._current_run_id)
+                .one_or_none()
+            )
+            if run is not None:
+                self._ensure_not_cancelled(run)
             matcher.upsert_match(job_id, preferences=prefs, resume_skills=resume_skills)
 
     def _search_urls(
@@ -357,10 +392,12 @@ class JobDiscoveryService:
             result.skipped_invalid += 1
             return
 
-        existing = self._session.query(Job).filter(Job.url == url).one_or_none()
-        if existing is not None:
+        existing = self._find_existing_job(url)
+        if existing is not None and self._is_scrape_fresh(existing):
             self._ensure_match(existing.id)
             result.duplicate_jobs.append(existing.id)
+            result.scrapes_cached += 1
+            self._record_scrape_usage(run_id, cached=True)
             return
 
         task = self._start_task(run_id, "ingest_url", {"url": url})
@@ -379,7 +416,7 @@ class JobDiscoveryService:
                     "status": "running",
                 },
             )
-            markdown, content_source = self._scrape_markdown(url)
+            markdown, content_source = self._scrape_markdown(url, run_id)
             self._file_log.log(
                 "scrape_result",
                 url=url,
@@ -417,6 +454,12 @@ class JobDiscoveryService:
                 message="Extracting role, skills, and requirements with AI…",
                 data={"url": url, "content_source": content_source, "status": "running"},
             )
+            run = (
+                self._session.query(WorkflowRun)
+                .filter(WorkflowRun.id == run_id)
+                .one()
+            )
+            self._ensure_not_cancelled(run)
             extracted = self._llm_tasks.extract_job(url=url, scraped_markdown=markdown)
             self._file_log.log(
                 "extract_success",
@@ -424,7 +467,10 @@ class JobDiscoveryService:
                 title=extracted.title,
                 company=extracted.company_name,
             )
-            job = self._persist_extracted(extracted)
+            job = self._persist_extracted(extracted, run_id=run_id, existing=existing)
+            if content_source == "scrape":
+                result.scrapes_fresh += 1
+                self._record_scrape_usage(run_id, cached=False)
             result.created_jobs.append(job.id)
             self._complete_task(
                 task,
@@ -483,7 +529,13 @@ class JobDiscoveryService:
             logger.error("ERROR ingest url=%s error=%s", url, exc, exc_info=True)
             self._file_log.log("ingest_failed", url=url, error=str(exc))
 
-    def _scrape_markdown(self, url: str) -> tuple[str, str]:
+    def _scrape_markdown(self, url: str, run_id: uuid.UUID) -> tuple[str, str]:
+        run = (
+            self._session.query(WorkflowRun)
+            .filter(WorkflowRun.id == run_id)
+            .one()
+        )
+        self._ensure_not_cancelled(run)
         scrape_provider = self._scraper.metadata.name
         try:
             logger.info("FETCH scrape provider=%s url=%s", scrape_provider, url)
@@ -528,17 +580,40 @@ class JobDiscoveryService:
         except Exception:
             return url[:60]
 
-    def _persist_extracted(self, extracted: ExtractedJob) -> Job:
+    def _persist_extracted(
+        self,
+        extracted: ExtractedJob,
+        *,
+        run_id: uuid.UUID | None = None,
+        existing: Job | None = None,
+    ) -> Job:
         url = normalize_job_url(extracted.url)
         if not url:
             raise DomainError("Job URL is required")
 
-        existing = self._session.query(Job).filter(Job.url == url).one_or_none()
+        now = datetime.now(timezone.utc)
+        fingerprint = job_fingerprint(extracted)
+
+        if existing is None:
+            existing = self._session.query(Job).filter(Job.url == url).one_or_none()
+        if existing is None:
+            existing = self._find_job_by_fingerprint(fingerprint)
+
         if existing is not None:
+            company = self._get_or_create_company(extracted.company_name)
+            details = extracted.model_dump(mode="json")
+            details["fingerprint"] = fingerprint
+            existing.title = extracted.title or existing.title
+            existing.description = extracted.description or existing.description
+            existing.company_id = company.id
+            existing.details = details
+            existing.last_scraped_at = now
+            if run_id is not None:
+                existing.discovery_run_id = run_id
+            self._session.flush()
             self._ensure_match(existing.id)
             return existing
 
-        fingerprint = job_fingerprint(extracted)
         if extracted.external_id:
             by_ext = (
                 self._session.query(Job)
@@ -561,6 +636,8 @@ class JobDiscoveryService:
             external_id=extracted.external_id or fingerprint,
             description=extracted.description,
             details=details,
+            last_scraped_at=now,
+            discovery_run_id=run_id,
         )
         try:
             with self._session.begin_nested():
@@ -580,6 +657,46 @@ class JobDiscoveryService:
 
         self._ensure_match(job.id)
         return job
+
+    def _find_existing_job(self, url: str) -> Job | None:
+        normalized = normalize_job_url(url)
+        row = self._session.query(Job).filter(Job.url == normalized).one_or_none()
+        return row
+
+    def _find_job_by_fingerprint(self, fingerprint: str) -> Job | None:
+        rows = self._session.query(Job).all()
+        for row in rows:
+            details = row.details if isinstance(row.details, dict) else {}
+            if details.get("fingerprint") == fingerprint:
+                return row
+        return None
+
+    def _is_scrape_fresh(self, job: Job) -> bool:
+        if job.last_scraped_at is None:
+            return False
+        cutoff = datetime.now(timezone.utc) - timedelta(days=self._scrape_freshness_days)
+        scraped_at = job.last_scraped_at
+        if scraped_at.tzinfo is None:
+            scraped_at = scraped_at.replace(tzinfo=timezone.utc)
+        return scraped_at >= cutoff
+
+    def _record_scrape_usage(self, run_id: uuid.UUID, *, cached: bool) -> None:
+        usage = ProviderUsageService(self._session)
+        usage.record(
+            context=ProviderUsageContext(
+                user_id=self._user_id,
+                workflow_run_id=run_id,
+            ),
+            provider_name=self._scraper.metadata.name,
+            operation="scrape_cached" if cached else "scrape",
+            usage=UsageInfo(
+                operation="scrape_cached" if cached else "scrape",
+                unit_type="requests",
+                units=1.0,
+                extra={"cached": cached},
+            ),
+            success=True,
+        )
 
     def _get_or_create_company(self, name: str | None) -> Company:
         cleaned = (name or "").strip() or "Unknown Company"

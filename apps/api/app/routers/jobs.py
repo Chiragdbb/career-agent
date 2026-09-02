@@ -4,7 +4,13 @@ from uuid import UUID
 
 from fastapi import APIRouter
 
-from app.dependencies import CurrentUserIdDep, DbSessionDep, DiscoveryTaskClientDep, EventPublisherDep
+from app.dependencies import (
+    CurrentUserIdDep,
+    DbSessionDep,
+    DiscoveryTaskClientDep,
+    EventPublisherDep,
+    RedisDep,
+)
 from app.schemas.jobs import (
     DiscoverJobsRequest,
     DiscoverJobsResponse,
@@ -15,6 +21,7 @@ from app.schemas.jobs import (
     ScoreBreakdownResponse,
     WorkflowRunResponse,
 )
+from packages.domain.discovery_lock import DiscoveryLock
 from packages.domain.career_workflow import CareerWorkflowService, CareerWorkflowStart
 from packages.domain.jobs import DiscoveryTriggerService, JobListingService
 from packages.domain.dashboard import DashboardService
@@ -41,6 +48,7 @@ def _to_summary(row) -> JobMatchSummaryResponse:
         location=row.location,
         work_arrangement=row.work_arrangement,
         url=row.url,
+        is_new=row.is_new,
     )
 
 
@@ -70,6 +78,7 @@ def _to_detail(row) -> JobMatchDetailResponse:
         description=row.description,
         job_skills=row.job_skills,
         matched_skills=row.matched_skills,
+        possible_matches=row.possible_matches,
         missing_skills=row.missing_skills,
         score_breakdown=breakdown,
         explanation=row.explanation,
@@ -84,8 +93,9 @@ def discover_jobs(
     user_id: CurrentUserIdDep,
     task_client: DiscoveryTaskClientDep,
     events: EventPublisherDep,
+    redis_client: RedisDep,
 ) -> DiscoverJobsResponse:
-    trigger = DiscoveryTriggerService(session, user_id)
+    trigger = DiscoveryTriggerService(session, user_id, discovery_lock=DiscoveryLock(redis_client))
     queued = trigger.enqueue(
         idempotency_key=body.idempotency_key,
         max_results=body.max_results,
@@ -189,6 +199,31 @@ def get_job_workspace(
 ) -> dict:
     workspace = DashboardService(session, user_id).get_job_workspace(match_id)
     return workspace.model_dump(mode="json")
+
+
+@router.post("/{match_id}/rescrape", response_model=JobMatchDetailResponse)
+def rescrape_job(
+    match_id: UUID,
+    session: DbSessionDep,
+    user_id: CurrentUserIdDep,
+) -> JobMatchDetailResponse:
+    from packages.domain.job_rescrape import JobRescrapeService
+    from packages.domain.llm_tasks import LLMTaskService
+    from packages.providers.factory import create_extraction_llm_provider, create_llm_provider, create_scraper_provider
+
+    llm = create_llm_provider()
+    extraction_llm = create_extraction_llm_provider()
+    service = JobRescrapeService(
+        session,
+        user_id,
+        scraper=create_scraper_provider(),
+        llm_tasks=LLMTaskService(llm, extraction_llm=extraction_llm),
+    )
+    service.rescrape(match_id)
+    listing = _listing(session, user_id)
+    listing.rescore_match(match_id)
+    row = listing.get_match_detail(match_id)
+    return _to_detail(row)
 
 
 @router.post("/{match_id}/score", response_model=JobMatchDetailResponse)

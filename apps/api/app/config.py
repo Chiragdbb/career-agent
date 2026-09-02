@@ -20,6 +20,10 @@ class Settings(BaseSettings):
     app_name: str = Field(default="career-agent-api", alias="APP_NAME")
     app_env: str = Field(default="development", alias="APP_ENV")
     api_v1_prefix: str = Field(default="/api/v1", alias="API_V1_PREFIX")
+    job_scrape_freshness_days: int = Field(default=14, alias="JOB_SCRAPE_FRESHNESS_DAYS")
+    skill_embed_high_threshold: float = Field(default=0.85, alias="SKILL_EMBED_HIGH_THRESHOLD")
+    skill_embed_low_threshold: float = Field(default=0.7, alias="SKILL_EMBED_LOW_THRESHOLD")
+    skill_possible_weight: float = Field(default=0.5, alias="SKILL_POSSIBLE_WEIGHT")
 
     # Comma-separated browser origins allowed to call the API (CORS).
     # Example: https://career-agent.in,https://www.career-agent.in

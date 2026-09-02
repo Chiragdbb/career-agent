@@ -56,7 +56,7 @@ export function formatEventDetail(payload?: Record<string, unknown>): string | n
   return parts.length > 0 ? parts.join(" · ") : null;
 }
 
-const ACTIVE_STATUSES = new Set(["queued", "running"]);
+const ACTIVE_STATUSES = new Set(["queued", "running", "cancelling"]);
 
 export function isActiveWorkflow(status: string): boolean {
   return ACTIVE_STATUSES.has(status.toLowerCase());
@@ -68,7 +68,7 @@ export function workflowStatusVariant(
   const s = status.toLowerCase();
   if (s === "completed") return "success";
   if (s === "failed" || s === "cancelled") return "error";
-  if (s === "running") return "primary";
+  if (s === "running" || s === "cancelling") return "primary";
   if (s === "queued") return "warning";
   return "default";
 }

@@ -45,8 +45,43 @@ def auth_client(static_jwt_verifier):
     from app.config import get_settings
     from app.dependencies import get_storage_provider
     from app.main import create_app
+    from app.redis import get_redis
     from app.tasks import InlineDiscoveryTaskClient
     from packages.providers.storage import MockStorageProvider
+
+    class FakeRedis:
+        def __init__(self) -> None:
+            self._store: dict[str, str] = {}
+
+        def set(self, name: str, value: str, nx: bool = False, ex: int | None = None) -> bool:
+            if nx and name in self._store:
+                return False
+            self._store[name] = value
+            return True
+
+        def get(self, name: str) -> str | None:
+            return self._store.get(name)
+
+        def delete(self, name: str) -> int:
+            if name in self._store:
+                del self._store[name]
+                return 1
+            return 0
+
+        def setex(self, name: str, time: int, value: str) -> None:
+            self._store[name] = value
+
+        def publish(self, channel: str, message: str) -> int:
+            return 0
+
+        def pubsub(self, **kwargs):
+            class _PubSub:
+                def subscribe(self, *args, **kwargs): ...
+                def listen(self): return iter(())
+                def unsubscribe(self, *args, **kwargs): ...
+                def close(self): ...
+
+            return _PubSub()
 
     settings = get_settings()
     app = create_app(settings)
@@ -54,7 +89,9 @@ def auth_client(static_jwt_verifier):
     app.state.discovery_task_client = InlineDiscoveryTaskClient()
     storage = MockStorageProvider()
     app.state.storage_provider = storage
+    fake_redis = FakeRedis()
     app.dependency_overrides[get_storage_provider] = lambda: storage
+    app.dependency_overrides[get_redis] = lambda: fake_redis
 
     with TestClient(app) as client:
         client.mock_storage = storage  # type: ignore[attr-defined]

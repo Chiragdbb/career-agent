@@ -20,6 +20,7 @@ from packages.domain.extraction_constants import (
 )
 from packages.domain.provider_usage import ProviderUsageContext, ProviderUsageService
 from packages.domain.preference_parse_models import PreferenceParseDraft
+from packages.domain.job_extraction_schema import job_extraction_json_schema
 from packages.domain.job_models import ExtractedJob
 from packages.providers.base import UsageInfo
 from packages.providers.exceptions import (

@@ -1,4 +1,4 @@
-"""Deterministic job matching against user preferences (no embeddings)."""
+"""Job matching against user preferences with tiered skill alignment."""
 
 from __future__ import annotations
 
@@ -15,6 +15,8 @@ from packages.domain.preferences import (
     PreferencesService,
     WorkArrangement,
 )
+from packages.domain.skill_match import SkillMatchService
+from packages.providers.embedding import EmbeddingProvider
 
 
 @dataclass(frozen=True)
@@ -48,10 +50,20 @@ class JobMatchService:
         user_id: uuid.UUID,
         *,
         weights: MatchWeights | None = None,
+        embedding: EmbeddingProvider | None = None,
+        skill_high_threshold: float = 0.85,
+        skill_low_threshold: float = 0.7,
+        skill_possible_weight: float = 0.5,
     ) -> None:
         self._session = session
         self._user_id = user_id
         self._weights = weights or MatchWeights()
+        self._skill_matcher = SkillMatchService(
+            embedding,
+            high_threshold=skill_high_threshold,
+            low_threshold=skill_low_threshold,
+        )
+        self._skill_possible_weight = skill_possible_weight
 
     def score_job(
         self,
@@ -67,7 +79,7 @@ class JobMatchService:
         work = str(details.get("work_arrangement") or "").lower()
         seniority = str(details.get("seniority") or "").lower()
         job_skills = [
-            str(s).lower()
+            str(s).strip()
             for s in (details.get("skills") or [])
             if isinstance(s, str) and s.strip()
         ]
@@ -93,7 +105,15 @@ class JobMatchService:
             preferences.salary_currency,
             notes,
         )
-        skills_score = _skills_score(job_skills, resume_skills or [], notes)
+        skill_alignment = self._skill_matcher.align(job_skills, resume_skills or [])
+        skills_score = self._skill_matcher.skills_score(
+            skill_alignment,
+            possible_weight=self._skill_possible_weight,
+        )
+        if not job_skills:
+            notes.append("missing_skills")
+        if not resume_skills:
+            notes.append("no_resume_skills")
         seniority_score = _seniority_score(seniority, preferences.seniority)
 
         if not location and not work:
@@ -139,6 +159,18 @@ class JobMatchService:
             company_name=company.name if company else None,
             resume_skills=resume_skills,
         )
+        details = job.details if isinstance(job.details, dict) else {}
+        job_skills = [
+            str(s).strip()
+            for s in (details.get("skills") or [])
+            if isinstance(s, str) and s.strip()
+        ]
+        skill_alignment = self._skill_matcher.align(job_skills, resume_skills or [])
+        alignment_payload = {
+            "matched": skill_alignment.matched,
+            "possible": skill_alignment.possible,
+            "missing": skill_alignment.missing,
+        }
 
         row = (
             self._session.query(JobMatch)
@@ -161,11 +193,13 @@ class JobMatchService:
                 status=JobMatchStatus.new,
                 score=breakdown.total,
                 fit_summary=summary,
+                skill_alignment=alignment_payload,
             )
             self._session.add(row)
         else:
             row.score = breakdown.total
             row.fit_summary = summary
+            row.skill_alignment = alignment_payload
         self._session.commit()
         self._session.refresh(row)
         return row

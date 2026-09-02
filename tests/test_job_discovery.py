@@ -119,6 +119,38 @@ def test_discovery_creates_job_and_is_idempotent(discovery_user) -> None:
     assert len(jobs) == 1
 
 
+def test_discovery_skips_fresh_scrape_on_second_run(discovery_user) -> None:
+    session, user = discovery_user
+    url = f"https://jobs.example.com/fresh-{uuid.uuid4()}"
+    search = MockSearchProvider(
+        results=[SearchHit(title="Backend", url=url, snippet="Acme", score=1.0)]
+    )
+    scrape_calls = {"count": 0}
+
+    class CountingScraper(MockScraperProvider):
+        def scrape_url(self, request):
+            scrape_calls["count"] += 1
+            return super().scrape_url(request)
+
+    scraper = CountingScraper(
+        pages=[ScrapedPage(url=url, title="Backend", markdown="# Backend Engineer at Acme")]
+    )
+    llm = MockLLMProvider(content=_job_json(url=url))
+    prefs = PreferenceSettings(target_roles=["Backend Engineer"], locations=["Remote"])
+
+    first = JobDiscoveryService(
+        session, user.id, search=search, scraper=scraper, llm=llm, max_results=3
+    ).run(preferences=prefs)
+    assert len(first.created_jobs) == 1
+    assert scrape_calls["count"] == 1
+
+    second = JobDiscoveryService(
+        session, user.id, search=search, scraper=scraper, llm=llm, max_results=3
+    ).run(preferences=prefs)
+    assert first.created_jobs[0] in second.duplicate_jobs
+    assert scrape_calls["count"] == 1
+
+
 def test_discovery_skips_malformed_llm(discovery_user) -> None:
     session, user = discovery_user
     url = f"https://jobs.example.com/bad-{uuid.uuid4()}"
