@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { useProcessActivity } from "@/hooks/useProcessActivity";
 import { apiFetch } from "@/lib/api";
 import { SegmentedTabs } from "@/components/ui/SegmentedTabs";
 import { createClient } from "@/lib/supabase/client";
@@ -26,6 +27,7 @@ type JobMatchSummary = {
   location: string | null;
   work_arrangement: string | null;
   url: string | null;
+  is_new?: boolean;
 };
 
 const tabs = ["All", "Saved", "New", "High Match", "Applied", "Dismissed"] as const;
@@ -39,7 +41,10 @@ export default function JobsPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [jobs, setJobs] = useState<JobMatchSummary[]>([]);
   const [activeTab, setActiveTab] = useState<(typeof tabs)[number]>("All");
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [activeDiscoveryRunId, setActiveDiscoveryRunId] = useState<string | null>(null);
+  const { activeRuns } = useProcessActivity();
+  const activeDiscovery = activeRuns.find((run) => run.workflow_type === "job_discovery");
+  const discoveryBlocked = Boolean(activeDiscoveryRunId || activeDiscovery);
 
   const loadJobs = useCallback(async (includeDismissed = false) => {
     const qs = includeDismissed ? "?include_dismissed=true" : "";
@@ -121,6 +126,10 @@ export default function JobsPage() {
 
   async function onDiscover(event: FormEvent) {
     event.preventDefault();
+    if (discoveryBlocked) {
+      window.dispatchEvent(new CustomEvent("activity-bar:expand"));
+      return;
+    }
     setDiscovering(true);
     setError(null);
     setMessage(null);
@@ -129,6 +138,13 @@ export default function JobsPage() {
         method: "POST",
         body: JSON.stringify({ max_results: 5 }),
       });
+      if (response.status === 409) {
+        const body = await response.json().catch(() => null);
+        const runId = body?.error?.details?.workflow_run_id as string | undefined;
+        if (runId) setActiveDiscoveryRunId(runId);
+        window.dispatchEvent(new CustomEvent("activity-bar:expand"));
+        return;
+      }
       if (!response.ok) {
         const body = await response.json().catch(() => null);
         throw new Error(body?.error?.message || `API ${response.status}`);
@@ -217,8 +233,17 @@ export default function JobsPage() {
             onSubmit={(e) => void onDiscover(e)}
             className="w-full sm:w-auto"
           >
-            <Button type="submit" disabled={discovering || acting} className="w-full sm:w-auto">
-              {discovering ? "Starting…" : "Discover More"}
+            <Button
+              type="submit"
+              disabled={discovering || acting}
+              title={discoveryBlocked ? "Discovery already running" : undefined}
+              className="w-full sm:w-auto"
+            >
+              {discoveryBlocked
+                ? "Discovery already running"
+                : discovering
+                  ? "Starting…"
+                  : "Discover More"}
             </Button>
           </form>
         }
@@ -309,6 +334,11 @@ export default function JobsPage() {
                         .join(" · ")}
                     </p>
                     <div className="mt-2 flex items-center gap-2">
+                      {job.is_new ? (
+                        <Badge variant="primary" className="text-[10px]">
+                          New
+                        </Badge>
+                      ) : null}
                       <Badge variant="default" className="capitalize">
                         {job.status}
                       </Badge>

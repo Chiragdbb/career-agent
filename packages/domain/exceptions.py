@@ -21,3 +21,11 @@ class NotFoundError(DomainError):
 
 class DiscoveryCancelledError(DomainError):
     """Discovery workflow was cancelled by the user."""
+
+
+class ConflictError(DomainError):
+    """Request conflicts with current state (e.g. discovery already running)."""
+
+    def __init__(self, message: str, *, details: dict | None = None) -> None:
+        super().__init__(message)
+        self.details = details or {}

@@ -28,12 +28,14 @@ class JobMatchSummaryResponse(BaseModel):
     location: str | None = None
     work_arrangement: str | None = None
     url: str | None = None
+    is_new: bool = False
 
 
 class JobMatchDetailResponse(JobMatchSummaryResponse):
     description: str | None = None
     job_skills: list[str] = Field(default_factory=list)
     matched_skills: list[str] = Field(default_factory=list)
+    possible_matches: list[str] = Field(default_factory=list)
     missing_skills: list[str] = Field(default_factory=list)
     score_breakdown: ScoreBreakdownResponse | None = None
     explanation: str | None = None

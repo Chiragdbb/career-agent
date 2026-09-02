@@ -11,6 +11,7 @@ from app.schemas import ErrorDetail, ErrorResponse
 from packages.domain.exceptions import (
     AuthenticationError,
     AuthorizationError,
+    ConflictError,
     DomainError,
     NotFoundError,
 )
@@ -77,6 +78,18 @@ def register_exception_handlers(app: FastAPI) -> None:
             status_code=404,
             code="not_found",
             message=str(exc) or "Not found",
+        )
+
+    @app.exception_handler(ConflictError)
+    async def conflict_error_handler(
+        request: Request, exc: ConflictError
+    ) -> JSONResponse:
+        return _error_response(
+            request,
+            status_code=409,
+            code="conflict",
+            message=str(exc) or "Conflict",
+            details=exc.details or None,
         )
 
     @app.exception_handler(DomainError)

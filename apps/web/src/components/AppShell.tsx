@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 
 import { AppSidebar, type NavKey } from "@/components/AppSidebar";
+import { NotificationBell } from "@/components/NotificationBell";
 import { ActivityBar } from "@/components/ActivityBar";
 import { TrailMark } from "@/components/ui/Illustrations";
 import { cn } from "@/lib/cn";
@@ -90,7 +91,10 @@ function AppShellInner({
             className,
           )}
         >
-          {!hideActivityBar ? <ActivityBar /> : null}
+          <div className="mb-4 flex items-center justify-end gap-3">
+            <NotificationBell />
+            {!hideActivityBar ? <ActivityBar className="mb-0" /> : null}
+          </div>
           {children}
         </main>
       </div>

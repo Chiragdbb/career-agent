@@ -132,7 +132,37 @@ def test_user_a_cannot_access_user_b_job_match(auth_client, user_b_resources) ->
     assert response.status_code == 404
 
 
+def _cleanup_active_discovery_for_user_a() -> None:
+    from database.models.enums import WorkflowRunStatus
+    from database.models.schema import User, WorkflowRun
+
+    session = _session()
+    try:
+        user = session.query(User).filter(User.auth_subject == "supabase-user-a").one_or_none()
+        if user is None:
+            return
+        (
+            session.query(WorkflowRun)
+            .filter(
+                WorkflowRun.user_id == user.id,
+                WorkflowRun.workflow_type == "job_discovery",
+                WorkflowRun.status.in_(
+                    (
+                        WorkflowRunStatus.queued,
+                        WorkflowRunStatus.running,
+                        WorkflowRunStatus.cancelling,
+                    )
+                ),
+            )
+            .update({WorkflowRun.status: WorkflowRunStatus.cancelled}, synchronize_session=False)
+        )
+        session.commit()
+    finally:
+        session.close()
+
+
 def test_discover_jobs_queues_and_runs_inline(auth_client, monkeypatch) -> None:
+    _cleanup_active_discovery_for_user_a()
     from packages.domain.job_discovery import DiscoveryResult
     from packages.providers.llm import MockLLMProvider
     from packages.providers.scraper import MockScraperProvider, ScrapedPage
@@ -217,7 +247,76 @@ def test_discover_jobs_queues_and_runs_inline(auth_client, monkeypatch) -> None:
         session.close()
 
 
+def test_concurrent_discover_returns_409(auth_client, monkeypatch) -> None:
+    _cleanup_active_discovery_for_user_a()
+    import threading
+    import time
+    from packages.domain.job_discovery import JobDiscoveryService
+    from packages.providers.llm import MockLLMProvider
+    from packages.providers.scraper import MockScraperProvider
+    from packages.providers.search import MockSearchProvider
+
+    barrier = threading.Event()
+
+    def slow_run(user_id, workflow_run_id, max_results):
+        from app.database import get_session_factory, init_db
+        from packages.domain.discovery_lock import DiscoveryLock
+        from packages.domain.preferences import PreferenceSettings
+
+        init_db()
+        session = get_session_factory()()
+        try:
+            barrier.wait(timeout=5)
+            time.sleep(0.5)
+            service = JobDiscoveryService(
+                session,
+                user_id,
+                search=MockSearchProvider(results=[]),
+                scraper=MockScraperProvider(),
+                llm=MockLLMProvider(content="{}"),
+                max_results=max_results,
+            )
+            return service.run(
+                workflow_run_id=workflow_run_id,
+                preferences=PreferenceSettings(),
+            )
+        finally:
+            session.close()
+
+    monkeypatch.setattr("workers.discovery.tasks._run_discovery", slow_run)
+
+    headers = {"Authorization": "Bearer token-user-a"}
+    first = auth_client.post(
+        "/api/v1/jobs/discover",
+        headers=headers,
+        json={"max_results": 1, "idempotency_key": f"concurrent-{uuid.uuid4()}"},
+    )
+    assert first.status_code == 202
+    barrier.set()
+    second = auth_client.post(
+        "/api/v1/jobs/discover",
+        headers=headers,
+        json={"max_results": 1, "idempotency_key": f"concurrent2-{uuid.uuid4()}"},
+    )
+    assert second.status_code == 409
+    body = second.json()
+    assert body["error"]["details"]["workflow_run_id"] == first.json()["workflow_run_id"]
+
+    session = _session()
+    try:
+        runs = session.query(WorkflowRun).filter(
+            WorkflowRun.workflow_type == "job_discovery",
+            WorkflowRun.id.in_([
+                uuid.UUID(first.json()["workflow_run_id"]),
+            ]),
+        ).all()
+        assert len(runs) == 1
+    finally:
+        session.close()
+
+
 def test_discover_idempotency_returns_same_run(auth_client) -> None:
+    _cleanup_active_discovery_for_user_a()
     key = f"idempotent-{uuid.uuid4()}"
     headers = {"Authorization": "Bearer token-user-a"}
 

@@ -64,7 +64,11 @@ class WorkflowObservabilityService:
         if active_only:
             query = query.filter(
                 WorkflowRun.status.in_(
-                    (WorkflowRunStatus.queued, WorkflowRunStatus.running)
+                    (
+                        WorkflowRunStatus.queued,
+                        WorkflowRunStatus.running,
+                        WorkflowRunStatus.cancelling,
+                    )
                 )
             )
         rows = query.order_by(WorkflowRun.created_at.desc()).limit(limit).all()

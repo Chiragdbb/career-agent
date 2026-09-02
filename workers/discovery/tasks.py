@@ -46,9 +46,11 @@ def _run_discovery(user_id: uuid.UUID, workflow_run_id: uuid.UUID, max_results: 
             llm=create_llm_provider(settings),
             extraction_llm=create_extraction_llm_provider(settings),
             max_results=max_results,
-            events=events,
-            cancellation=cancellation,
-        )
+        events=events,
+        cancellation=cancellation,
+        discovery_lock=_discovery_lock(),
+        scrape_freshness_days=_scrape_freshness_days(),
+    )
         result = service.run(workflow_run_id=workflow_run_id)
         logger.info(
             "discovery_complete user=%s run=%s created=%d duplicates=%d skipped=%d",
@@ -89,6 +91,26 @@ def _workflow_cancellation() -> WorkflowCancellation | None:
     except Exception:
         logger.warning("workflow_cancellation_unavailable", exc_info=True)
         return None
+
+
+def _discovery_lock() -> DiscoveryLock | None:
+    try:
+        from app.redis import get_redis
+        from packages.domain.discovery_lock import DiscoveryLock
+
+        return DiscoveryLock(get_redis())
+    except Exception:
+        logger.warning("discovery_lock_unavailable", exc_info=True)
+        return None
+
+
+def _scrape_freshness_days() -> int:
+    try:
+        from app.config import get_settings
+
+        return get_settings().job_scrape_freshness_days
+    except Exception:
+        return 14
 
 
 @celery_app.task(

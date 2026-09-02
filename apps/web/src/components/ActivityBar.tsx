@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Brain,
@@ -318,6 +319,12 @@ export function ActivityBar({ className, inline = false }: { className?: string;
   const { activeRuns, events, loading } = useProcessActivity();
   const [expanded, setExpanded] = useState(false);
 
+  useEffect(() => {
+    const handler = () => setExpanded(true);
+    window.addEventListener("activity-bar:expand", handler);
+    return () => window.removeEventListener("activity-bar:expand", handler);
+  }, []);
+
   const discoveryRuns = useMemo(
     () => activeRuns.filter(isJobDiscoveryRun),
     [activeRuns],
@@ -336,6 +343,7 @@ export function ActivityBar({ className, inline = false }: { className?: string;
     <div className={cn("relative", !inline && "mb-4", className)}>
       <button
         type="button"
+        data-activity-bar
         onClick={() => setExpanded((v) => !v)}
         className="inline-flex items-center gap-2 rounded-full border border-line bg-paper-raised px-3 py-1.5 text-[12.5px] font-medium text-foreground"
       >
@@ -413,6 +421,11 @@ export function ActivityBar({ className, inline = false }: { className?: string;
               </ul>
             </section>
           ) : null}
+          <div className="border-t border-border pt-2">
+            <Link href="/activity" className="text-xs font-medium text-gold hover:underline">
+              View full activity log →
+            </Link>
+          </div>
         </div>
       ) : null}
     </div>
