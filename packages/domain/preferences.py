@@ -73,6 +73,7 @@ class PreferenceSettings(BaseModel):
     locations: list[str] = Field(default_factory=list)
     work_arrangements: list[WorkArrangement] = Field(default_factory=list)
     minimum_salary: int | None = None
+    salary_currency: str = Field(default="USD")
     seniority: list[SeniorityLevel] = Field(default_factory=list)
     industries: list[str] = Field(default_factory=list)
     company_sizes: list[CompanySize] = Field(default_factory=list)
@@ -112,6 +113,14 @@ class PreferenceSettings(BaseModel):
         if value is not None and value < 0:
             raise ValueError("minimum_salary must be non-negative")
         return value
+
+    @field_validator("salary_currency")
+    @classmethod
+    def validate_salary_currency(cls, value: str) -> str:
+        cleaned = (value or "USD").strip().upper()
+        if len(cleaned) != 3 or not cleaned.isalpha():
+            raise ValueError("salary_currency must be a 3-letter ISO code")
+        return cleaned
 
     @field_validator("notification_email")
     @classmethod

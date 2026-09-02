@@ -85,7 +85,14 @@ class JobMatchService:
         role_score = _role_score(title, preferences.target_roles)
         location_score = _location_score(location, work, preferences.locations)
         arrangement_score = _arrangement_score(work, preferences.work_arrangements)
-        salary_score = _salary_score(salary_ceiling, preferences.minimum_salary, notes)
+        job_currency = details.get("currency")
+        salary_score = _salary_score(
+            salary_ceiling,
+            preferences.minimum_salary,
+            str(job_currency) if job_currency is not None else None,
+            preferences.salary_currency,
+            notes,
+        )
         skills_score = _skills_score(job_skills, resume_skills or [], notes)
         seniority_score = _seniority_score(seniority, preferences.seniority)
 
@@ -205,13 +212,22 @@ def _arrangement_score(work: str, preferred: list[WorkArrangement]) -> float:
 
 
 def _salary_score(
-    salary_ceiling: int | None, minimum_salary: int | None, notes: list[str]
+    salary_ceiling: int | None,
+    minimum_salary: int | None,
+    job_currency: str | None,
+    user_currency: str | None,
+    notes: list[str],
 ) -> float:
     if minimum_salary is None:
         return 0.5
     if salary_ceiling is None:
         notes.append("missing_salary")
         return 0.0
+    user_cur = (user_currency or "USD").upper()
+    job_cur = (job_currency or "").strip().upper()
+    if job_cur and job_cur != user_cur:
+        notes.append("currency_mismatch")
+        return 0.5
     if salary_ceiling >= minimum_salary:
         return 1.0
     # Partial credit if within 15%.

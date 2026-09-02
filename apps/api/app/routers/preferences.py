@@ -2,8 +2,14 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from app.dependencies import CurrentUserIdDep, DbSessionDep
-from app.schemas.preferences import PreferencesResponse, PreferencesUpdateRequest
+from app.dependencies import CurrentUserIdDep, DbSessionDep, LlmTaskServiceDep
+from app.schemas.preferences import (
+    ParsePreferencesRequest,
+    ParsePreferencesResponse,
+    PreferencesResponse,
+    PreferencesUpdateRequest,
+)
+from packages.domain.preference_parse import PreferenceParseService
 from packages.domain.preferences import PreferencesService
 
 router = APIRouter(prefix="/preferences", tags=["preferences"])
@@ -41,4 +47,20 @@ def update_preferences(
         settings=body.settings,
         created_at=row.created_at,
         updated_at=row.updated_at,
+    )
+
+
+@router.post("/parse-prompt", response_model=ParsePreferencesResponse)
+def parse_preferences_prompt(
+    body: ParsePreferencesRequest,
+    llm_tasks: LlmTaskServiceDep,
+    _user_id: CurrentUserIdDep,
+) -> ParsePreferencesResponse:
+    result = PreferenceParseService(llm_tasks).parse_prompt(
+        body.prompt.strip(),
+        locale_hint=body.locale_hint,
+    )
+    return ParsePreferencesResponse(
+        settings=result.settings,
+        unparsed_notes=result.unparsed_notes,
     )

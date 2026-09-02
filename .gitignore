@@ -75,3 +75,6 @@ Desktop.ini
 # Local notes and scratch
 *.local
 scratch/
+
+# Superpowers agent specs/plans (local design docs)
+docs/superpowers/

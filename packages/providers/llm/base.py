@@ -108,6 +108,8 @@ class MockLLMProvider(LLMProvider):
         user = next((m.content for m in request.messages if m.role == "user"), "")
         if "Extract structured job" in system and self._content == self._DEFAULT_CONTENT:
             return self._mock_extract_job_json(user)
+        if "Extract job-search preference" in system and self._content == self._DEFAULT_CONTENT:
+            return self._mock_parse_preferences_json(user)
         return self._content
 
     @staticmethod
@@ -125,5 +127,51 @@ class MockLLMProvider(LLMProvider):
             "skills": ["Python", "TypeScript", "PostgreSQL"],
             "url": url,
             "description": "Mock job posting generated for local development.",
+        }
+        return json.dumps(payload)
+
+    @staticmethod
+    def _mock_parse_preferences_json(user_content: str) -> str:
+        try:
+            payload_in = json.loads(user_content)
+            prompt = str(payload_in.get("prompt") or "").lower()
+            locale_currency = str(payload_in.get("default_currency_if_unspecified") or "USD")
+        except json.JSONDecodeError:
+            prompt = user_content.lower()
+            locale_currency = "USD"
+
+        roles: list[str] = []
+        if "backend" in prompt:
+            roles.append("Backend Engineer")
+        elif "engineer" in prompt:
+            roles.append("Software Engineer")
+
+        locations: list[str] = []
+        if "remote" in prompt:
+            locations.append("Remote")
+        if "new york" in prompt or "nyc" in prompt:
+            locations.append("New York, NY")
+
+        minimum_salary: int | None = None
+        salary_match = re.search(r"\$?\s*(\d{2,3})(?:,(\d{3}))?\s*k?", prompt)
+        if salary_match:
+            base = int(salary_match.group(1))
+            suffix = salary_match.group(2)
+            if suffix:
+                minimum_salary = base * 1000 + int(suffix)
+            elif "k" in prompt[salary_match.start() : salary_match.end() + 2]:
+                minimum_salary = base * 1000
+            else:
+                minimum_salary = base * 1000 if base < 1000 else base
+
+        payload = {
+            "target_roles": roles,
+            "locations": locations,
+            "work_arrangements": ["remote"] if "remote" in prompt else [],
+            "minimum_salary": minimum_salary,
+            "salary_currency": locale_currency if minimum_salary else None,
+            "seniority": ["senior"] if "senior" in prompt else [],
+            "industries": ["Fintech"] if "fintech" in prompt else [],
+            "unparsed_notes": [] if roles else ["Could not infer target roles"],
         }
         return json.dumps(payload)
