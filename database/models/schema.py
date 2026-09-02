@@ -280,6 +280,13 @@ class Job(UUIDMixin, TimestampMixin, Base):
     description = sa.Column(sa.Text)
     details = sa.Column(sa.dialects.postgresql.JSONB)
     posted_at = sa.Column(sa.DateTime(timezone=True))
+    last_scraped_at = sa.Column(sa.DateTime(timezone=True))
+    discovery_run_id = sa.Column(
+        PG_UUID(as_uuid=True),
+        sa.ForeignKey("workflow_runs.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
 
     __table_args__ = (
         sa.UniqueConstraint("url", name="uq_jobs_url"),
@@ -313,6 +320,7 @@ class JobMatch(UUIDMixin, TimestampMixin, Base):
     rank = sa.Column(sa.Integer)
     fit_summary = sa.Column(sa.Text)
     decision_note = sa.Column(sa.Text)
+    skill_alignment = sa.Column(sa.dialects.postgresql.JSONB)
 
     __table_args__ = (
         sa.UniqueConstraint("user_id", "job_id", name="uq_job_matches_user_job"),

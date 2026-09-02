@@ -1,3 +1,4 @@
+from app.routers.activity import router as activity_router
 from app.routers.applications import router as applications_router
 from app.routers.contacts import router as contacts_router
 from app.routers.dashboard import router as dashboard_router
@@ -18,6 +19,7 @@ from app.routers.resumes import router as resumes_router
 from app.routers.workflows import router as workflows_router
 
 __all__ = [
+    "activity_router",
     "analytics_router",
     "applications_router",
     "contacts_router",

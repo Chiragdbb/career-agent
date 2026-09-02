@@ -40,7 +40,7 @@ export default function PreferencesPage() {
   });
   const [targetRolesText, setTargetRolesText] = useState("");
   const [locationsText, setLocationsText] = useState("");
-  const [industriesText, setIndustriesText] = useState("");
+  const [showDiscoverCta, setShowDiscoverCta] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -124,6 +124,7 @@ export default function PreferencesPage() {
       setLocationsText(joinList(merged.locations));
       setIndustriesText(joinList(merged.industries));
       setSuccess("Preferences saved.");
+      setShowDiscoverCta(true);
       setPhase("wizard");
     } catch (err) {
       setError(
@@ -206,38 +207,50 @@ export default function PreferencesPage() {
       />
 
       {error ? <p className="mb-4 text-sm text-destructive">{error}</p> : null}
-      {success ? <p className="mb-4 text-sm text-primary">{success}</p> : null}
-
-      {loading ? (
-        <p className="text-sm text-muted-foreground">Loading…</p>
-      ) : phase === "prompt" ? (
-        <Card>
-          <div className="space-y-4">
-            <label className="block text-sm">
-              <span className="font-medium text-foreground">
-                What kind of roles are you looking for?
-              </span>
-              <textarea
-                className="mt-2 min-h-[120px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring/30"
-                value={promptText}
-                onChange={(e) => setPromptText(e.target.value)}
-                placeholder="Senior backend engineer in NYC or remote, $180k+, fintech startups"
-              />
-            </label>
-            <p className="text-xs text-muted-foreground">
-              We&apos;ll extract roles, locations, salary, and filters from your
-              description. You can review and edit everything in the next steps.
-            </p>
-            <div className="flex flex-wrap items-center gap-3">
-              <Button loading={parsing} onClick={() => void handleParsePrompt()}>
-                Continue
-              </Button>
-              <GhostButton type="button" onClick={skipToWizard}>
-                Set up manually
-              </GhostButton>
-            </div>
+      {success ? <p className="mb-4 text-sm text-teal">{success}</p> : null}
+      {showDiscoverCta ? (
+        <Card className="mb-4 border-gold/30 bg-gold-bg/40">
+          <p className="font-serif text-lg font-semibold text-ink">
+            Run your first job discovery now?
+          </p>
+          <p className="mt-1 text-sm text-text-muted">
+            We&apos;ll search for roles that match the preferences you just saved.
+          </p>
+          <div className="mt-4 flex gap-3">
+            <Button onClick={() => router.push("/jobs?discover=1")}>
+              Discover jobs
+            </Button>
+            <GhostButton onClick={() => setShowDiscoverCta(false)}>Not now</GhostButton>
           </div>
         </Card>
+      ) : null}
+
+      {loading ? (
+        <p className="text-sm text-text-muted">Loading…</p>
+      ) : phase === "prompt" ? (
+        <div className="mx-auto flex max-w-2xl flex-col items-center py-8 text-center">
+          <h2 className="font-serif text-3xl font-semibold text-ink">
+            What kind of role are you looking for?
+          </h2>
+          <p className="mt-2 max-w-lg text-sm text-text-muted">
+            Describe your ideal role in your own words — we&apos;ll turn it into structured
+            preferences you can review.
+          </p>
+          <textarea
+            className="mt-8 min-h-[140px] w-full rounded-xl border border-line bg-paper-raised px-4 py-3 text-left text-sm text-ink shadow-sm focus:border-gold focus:outline-none focus:ring-2 focus:ring-gold/20"
+            value={promptText}
+            onChange={(e) => setPromptText(e.target.value)}
+            placeholder="e.g. Senior backend engineer in NYC or remote, $180k+, fintech startups"
+          />
+          <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+            <Button loading={parsing} onClick={() => void handleParsePrompt()}>
+              Continue
+            </Button>
+            <GhostButton type="button" onClick={skipToWizard}>
+              Set up manually
+            </GhostButton>
+          </div>
+        </div>
       ) : (
         <Card>
           {parseNotes.length > 0 ? (

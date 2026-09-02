@@ -515,6 +515,7 @@ class DashboardService:
             "description": detail.description,
             "job_skills": detail.job_skills,
             "matched_skills": detail.matched_skills,
+            "possible_matches": detail.possible_matches,
             "missing_skills": detail.missing_skills,
             "score_breakdown": breakdown,
             "explanation": detail.explanation,

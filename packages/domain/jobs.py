@@ -10,7 +10,8 @@ from sqlalchemy.orm import Session
 
 from database.models.enums import JobMatchStatus, ResumeVersionStatus, WorkflowRunStatus
 from database.models.schema import Company, Job, JobMatch, Resume, ResumeVersion, WorkflowRun
-from packages.domain.exceptions import DomainError, NotFoundError
+from packages.domain.discovery_lock import DiscoveryLock
+from packages.domain.exceptions import ConflictError, DomainError, NotFoundError
 from packages.domain.job_match import JobMatchService, ScoreBreakdown
 from packages.domain.preferences import PreferencesService
 from packages.domain.resume_models import StructuredResume
@@ -28,6 +29,7 @@ class JobMatchSummary:
     location: str | None
     work_arrangement: str | None
     url: str | None
+    is_new: bool = False
 
 
 @dataclass(frozen=True)
@@ -44,6 +46,7 @@ class JobMatchDetail:
     description: str | None
     job_skills: list[str]
     matched_skills: list[str]
+    possible_matches: list[str]
     missing_skills: list[str]
     score_breakdown: ScoreBreakdown | None
     explanation: str | None
@@ -65,6 +68,15 @@ class JobListingService:
         self._user_id = user_id
 
     def list_matches(self, *, include_dismissed: bool = False) -> list[JobMatchSummary]:
+        latest_run = self._latest_completed_discovery_run()
+        last_seen = self._last_seen_discovery_run_id()
+        is_new_run = (
+            latest_run is not None
+            and (last_seen is None or last_seen != latest_run.id)
+        )
+        if latest_run is not None:
+            self._record_jobs_viewed(latest_run.id)
+
         query = (
             self._session.query(JobMatch, Job, Company)
             .join(Job, Job.id == JobMatch.job_id)
@@ -76,7 +88,46 @@ class JobListingService:
         rows = query.order_by(
             JobMatch.score.desc().nullslast(), JobMatch.created_at.desc()
         ).all()
-        return [self._to_summary(match, job, company) for match, job, company in rows]
+        return [
+            self._to_summary(
+                match,
+                job,
+                company,
+                latest_run_id=latest_run.id if is_new_run and latest_run else None,
+            )
+            for match, job, company in rows
+        ]
+
+    def _latest_completed_discovery_run(self) -> WorkflowRun | None:
+        return (
+            self._session.query(WorkflowRun)
+            .filter(
+                WorkflowRun.user_id == self._user_id,
+                WorkflowRun.workflow_type == "job_discovery",
+                WorkflowRun.status == WorkflowRunStatus.completed,
+            )
+            .order_by(WorkflowRun.updated_at.desc())
+            .first()
+        )
+
+    def _last_seen_discovery_run_id(self) -> uuid.UUID | None:
+        row = PreferencesService(self._session, self._user_id).get_or_create()
+        settings = row.settings if isinstance(row.settings, dict) else {}
+        raw = settings.get("last_seen_discovery_run_id")
+        if not raw:
+            return None
+        try:
+            return uuid.UUID(str(raw))
+        except ValueError:
+            return None
+
+    def _record_jobs_viewed(self, run_id: uuid.UUID) -> None:
+        """Persist that the user opened /jobs so 'New' badges clear on the next visit."""
+        row = PreferencesService(self._session, self._user_id).get_or_create()
+        settings = dict(row.settings or {})
+        settings["last_seen_discovery_run_id"] = str(run_id)
+        row.settings = settings
+        self._session.commit()
 
     def update_match_status(self, match_id: uuid.UUID, status: JobMatchStatus) -> JobMatchSummary:
         row = (
@@ -139,13 +190,21 @@ class JobListingService:
             resume_skills=resume_skills,
         )
         job_skills = _job_skills(job)
-        matched, missing = align_skills(job_skills, resume_skills)
+        alignment = _skill_alignment_from_match(match)
+        if alignment is None:
+            matched, missing = align_skills(job_skills, resume_skills)
+            possible: list[str] = []
+        else:
+            matched = alignment.get("matched", [])
+            possible = alignment.get("possible", [])
+            missing = alignment.get("missing", [])
         return self._to_detail(
             match,
             job,
             company,
             breakdown=breakdown,
             matched_skills=matched,
+            possible_matches=possible,
             missing_skills=missing,
         )
 
@@ -164,8 +223,20 @@ class JobListingService:
         )
         return self.get_match_detail(match_id)
 
-    def _to_summary(self, match: JobMatch, job: Job, company: Company) -> JobMatchSummary:
+    def _to_summary(
+        self,
+        match: JobMatch,
+        job: Job,
+        company: Company,
+        *,
+        latest_run_id: uuid.UUID | None = None,
+    ) -> JobMatchSummary:
         details = job.details if isinstance(job.details, dict) else {}
+        is_new = (
+            latest_run_id is not None
+            and job.discovery_run_id is not None
+            and job.discovery_run_id == latest_run_id
+        )
         return JobMatchSummary(
             id=match.id,
             job_id=match.job_id,
@@ -176,6 +247,7 @@ class JobListingService:
             location=_as_str(details.get("location")),
             work_arrangement=_as_str(details.get("work_arrangement")),
             url=job.url,
+            is_new=is_new,
         )
 
     def _to_detail(
@@ -186,6 +258,7 @@ class JobListingService:
         *,
         breakdown: ScoreBreakdown | None,
         matched_skills: list[str],
+        possible_matches: list[str],
         missing_skills: list[str],
     ) -> JobMatchDetail:
         details = job.details if isinstance(job.details, dict) else {}
@@ -203,6 +276,7 @@ class JobListingService:
             description=job.description,
             job_skills=job_skills,
             matched_skills=matched_skills,
+            possible_matches=possible_matches,
             missing_skills=missing_skills,
             score_breakdown=breakdown,
             explanation=match.fit_summary,
@@ -213,11 +287,22 @@ class JobListingService:
 class DiscoveryTriggerService:
     """Create queued workflow runs for async job discovery."""
 
-    ACTIVE_STATUSES = (WorkflowRunStatus.queued, WorkflowRunStatus.running)
+    ACTIVE_STATUSES = (
+        WorkflowRunStatus.queued,
+        WorkflowRunStatus.running,
+        WorkflowRunStatus.cancelling,
+    )
 
-    def __init__(self, session: Session, user_id: uuid.UUID) -> None:
+    def __init__(
+        self,
+        session: Session,
+        user_id: uuid.UUID,
+        *,
+        discovery_lock: DiscoveryLock | None = None,
+    ) -> None:
         self._session = session
         self._user_id = user_id
+        self._discovery_lock = discovery_lock
 
     def enqueue(
         self,
@@ -245,20 +330,29 @@ class DiscoveryTriggerService:
                         idempotency_key=idempotency_key,
                     )
 
-        active = (
-            self._session.query(WorkflowRun)
-            .filter(
-                WorkflowRun.user_id == self._user_id,
-                WorkflowRun.workflow_type == "job_discovery",
-                WorkflowRun.status.in_(self.ACTIVE_STATUSES),
-            )
-            .first()
-        )
+        run_id = uuid.uuid4()
+        if self._discovery_lock is not None:
+            if not self._discovery_lock.acquire(self._user_id, run_id):
+                holder = self._discovery_lock.get_holder(self._user_id)
+                if holder is None:
+                    active = self._find_active_run()
+                    holder = active.id if active is not None else None
+                raise ConflictError(
+                    "Job discovery already in progress",
+                    details={"workflow_run_id": str(holder) if holder else None},
+                )
+
+        active = self._find_active_run()
         if active is not None:
-            raise DomainError("Job discovery already in progress")
+            if self._discovery_lock is not None:
+                self._discovery_lock.release(self._user_id)
+            raise ConflictError(
+                "Job discovery already in progress",
+                details={"workflow_run_id": str(active.id)},
+            )
 
         run = WorkflowRun(
-            id=uuid.uuid4(),
+            id=run_id,
             user_id=self._user_id,
             status=WorkflowRunStatus.queued,
             workflow_type="job_discovery",
@@ -277,6 +371,17 @@ class DiscoveryTriggerService:
             idempotency_key=idempotency_key,
         )
 
+    def _find_active_run(self) -> WorkflowRun | None:
+        return (
+            self._session.query(WorkflowRun)
+            .filter(
+                WorkflowRun.user_id == self._user_id,
+                WorkflowRun.workflow_type == "job_discovery",
+                WorkflowRun.status.in_(self.ACTIVE_STATUSES),
+            )
+            .first()
+        )
+
     def attach_task_id(self, run_id: uuid.UUID, task_id: str) -> None:
         run = self.get_run(run_id)
         metadata = dict(run.metadata_json or {})
@@ -288,11 +393,11 @@ class DiscoveryTriggerService:
         run = self.get_run(run_id)
         if run.status not in self.ACTIVE_STATUSES:
             raise DomainError("Workflow is not active")
-        run.status = WorkflowRunStatus.cancelled
+        run.status = WorkflowRunStatus.cancelling
         metadata = dict(run.metadata_json or {})
-        metadata["current_step"] = "cancelled"
-        metadata["status_message"] = "Cancelled by user"
-        metadata["cancelled_at"] = datetime.now(timezone.utc).isoformat()
+        metadata["current_step"] = "cancelling"
+        metadata["status_message"] = "Cancellation requested"
+        metadata["cancel_requested_at"] = datetime.now(timezone.utc).isoformat()
         run.metadata_json = metadata
         run.error = None
         self._session.commit()
@@ -335,6 +440,17 @@ def load_resume_skills(session: Session, user_id: uuid.UUID) -> list[str]:
     except Exception:
         return []
     return [skill.strip() for skill in structured.skills if skill.strip()]
+
+
+def _skill_alignment_from_match(match: JobMatch) -> dict[str, list[str]] | None:
+    raw = match.skill_alignment
+    if not isinstance(raw, dict):
+        return None
+    return {
+        "matched": [str(s) for s in raw.get("matched", []) if s],
+        "possible": [str(s) for s in raw.get("possible", []) if s],
+        "missing": [str(s) for s in raw.get("missing", []) if s],
+    }
 
 
 def align_skills(job_skills: list[str], resume_skills: list[str]) -> tuple[list[str], list[str]]:

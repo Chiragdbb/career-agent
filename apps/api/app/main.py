@@ -15,6 +15,7 @@ from packages.providers.factory import log_active_providers
 
 load_project_env()
 from app.routers import (
+    activity_router,
     analytics_router,
     applications_router,
     contacts_router,
@@ -79,6 +80,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(profile_router, prefix=prefix)
     app.include_router(preferences_router, prefix=prefix)
     app.include_router(jobs_router, prefix=prefix)
+    app.include_router(activity_router, prefix=prefix)
     app.include_router(applications_router, prefix=prefix)
     app.include_router(resumes_router, prefix=prefix)
     app.include_router(contacts_router, prefix=prefix)

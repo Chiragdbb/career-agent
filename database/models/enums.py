@@ -163,6 +163,7 @@ class FollowUpStatus(str, enum.Enum):
 class WorkflowRunStatus(str, enum.Enum):
     queued = "queued"
     running = "running"
+    cancelling = "cancelling"
     completed = "completed"
     failed = "failed"
     cancelled = "cancelled"

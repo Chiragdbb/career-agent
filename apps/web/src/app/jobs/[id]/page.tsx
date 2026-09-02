@@ -34,6 +34,7 @@ type Workspace = {
     url: string | null;
     explanation: string | null;
     matched_skills: string[];
+    possible_matches?: string[];
     missing_skills: string[];
   };
   contacts: {
@@ -54,6 +55,8 @@ export default function JobDetailPage() {
 
   const [loading, setLoading] = useState(true);
   const [rescoring, setRescoring] = useState(false);
+  const [rescraping, setRescraping] = useState(false);
+  const [rescrapeError, setRescrapeError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [starting, setStarting] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -119,6 +122,25 @@ export default function JobDetailPage() {
       setError(err instanceof Error ? err.message : "Failed to re-score job");
     } finally {
       setRescoring(false);
+    }
+  }
+
+  async function onRescrape() {
+    setRescraping(true);
+    setRescrapeError(null);
+    try {
+      const response = await apiFetch(`/api/v1/jobs/${matchId}/rescrape`, {
+        method: "POST",
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(body?.error?.message || `API ${response.status}`);
+      }
+      setWorkspace(await fetchWorkspace());
+    } catch (err) {
+      setRescrapeError(err instanceof Error ? err.message : "Re-scrape failed");
+    } finally {
+      setRescraping(false);
     }
   }
 
@@ -196,6 +218,9 @@ export default function JobDetailPage() {
         <ArrowLeft className="h-3.5 w-3.5" /> Back to jobs
       </Link>
       {error ? <p className="mb-4 text-sm text-destructive">{error}</p> : null}
+      {rescrapeError ? (
+        <ErrorBanner message={rescrapeError} onRetry={() => void onRescrape()} />
+      ) : null}
       {actionError ? (
         <ErrorBanner message={actionError} onRetry={retryAction} />
       ) : null}
@@ -263,6 +288,14 @@ export default function JobDetailPage() {
               ) : null}
               <button
                 type="button"
+                onClick={() => void onRescrape()}
+                disabled={rescraping}
+                className="hover:text-foreground"
+              >
+                {rescraping ? "Re-scraping…" : "Re-scrape listing"}
+              </button>
+              <button
+                type="button"
                 onClick={() => void onRescore()}
                 disabled={rescoring}
                 className="hover:text-foreground"
@@ -289,6 +322,14 @@ export default function JobDetailPage() {
               defaultOpen
               chips={job.matched_skills.length ? job.matched_skills : ["None listed"]}
             />
+            {(job.possible_matches?.length ?? 0) > 0 ? (
+              <CollapsibleSection
+                title={`Possible matches (${job.possible_matches!.length})`}
+                tone="neutral"
+                defaultOpen={false}
+                chips={job.possible_matches!}
+              />
+            ) : null}
             <CollapsibleSection
               title={`Missing requirements (${job.missing_skills.length})`}
               tone="warn"

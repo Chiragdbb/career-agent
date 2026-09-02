@@ -9,6 +9,7 @@ from app.schemas.human_tasks import CareerWorkflowResponse, CareerWorkflowStartR
 from app.schemas.jobs import WorkflowRunResponse, WorkflowTaskResponse
 from packages.domain.career_workflow import CareerWorkflowService, CareerWorkflowStart
 from packages.domain.events import UserEventType
+from packages.domain.discovery_lock import DiscoveryLock
 from packages.domain.jobs import DiscoveryTriggerService
 from packages.domain.workflow_cancellation import WorkflowCancellation
 from packages.domain.workflows import WorkflowObservabilityService
@@ -107,7 +108,7 @@ def cancel_workflow_run(
     events: EventPublisherDep,
 ) -> WorkflowRunResponse:
     cancellation = WorkflowCancellation(redis_client)
-    trigger = DiscoveryTriggerService(session, user_id)
+    trigger = DiscoveryTriggerService(session, user_id, discovery_lock=DiscoveryLock(redis_client))
     run = trigger.cancel(run_id, cancellation=cancellation)
 
     metadata = dict(run.metadata_json or {})
@@ -122,11 +123,13 @@ def cancel_workflow_run(
 
     events.publish(
         user_id,
-        UserEventType.workflow_cancelled,
+        UserEventType.workflow_progress,
         {
             "workflow_run_id": str(run_id),
             "workflow_type": run.workflow_type,
-            "status": "cancelled",
+            "step": "cancelling",
+            "message": "Cancellation requested",
+            "data": {"status": "cancelling"},
         },
     )
     row = WorkflowObservabilityService(session, user_id).get_run(run_id)
