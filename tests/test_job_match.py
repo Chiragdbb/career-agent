@@ -163,6 +163,27 @@ def test_missing_skills_neutralish(match_ctx) -> None:
     assert "missing_skills" in breakdown.notes
 
 
+def test_currency_mismatch_is_neutral(match_ctx) -> None:
+    session, user, company = match_ctx
+    job = _job(
+        company.id,
+        location="Remote",
+        work_arrangement="remote",
+        salary_min=160000,
+        salary_max=180000,
+        currency="EUR",
+        skills=["python"],
+        seniority="senior",
+    )
+    session.add(job)
+    session.commit()
+    breakdown = JobMatchService(session, user.id).score_job(
+        job, _prefs(salary_currency="USD"), resume_skills=["python"]
+    )
+    assert breakdown.salary == 0.5
+    assert "currency_mismatch" in breakdown.notes
+
+
 def test_upsert_persists_score(match_ctx) -> None:
     session, user, company = match_ctx
     job = _job(

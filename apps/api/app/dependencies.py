@@ -15,7 +15,9 @@ from app.redis import get_redis
 from database.models.schema import User
 from packages.domain.exceptions import AuthenticationError
 from packages.domain.events import EventBus, RedisEventBus, UserEventPublisher
+from packages.domain.llm_tasks import LLMTaskService
 from packages.domain.users import UserService
+from packages.providers.factory import create_llm_provider
 from packages.providers.storage import MockStorageProvider, StorageProvider
 from packages.providers.supabase_storage import SupabaseStorageProvider
 
@@ -127,6 +129,16 @@ def get_event_publisher(
     return UserEventPublisher(bus)
 
 
+def get_llm_task_service(request: Request) -> LLMTaskService:
+    existing = getattr(request.app.state, "llm_task_service", None)
+    if existing is not None:
+        return existing
+    llm = create_llm_provider()
+    service = LLMTaskService(llm)
+    request.app.state.llm_task_service = service
+    return service
+
+
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 DbSessionDep = Annotated[Session, Depends(get_db)]
 RedisDep = Annotated[Redis, Depends(get_redis)]
@@ -138,3 +150,4 @@ StorageProviderDep = Annotated[StorageProvider, Depends(get_storage_provider)]
 StorageBucketDep = Annotated[str, Depends(get_storage_bucket)]
 DiscoveryTaskClientDep = Annotated[DiscoveryTaskClient, Depends(get_discovery_task_client)]
 EventPublisherDep = Annotated[UserEventPublisher, Depends(get_event_publisher)]
+LlmTaskServiceDep = Annotated[LLMTaskService, Depends(get_llm_task_service)]

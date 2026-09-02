@@ -19,7 +19,7 @@ from packages.domain.extraction_constants import (
     extraction_retry_max_chars_for_provider,
 )
 from packages.domain.provider_usage import ProviderUsageContext, ProviderUsageService
-from packages.domain.job_extraction_schema import job_extraction_json_schema
+from packages.domain.preference_parse_models import PreferenceParseDraft
 from packages.domain.job_models import ExtractedJob
 from packages.providers.base import UsageInfo
 from packages.providers.exceptions import (
@@ -170,6 +170,37 @@ class LLMTaskService:
         )
         data.setdefault("url", url)
         return self._validate(ExtractedJob, data, operation="extract_job")
+
+    def parse_preferences(
+        self,
+        *,
+        prompt: str,
+        locale_hint: str | None = None,
+        locale_currency: str = "USD",
+    ) -> PreferenceParseDraft:
+        """Extract job-search preferences from a user prompt. Never invent facts."""
+        system = (
+            "Extract job-search preference fields from the user's prompt and return JSON. "
+            "Only include values explicitly stated or clearly implied in the prompt. "
+            "Do not invent roles, locations, salary, employers, or industries. "
+            "Use ISO 4217 3-letter currency codes when salary is mentioned. "
+            "List fields you could not infer in unparsed_notes. "
+            f"prompt_version={self._prompt_version}"
+        )
+        user = json.dumps(
+            {
+                "prompt": prompt[:2000],
+                "locale_hint": locale_hint,
+                "default_currency_if_unspecified": locale_currency,
+            }
+        )
+        data = self._complete_json(
+            system=system,
+            user=user,
+            operation="parse_preferences",
+            response_schema_model=PreferenceParseDraft,
+        )
+        return self._validate(PreferenceParseDraft, data, operation="parse_preferences")
 
     def research_company(self, *, company_name: str, context: str) -> CompanyResearchResult:
         system = (

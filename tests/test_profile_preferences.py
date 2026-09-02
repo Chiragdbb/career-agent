@@ -129,6 +129,7 @@ def test_preferences_crud_and_validation(auth_client, profile_preferences_cleanu
             "locations": ["Remote", "New York, NY"],
             "work_arrangements": ["remote", "hybrid"],
             "minimum_salary": 150000,
+            "salary_currency": "USD",
             "seniority": ["senior", "staff"],
             "industries": ["Fintech", "SaaS"],
             "company_sizes": ["startup", "medium"],
@@ -149,6 +150,7 @@ def test_preferences_crud_and_validation(auth_client, profile_preferences_cleanu
     saved = update.json()["settings"]
     assert saved["target_roles"] == ["Backend Engineer", "Platform Engineer"]
     assert saved["minimum_salary"] == 150000
+    assert saved["salary_currency"] == "USD"
     assert saved["work_arrangements"] == ["remote", "hybrid"]
 
     invalid = auth_client.put(
@@ -208,3 +210,32 @@ def test_users_cannot_see_each_others_profile_or_preferences(
     assert prefs_b["target_roles"] == ["Role B"]
     assert prefs_a["daily_application_limit"] == 3
     assert prefs_b["daily_application_limit"] == 9
+
+
+def test_parse_preferences_prompt(auth_client, profile_preferences_cleanup) -> None:
+    from packages.domain.llm_tasks import LLMTaskService
+    from packages.providers.llm import MockLLMProvider
+
+    auth_client.app.state.llm_task_service = LLMTaskService(MockLLMProvider())
+
+    response = auth_client.post(
+        "/api/v1/preferences/parse-prompt",
+        headers={"Authorization": "Bearer token-user-a"},
+        json={
+            "prompt": "Senior backend engineer remote in NYC $180k",
+            "locale_hint": "en-US",
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert "Backend Engineer" in body["settings"]["target_roles"]
+    assert body["settings"]["minimum_salary"] == 180000
+    assert body["settings"]["salary_currency"] == "USD"
+
+
+def test_parse_preferences_prompt_requires_auth(auth_client) -> None:
+    response = auth_client.post(
+        "/api/v1/preferences/parse-prompt",
+        json={"prompt": "Engineer roles"},
+    )
+    assert response.status_code == 401
