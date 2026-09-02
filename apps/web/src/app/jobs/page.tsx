@@ -40,6 +40,7 @@ export default function JobsPage() {
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [jobs, setJobs] = useState<JobMatchSummary[]>([]);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [activeTab, setActiveTab] = useState<(typeof tabs)[number]>("All");
   const [activeDiscoveryRunId, setActiveDiscoveryRunId] = useState<string | null>(null);
   const { activeRuns } = useProcessActivity();
