@@ -1,7 +1,4 @@
-"""LLMProvider — chat / structured generation.
-
-Product default target: Groq or Gemini; OpenAI supported for structured extraction.
-"""
+"""Core LLM provider types and mock implementation."""
 
 from __future__ import annotations
 
@@ -33,6 +30,8 @@ class LLMRequest(TimeoutMixin):
     response_format: str | None = None  # e.g. "json" | "text"
     json_schema: dict[str, Any] | None = None
     json_schema_name: str | None = None
+    # Pydantic model passed to Gemini response_schema (native structured output).
+    response_schema_model: type[BaseModel] | None = None
 
 
 class LLMResponse(BaseModel):

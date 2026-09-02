@@ -19,14 +19,6 @@ type Notification = {
   status: string;
 };
 
-type Mailbox = {
-  provider: string;
-  status: string;
-  email_address: string | null;
-  has_encrypted_token: boolean;
-  error: string | null;
-};
-
 type ProfileResponse = {
   display_name: string | null;
   headline: string | null;
@@ -44,7 +36,6 @@ function SettingsContent() {
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [mailbox, setMailbox] = useState<Mailbox | null>(null);
   const [savingProfile, setSavingProfile] = useState(false);
   const [profile, setProfile] = useState({
     display_name: "",
@@ -55,16 +46,12 @@ function SettingsContent() {
   });
 
   async function loadNotificationsAndMailbox() {
-    const [nRes, mRes] = await Promise.all([
-      apiFetch("/api/v1/notifications?status=unread"),
-      apiFetch("/api/v1/settings/mailbox"),
-    ]);
+    const nRes = await apiFetch("/api/v1/notifications?status=unread");
     if (!nRes.ok) {
       const body = await nRes.json().catch(() => null);
       throw new Error(body?.error?.message || `API ${nRes.status}`);
     }
     setNotifications((await nRes.json()) as Notification[]);
-    if (mRes.ok) setMailbox((await mRes.json()) as Mailbox);
   }
 
   async function loadProfile() {
@@ -250,26 +237,9 @@ function SettingsContent() {
       {tab === "email" ? (
         <Card>
           <CardTitle>Email & mailbox</CardTitle>
-          {mailbox ? (
-            <dl className="mt-3 space-y-2 text-sm">
-              <div className="flex justify-between border-b border-border py-2">
-                <dt className="text-muted-foreground">Provider</dt>
-                <dd className="font-medium capitalize">{mailbox.provider}</dd>
-              </div>
-              <div className="flex justify-between border-b border-border py-2">
-                <dt className="text-muted-foreground">Status</dt>
-                <dd className="font-medium capitalize">{mailbox.status}</dd>
-              </div>
-              <div className="flex justify-between py-2">
-                <dt className="text-muted-foreground">Email</dt>
-                <dd className="font-medium">{mailbox.email_address || "—"}</dd>
-              </div>
-            </dl>
-          ) : (
-            <p className="mt-2 text-sm text-muted-foreground">Loading…</p>
-          )}
-          <p className="mt-4 text-xs text-muted-foreground">
-            Gmail/Outlook OAuth is stubbed — connect in a later step.
+          <p className="mt-3 text-sm text-text-muted">
+            Email integration is coming soon. Outreach send currently uses the configured
+            mock sender until Gmail/Outlook OAuth is available.
           </p>
         </Card>
       ) : null}

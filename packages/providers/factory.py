@@ -15,8 +15,18 @@ from packages.providers.hunter_email import (
     HunterEmailFinderProvider,
     HunterEmailVerifierProvider,
 )
-from packages.providers.llm import LLMProvider, MockLLMProvider
-from packages.providers.llm_adapters import GeminiLLMProvider, GroqLLMProvider, OpenAILLMProvider
+from packages.providers.llm import GeminiLLMProvider, LLMProvider, MockLLMProvider
+from packages.providers.llm.gemini_config import (
+    GEMINI_DEFAULT_MODEL,
+    GEMINI_EXTRACTION_MODEL,
+    gemini_rpm_for_tier,
+    normalize_gemini_tier,
+)
+from packages.providers.llm.gemini_rate_limiter import (
+    InMemoryGeminiRateLimiter,
+    RedisGeminiRateLimiter,
+)
+from packages.providers.llm_adapters import GroqLLMProvider, OpenAILLMProvider
 from packages.providers.mocks import create_mock_providers
 from packages.providers.people import PeopleProvider
 from packages.providers.scraper import ScraperProvider
@@ -35,7 +45,11 @@ class ProviderSettings:
     groq_api_key: str = ""
     groq_model: str = DEFAULT_GROQ_MODEL
     gemini_api_key: str = ""
-    gemini_model: str = "gemini-2.0-flash"
+    gemini_model: str = GEMINI_DEFAULT_MODEL
+    gemini_extraction_model: str = GEMINI_EXTRACTION_MODEL
+    gemini_tier: str = "free"
+    gemini_rpm_limit: int = 10
+    gemini_rate_limit_max_retries: int = 3
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
     extraction_llm_provider: str = ""
@@ -50,12 +64,19 @@ class ProviderSettings:
 
     @classmethod
     def from_env(cls) -> ProviderSettings:
+        gemini_tier = normalize_gemini_tier(os.getenv("GEMINI_TIER"))
         return cls(
             llm_provider=(os.getenv("LLM_PROVIDER") or "groq").strip().lower(),
             groq_api_key=(os.getenv("GROQ_API_KEY") or "").strip(),
             groq_model=normalize_groq_model(os.getenv("GROQ_MODEL") or DEFAULT_GROQ_MODEL),
             gemini_api_key=(os.getenv("GEMINI_API_KEY") or "").strip(),
-            gemini_model=(os.getenv("GEMINI_MODEL") or "gemini-2.0-flash").strip(),
+            gemini_model=(os.getenv("GEMINI_MODEL") or GEMINI_DEFAULT_MODEL).strip(),
+            gemini_extraction_model=(
+                os.getenv("GEMINI_EXTRACTION_MODEL") or GEMINI_EXTRACTION_MODEL
+            ).strip(),
+            gemini_tier=gemini_tier,
+            gemini_rpm_limit=gemini_rpm_for_tier(gemini_tier),
+            gemini_rate_limit_max_retries=int(os.getenv("GEMINI_RATE_LIMIT_MAX_RETRIES") or "3"),
             openai_api_key=(os.getenv("OPENAI_API_KEY") or "").strip(),
             openai_model=(os.getenv("OPENAI_MODEL") or "gpt-4o-mini").strip(),
             extraction_llm_provider=(os.getenv("EXTRACTION_LLM_PROVIDER") or "").strip().lower(),
@@ -108,6 +129,40 @@ def create_scraper_provider(settings: ProviderSettings | None = None) -> Scraper
     return FallbackScraperProvider(scrapers)
 
 
+def _try_get_redis():
+    try:
+        from app.redis import get_redis
+
+        return get_redis()
+    except Exception:
+        logger.warning("redis_unavailable_for_gemini_rate_limiter", exc_info=True)
+        return None
+
+
+def _create_gemini_provider(settings: ProviderSettings) -> GeminiLLMProvider:
+    redis_client = _try_get_redis()
+    if redis_client is not None:
+        rate_limiter = RedisGeminiRateLimiter(
+            redis_client,
+            rpm_limit=settings.gemini_rpm_limit,
+            gemini_tier=settings.gemini_tier,
+        )
+    else:
+        rate_limiter = InMemoryGeminiRateLimiter(
+            rpm_limit=settings.gemini_rpm_limit,
+            gemini_tier=settings.gemini_tier,
+        )
+    return GeminiLLMProvider(
+        api_key=settings.gemini_api_key,
+        model=settings.gemini_model,
+        extraction_model=settings.gemini_extraction_model,
+        rate_limiter=rate_limiter,
+        gemini_tier=settings.gemini_tier,
+        rpm_limit=settings.gemini_rpm_limit,
+        rate_limit_max_retries=settings.gemini_rate_limit_max_retries,
+    )
+
+
 def create_llm_provider(settings: ProviderSettings | None = None) -> LLMProvider:
     settings = settings or ProviderSettings.from_env()
     if settings.llm_provider == "openai" and settings.openai_api_key:
@@ -116,10 +171,7 @@ def create_llm_provider(settings: ProviderSettings | None = None) -> LLMProvider
             model=settings.openai_model,
         )
     if settings.llm_provider == "gemini" and settings.gemini_api_key:
-        return GeminiLLMProvider(
-            api_key=settings.gemini_api_key,
-            model=settings.gemini_model,
-        )
+        return _create_gemini_provider(settings)
     if settings.groq_api_key:
         model = normalize_groq_model(settings.groq_model)
         if model != settings.groq_model:
@@ -151,8 +203,7 @@ def create_extraction_llm_provider(settings: ProviderSettings | None = None) -> 
     if provider == "openai" and settings.openai_api_key:
         return OpenAILLMProvider(api_key=settings.openai_api_key, model=model)
     if provider == "gemini" and settings.gemini_api_key:
-        gemini_model = settings.extraction_llm_model or settings.gemini_model
-        return GeminiLLMProvider(api_key=settings.gemini_api_key, model=gemini_model)
+        return _create_gemini_provider(settings)
     if provider == "groq" and settings.groq_api_key:
         groq_model = normalize_groq_model(
             settings.extraction_llm_model or settings.groq_model

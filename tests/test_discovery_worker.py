@@ -79,6 +79,10 @@ def test_discover_jobs_task_runs_with_mocks(worker_user, monkeypatch) -> None:
         "workers.discovery.tasks.create_llm_provider",
         lambda settings=None: MockLLMProvider(content=job_json),
     )
+    monkeypatch.setattr(
+        "workers.discovery.tasks.create_extraction_llm_provider",
+        lambda settings=None: MockLLMProvider(content=job_json),
+    )
 
     from workers.discovery.tasks import discover_jobs
 
