@@ -42,7 +42,10 @@ export default function ActivityPage() {
 
   return (
     <AppShell active="dashboard" wide hideActivityBar>
-      <PageHeader title="Activity log" description="Persistent workflow history, oldest to newest." />
+      <PageHeader
+        title="Activity log"
+        subtitle="Persistent workflow history, oldest to newest."
+      />
       {loading ? (
         <p className="text-sm text-text-muted">Loading…</p>
       ) : entries.length === 0 ? (

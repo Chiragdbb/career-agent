@@ -40,6 +40,7 @@ export default function PreferencesPage() {
   });
   const [targetRolesText, setTargetRolesText] = useState("");
   const [locationsText, setLocationsText] = useState("");
+  const [industriesText, setIndustriesText] = useState("");
   const [showDiscoverCta, setShowDiscoverCta] = useState(false);
 
   useEffect(() => {
