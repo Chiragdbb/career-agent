@@ -3,8 +3,9 @@
 import Link from "next/link";
 import type { LucideIcon } from "lucide-react";
 
+import { GoldButton } from "@/components/ui/Button";
+import { EmptyDoodle } from "@/components/ui/Illustrations";
 import { cn } from "@/lib/cn";
-import { Button } from "@/components/ui/Button";
 
 type EmptyStateProps = {
   icon?: LucideIcon;
@@ -12,7 +13,7 @@ type EmptyStateProps = {
   description?: string;
   primaryActionLabel?: string;
   onPrimaryAction?: () => void;
-  /** @deprecated Use primaryActionLabel + onPrimaryAction or href via actionLink */
+  /** @deprecated Use primaryActionLabel + onPrimaryAction or actionHref */
   action?: { label: string; href?: string; onClick?: () => void };
   actionHref?: string;
   className?: string;
@@ -35,18 +36,20 @@ export function EmptyState({
   return (
     <div
       className={cn(
-        "flex flex-col items-center justify-center rounded-lg border border-border bg-card px-6 py-12 text-center",
+        "flex flex-col items-center px-6 py-10 text-center",
         className,
       )}
     >
       {Icon ? (
-        <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-muted">
-          <Icon className="h-5 w-5 text-muted-foreground" />
+        <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-line-soft">
+          <Icon className="h-5 w-5 text-text-muted" />
         </div>
-      ) : null}
-      <p className="text-[15px] font-semibold text-foreground">{title}</p>
+      ) : (
+        <EmptyDoodle />
+      )}
+      <p className="mt-3 font-serif text-[17px] text-ink">{title}</p>
       {description ? (
-        <p className="mt-2 max-w-sm text-[13px] leading-relaxed text-muted-foreground">
+        <p className="mt-2 max-w-[280px] text-[13.5px] leading-relaxed text-text-muted">
           {description}
         </p>
       ) : null}
@@ -54,10 +57,10 @@ export function EmptyState({
         <div className="mt-4">
           {href ? (
             <Link href={href}>
-              <Button>{label}</Button>
+              <GoldButton>{label}</GoldButton>
             </Link>
           ) : (
-            <Button onClick={handleClick}>{label}</Button>
+            <GoldButton onClick={handleClick}>{label}</GoldButton>
           )}
         </div>
       ) : null}

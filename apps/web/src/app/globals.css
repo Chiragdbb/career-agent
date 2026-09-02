@@ -3,57 +3,57 @@
 @tailwind utilities;
 
 :root {
-  --bg-app: #fafafa;
-  --bg-surface: #ffffff;
-  --bg-elevated: #f4f4f5;
-  --bg-sidebar: #09090b;
+  --bg-app: #F1EFE5;
+  --bg-surface: #FBFAF4;
+  --bg-elevated: #FBFAF4;
+  --bg-sidebar: #16231F;
 
-  --text-primary: #09090b;
-  --text-secondary: #3f3f46;
-  --text-muted: #71717a;
+  --text-primary: #1D2620;
+  --text-secondary: #63706A;
+  --text-muted: #63706A;
 
-  --background: #fafafa;
-  --foreground: #09090b;
-  --card: #ffffff;
-  --card-foreground: #09090b;
+  --background: #F1EFE5;
+  --foreground: #1D2620;
+  --card: #FBFAF4;
+  --card-foreground: #1D2620;
 
-  --primary: #059669;
-  --primary-foreground: #fafafa;
-  --primary-subtle: #ecfdf5;
+  --primary: #B9822E;
+  --primary-foreground: #2B1C05;
+  --primary-subtle: #F3E6C9;
 
-  --secondary: #f4f4f5;
-  --secondary-foreground: #18181b;
-  --muted: #f4f4f5;
-  --muted-foreground: #71717a;
-  --accent: #f4f4f5;
-  --accent-foreground: #18181b;
-  --accent-subtle: #f5f3ff;
+  --secondary: #FBFAF4;
+  --secondary-foreground: #1D2620;
+  --muted: #E7E4D6;
+  --muted-foreground: #63706A;
+  --accent: #E7E4D6;
+  --accent-foreground: #1D2620;
+  --accent-subtle: #F3E6C9;
 
-  --destructive: #ef4444;
-  --border: #e4e4e7;
-  --border-subtle: #f0eeeb;
-  --input: #e4e4e7;
-  --ring: #059669;
+  --destructive: #AA4630;
+  --border: #DCD9CA;
+  --border-subtle: #E7E4D6;
+  --input: #DCD9CA;
+  --ring: #B9822E;
 
-  --sidebar: #09090b;
-  --sidebar-foreground: #fafafa;
-  --sidebar-muted: #a1a1aa;
-  --sidebar-accent: #27272a;
-  --sidebar-border: #27272a;
+  --sidebar: #16231F;
+  --sidebar-foreground: #F3EFE2;
+  --sidebar-muted: #7C8880;
+  --sidebar-accent: rgba(185, 130, 46, 0.14);
+  --sidebar-border: #263831;
 
-  --ai: #059669;
-  --ai-subtle: #ecfdf5;
-  --success: #059669;
-  --success-subtle: #f0fdf4;
-  --warning: #ca8a04;
-  --warning-subtle: #fefce8;
-  --error: #ef4444;
-  --error-subtle: #fef2f2;
+  --ai: #2E6B59;
+  --ai-subtle: #DEEBE4;
+  --success: #2E6B59;
+  --success-subtle: #DEEBE4;
+  --warning: #B9822E;
+  --warning-subtle: #F3E6C9;
+  --error: #AA4630;
+  --error-subtle: #F1DAD1;
 
-  --chart-1: #059669;
-  --chart-2: #2563eb;
-  --chart-3: #059669;
-  --chart-4: #d97706;
+  --chart-1: #2E6B59;
+  --chart-2: #B9822E;
+  --chart-3: #2E6B59;
+  --chart-4: #AA4630;
 
   --radius-sm: 4px;
   --radius-md: 6px;
@@ -67,6 +67,22 @@ body {
   font-family: var(--font-sans), system-ui, sans-serif;
 }
 
-.font-serif {
-  font-family: var(--font-serif), Georgia, serif;
+textarea:focus {
+  outline: none;
+  border-color: #B9822E;
+}
+
+button:focus-visible {
+  outline: 2px solid #B9822E;
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
 }

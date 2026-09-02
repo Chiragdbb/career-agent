@@ -263,26 +263,51 @@ function DocumentsContent() {
           )}
 
           {selectedResume ? (
-            <Card className="text-sm">
-              <h2 className="text-base font-semibold text-foreground">
-                {selectedResume.name}
-              </h2>
-              {selectedResume.signed_url ? (
-                <a
-                  href={selectedResume.signed_url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="mt-2 inline-block text-primary hover:underline"
-                >
-                  Open original
-                </a>
-              ) : null}
-              {selectedResume.latest_version?.structured?.summary ? (
-                <p className="mt-3 text-muted-foreground">
-                  {selectedResume.latest_version.structured.summary}
-                </p>
-              ) : null}
-            </Card>
+            <>
+              <button
+                type="button"
+                className="fixed inset-0 z-40 bg-black/30"
+                aria-label="Close preview"
+                onClick={() => setSelectedResume(null)}
+              />
+              <aside className="fixed inset-y-0 right-0 z-50 flex w-full max-w-md flex-col border-l border-line bg-paper-raised shadow-xl">
+                <div className="flex items-center justify-between border-b border-line px-4 py-3">
+                  <h2 className="font-serif text-base font-semibold text-ink">
+                    {selectedResume.name}
+                  </h2>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedResume(null)}
+                    className="text-sm text-text-muted hover:text-foreground"
+                  >
+                    Close
+                  </button>
+                </div>
+                <div className="flex-1 overflow-y-auto p-4 text-sm">
+                  {selectedResume.signed_url ? (
+                    <a
+                      href={selectedResume.signed_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-block text-gold hover:underline"
+                    >
+                      Open original PDF
+                    </a>
+                  ) : null}
+                  {selectedResume.latest_version?.plain_text ? (
+                    <pre className="mt-4 whitespace-pre-wrap font-sans text-[13px] leading-relaxed text-text-muted">
+                      {selectedResume.latest_version.plain_text.slice(0, 4000)}
+                    </pre>
+                  ) : selectedResume.latest_version?.structured?.summary ? (
+                    <p className="mt-4 text-text-muted">
+                      {selectedResume.latest_version.structured.summary}
+                    </p>
+                  ) : (
+                    <p className="mt-4 text-text-muted">No preview text available.</p>
+                  )}
+                </div>
+              </aside>
+            </>
           ) : null}
         </div>
       )}

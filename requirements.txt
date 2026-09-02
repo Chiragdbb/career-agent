@@ -10,6 +10,7 @@ pydantic-settings
 redis
 celery[redis]
 httpx
+google-genai
 PyJWT[crypto]
 python-multipart
 PyMuPDF

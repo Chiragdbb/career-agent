@@ -28,6 +28,10 @@ class ProviderRateLimitError(ProviderError):
     """Raised when a vendor rejects the call due to rate limiting."""
 
 
+class ProviderRateLimitDeferError(ProviderRateLimitError):
+    """Rate limit persists after in-process backoff — defer to Celery worker retry."""
+
+
 class ProviderAuthError(ProviderError):
     """Raised when credentials are missing, invalid, or unauthorized."""
 

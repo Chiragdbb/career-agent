@@ -3,13 +3,22 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowRight, Bookmark, Play } from "lucide-react";
+import {
+  ArrowLeft,
+  ArrowRight,
+  Building2,
+  MapPin,
+  Send,
+  Sparkles,
+  Star,
+  Target,
+} from "lucide-react";
 
 import { AppShell } from "@/components/AppShell";
-import { Badge } from "@/components/ui/Badge";
-import { Button } from "@/components/ui/Button";
-import { Card, CardTitle } from "@/components/ui/Card";
+import { GoldButton, GhostButton } from "@/components/ui/Button";
+import { CollapsibleSection } from "@/components/ui/CollapsibleSection";
 import { ErrorBanner } from "@/components/ui/ErrorBanner";
+import { ScoreRing } from "@/components/ui/ScoreRing";
 import { apiFetch } from "@/lib/api";
 import { createClient } from "@/lib/supabase/client";
 
@@ -26,24 +35,16 @@ type Workspace = {
     explanation: string | null;
     matched_skills: string[];
     missing_skills: string[];
-    description: string | null;
-    score_breakdown: {
-      role: number;
-      location: number;
-      work_arrangement: number;
-      salary: number;
-      skills: number;
-      seniority: number;
-    } | null;
   };
-  company_research: { summary: string | null; status: string } | null;
-  people: { name: string | null; title: string | null; status: string }[];
-  contacts: { name: string | null; status: string; email_verifications: { email: string; status: string }[] }[];
-  strategy: { summary: string; recommended_actions: { action: string; priority: number }[] } | null;
+  contacts: {
+    id: string;
+    name: string | null;
+    title: string | null;
+    status: string;
+    email_verifications: { email: string; status: string }[];
+  }[];
   application: { id: string; status: string } | null;
-  outreach: { id: string; subject: string | null; status: string }[];
-  documents: { id: string; filename: string | null; status: string }[];
-  timeline: { event_type: string; created_at?: string }[];
+  outreach: { id: string; contact_id: string; subject: string | null; status: string }[];
 };
 
 export default function JobDetailPage() {
@@ -55,6 +56,7 @@ export default function JobDetailPage() {
   const [rescoring, setRescoring] = useState(false);
   const [saving, setSaving] = useState(false);
   const [starting, setStarting] = useState(false);
+  const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [lastAction, setLastAction] = useState<"save" | "start" | null>(null);
@@ -82,7 +84,10 @@ export default function JobDetailPage() {
           return;
         }
         const detail = await fetchWorkspace();
-        if (!cancelled) setWorkspace(detail);
+        if (!cancelled) {
+          setWorkspace(detail);
+          setSaved(detail.match.status === "saved");
+        }
       } catch (err) {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : "Failed to load job");
@@ -130,6 +135,7 @@ export default function JobDetailPage() {
         const body = await response.json().catch(() => null);
         throw new Error(body?.error?.message || `API ${response.status}`);
       }
+      setSaved(true);
       setWorkspace(await fetchWorkspace());
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Failed to save job");
@@ -154,17 +160,10 @@ export default function JobDetailPage() {
         const body = await response.json().catch(() => null);
         throw new Error(body?.error?.message || `API ${response.status}`);
       }
-      const payload = (await response.json()) as {
-        workflows?: { application_id?: string | null }[];
-      };
-      const applicationId =
-        payload.workflows?.[0]?.application_id ?? workspace?.application?.id;
       const refreshed = await fetchWorkspace();
       setWorkspace(refreshed);
-      const targetId = applicationId ?? refreshed.application?.id;
-      if (targetId) {
-        router.push(`/applications/${targetId}`);
-      }
+      const targetId = refreshed.application?.id;
+      if (targetId) router.push(`/applications/${targetId}`);
     } catch (err) {
       setActionError(
         err instanceof Error ? err.message : "Failed to start application",
@@ -179,181 +178,168 @@ export default function JobDetailPage() {
     else if (lastAction === "start") void onStartApplication();
   }
 
+  function outreachHref(contactId: string): string {
+    const existing = workspace?.outreach.find((o) => o.contact_id === contactId);
+    return existing ? `/outreach/${existing.id}` : `/contacts/${contactId}`;
+  }
+
   const job = workspace?.match;
   const hasApplication = Boolean(workspace?.application);
+  const scorePercent = job?.score != null ? Math.round(job.score * 100) : null;
 
   return (
     <AppShell active="jobs" wide>
-      <Link href="/jobs" className="mb-4 inline-block text-sm text-muted-foreground hover:text-foreground">
-        ← Back to jobs
+      <Link
+        href="/jobs"
+        className="mb-3.5 inline-flex items-center gap-1.5 text-[12.5px] text-text-muted hover:text-foreground"
+      >
+        <ArrowLeft className="h-3.5 w-3.5" /> Back to jobs
       </Link>
       {error ? <p className="mb-4 text-sm text-destructive">{error}</p> : null}
       {actionError ? (
         <ErrorBanner message={actionError} onRetry={retryAction} />
       ) : null}
-      {loading ? <p className="text-sm text-muted-foreground">Loading…</p> : null}
+      {loading ? <p className="text-sm text-text-muted">Loading…</p> : null}
       {job ? (
-        <article className="space-y-6">
-          <header className="space-y-2">
-            <h1 className="font-serif text-2xl text-foreground">{job.title}</h1>
-            <p className="text-sm text-muted-foreground">
-              {[job.company_name, job.location, job.work_arrangement]
-                .filter(Boolean)
-                .join(" · ")}
-            </p>
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge variant="primary">
-                Match: {job.score != null ? `${Math.round(job.score * 100)}%` : "—"}
-              </Badge>
-              <Badge variant="default">{job.status}</Badge>
+        <article className="max-w-[760px]">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h1 className="font-serif text-2xl font-semibold text-ink">{job.title}</h1>
+              <div className="mt-2 flex flex-wrap items-center gap-3.5">
+                {job.company_name ? (
+                  <span className="flex items-center gap-1.5 text-[13.5px] text-text-muted">
+                    <Building2 className="h-3.5 w-3.5" /> {job.company_name}
+                  </span>
+                ) : null}
+                {(job.location || job.work_arrangement) ? (
+                  <span className="flex items-center gap-1.5 text-[13.5px] text-text-muted">
+                    <MapPin className="h-3.5 w-3.5" />
+                    {[job.work_arrangement, job.location].filter(Boolean).join(" · ")}
+                  </span>
+                ) : null}
+              </div>
             </div>
-          </header>
+            {scorePercent != null ? <ScoreRing value={scorePercent} /> : null}
+          </div>
 
-          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-muted/30 px-4 py-3">
+          <div className="mb-6 mt-5 flex min-h-[38px] flex-wrap items-center gap-2.5">
             {hasApplication ? (
-              <Link href={`/applications/${workspace!.application!.id}`}>
-                <Button variant="secondary">
-                  View Application
-                  <ArrowRight className="h-4 w-4" />
-                </Button>
-              </Link>
+              <GhostButton
+                icon={ArrowRight}
+                className="border-teal bg-teal-bg text-teal"
+                onClick={() =>
+                  router.push(`/applications/${workspace!.application!.id}`)
+                }
+              >
+                View application
+              </GhostButton>
             ) : (
               <>
-                <Button
-                  variant="secondary"
+                <GhostButton
+                  icon={Star}
                   disabled={saving || starting}
                   onClick={() => void onSaveJob()}
+                  className={
+                    saved ? "border-gold bg-gold-bg text-[#7A551D]" : undefined
+                  }
                 >
-                  <Bookmark className="h-4 w-4" />
-                  {saving ? "Saving…" : "Save Job"}
-                </Button>
-                <Button
+                  {saving ? "Saving…" : saved ? "Saved" : "Save job"}
+                </GhostButton>
+                <GoldButton
+                  icon={Sparkles}
+                  loading={starting}
                   disabled={saving || starting}
                   onClick={() => void onStartApplication()}
                 >
-                  <Play className="h-4 w-4" />
-                  {starting ? "Starting…" : "Start Application"}
-                </Button>
+                  {starting ? "Preparing application" : "Start application"}
+                </GoldButton>
               </>
             )}
-          </div>
-
-          <div className="flex flex-wrap items-center gap-4 text-sm">
-            {job.url ? (
-              <a
-                href={job.url}
-                target="_blank"
-                rel="noreferrer"
-                className="text-primary hover:underline"
+            <span className="ml-1 flex gap-3 text-xs text-text-faint">
+              {job.url ? (
+                <a href={job.url} target="_blank" rel="noreferrer" className="hover:text-foreground">
+                  View posting
+                </a>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => void onRescore()}
+                disabled={rescoring}
+                className="hover:text-foreground"
               >
-                View posting
-              </a>
-            ) : null}
-            <Button
-              variant="secondary"
-              onClick={() => void onRescore()}
-              disabled={rescoring}
-            >
-              {rescoring ? "Re-scoring…" : "Re-score"}
-            </Button>
+                {rescoring ? "Re-scoring…" : "Re-score"}
+              </button>
+            </span>
           </div>
 
           {job.explanation ? (
-            <Card>
-              <CardTitle>Why it matches</CardTitle>
-              <p className="mt-2 text-sm text-muted-foreground">{job.explanation}</p>
-            </Card>
+            <div className="mb-4 rounded-xl bg-teal-bg px-[18px] py-4">
+              <div className="mb-1.5 flex items-center gap-1.5">
+                <Target className="h-3.5 w-3.5 text-teal" />
+                <span className="text-[12.5px] font-semibold text-teal">Why it matches</span>
+              </div>
+              <p className="text-[13.5px] leading-relaxed text-[#254E42]">{job.explanation}</p>
+            </div>
           ) : null}
 
-          <section className="grid gap-4 sm:grid-cols-2">
-            <Card>
-              <CardTitle className="text-success">Matched skills</CardTitle>
-              <p className="mt-2 text-sm text-muted-foreground">
-                {job.matched_skills.join(", ") || "None"}
-              </p>
-            </Card>
-            <Card>
-              <CardTitle className="text-warning">Missing requirements</CardTitle>
-              <p className="mt-2 text-sm text-muted-foreground">
-                {job.missing_skills.join(", ") || "None"}
-              </p>
-            </Card>
-          </section>
+          <div className="mb-5 flex flex-col gap-2.5">
+            <CollapsibleSection
+              title={`Matched skills (${job.matched_skills.length})`}
+              tone="good"
+              defaultOpen
+              chips={job.matched_skills.length ? job.matched_skills : ["None listed"]}
+            />
+            <CollapsibleSection
+              title={`Missing requirements (${job.missing_skills.length})`}
+              tone="warn"
+              defaultOpen={false}
+              chips={job.missing_skills.length ? job.missing_skills : ["None identified"]}
+            />
+          </div>
 
-          <Card>
-            <CardTitle>Company research</CardTitle>
-            <p className="mt-2 text-sm text-muted-foreground">
-              {workspace?.company_research?.summary || "Not researched yet"}
-            </p>
-          </Card>
-
-          <Card>
-            <CardTitle>People / contacts</CardTitle>
-            <ul className="mt-2 space-y-1 text-sm text-muted-foreground">
-              {(workspace?.contacts || []).map((c, idx) => (
-                <li key={`${c.name}-${idx}`}>
-                  {c.name || "Unknown"} · {c.status}
-                  {c.email_verifications?.length
-                    ? ` · ${c.email_verifications.map((v) => `${v.email} (${v.status})`).join(", ")}`
-                    : ""}
-                </li>
-              ))}
-              {!workspace?.contacts?.length ? (
-                <li className="text-muted-foreground">No contacts yet</li>
-              ) : null}
-            </ul>
-          </Card>
-
-          <Card>
-            <CardTitle>Strategy</CardTitle>
-            <p className="mt-2 text-sm text-muted-foreground">
-              {workspace?.strategy?.summary || "—"}
-            </p>
-            <ul className="mt-2 space-y-1 text-sm text-muted-foreground">
-              {(workspace?.strategy?.recommended_actions || []).map((a) => (
-                <li key={`${a.action}-${a.priority}`}>
-                  {a.priority}. {a.action}
-                </li>
-              ))}
-            </ul>
-          </Card>
-
-          <Card>
-            <CardTitle>Application / documents / outreach</CardTitle>
-            <p className="mt-2 text-sm text-muted-foreground">
-              Application:{" "}
-              {workspace?.application
-                ? `${workspace.application.status} (${workspace.application.id})`
-                : "None"}
-            </p>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Documents:{" "}
-              {(workspace?.documents || [])
-                .map((d) => d.filename || d.id)
-                .join(", ") || "None"}
-            </p>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Outreach:{" "}
-              {(workspace?.outreach || [])
-                .map((o) => `${o.subject || o.id} (${o.status})`)
-                .join(", ") || "None"}
-            </p>
-          </Card>
-
-          <Card>
-            <CardTitle>Timeline</CardTitle>
-            <ul className="mt-2 space-y-1 text-sm text-muted-foreground">
-              {(workspace?.timeline || []).map((e, idx) => (
-                <li key={`${e.event_type}-${idx}`}>
-                  {e.event_type}
-                  {e.created_at ? ` · ${e.created_at}` : ""}
-                </li>
-              ))}
-              {!workspace?.timeline?.length ? (
-                <li className="text-muted-foreground">No events yet</li>
-              ) : null}
-            </ul>
-          </Card>
+          {(workspace?.contacts?.length ?? 0) > 0 ? (
+            <section>
+              <h2 className="mb-2.5 font-serif text-[15.5px] font-semibold text-ink">
+                People at {job.company_name || "this company"}
+              </h2>
+              <div className="flex flex-col gap-2">
+                {workspace!.contacts.map((c) => {
+                  const initials = (c.name || "?")
+                    .split(" ")
+                    .map((n) => n[0])
+                    .join("")
+                    .slice(0, 2)
+                    .toUpperCase();
+                  const verified = c.email_verifications?.some(
+                    (v) => v.status === "verified",
+                  );
+                  return (
+                    <div
+                      key={c.id}
+                      className="flex items-center gap-3 rounded-[10px] border border-line-soft bg-paper-raised px-3.5 py-2.5"
+                    >
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gold-bg font-serif text-xs font-semibold text-[#7A551D]">
+                        {initials}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[13.5px] font-medium text-ink">{c.name}</p>
+                        <p className="text-xs text-text-muted">
+                          {c.title}
+                          {verified ? " · verified email" : ""}
+                        </p>
+                      </div>
+                      <GhostButton
+                        icon={Send}
+                        onClick={() => router.push(outreachHref(c.id))}
+                      >
+                        Draft outreach
+                      </GhostButton>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          ) : null}
         </article>
       ) : null}
     </AppShell>

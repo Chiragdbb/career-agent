@@ -9,6 +9,37 @@ export default {
   theme: {
     extend: {
       colors: {
+        ink: {
+          DEFAULT: "#16231F",
+          soft: "#223229",
+          faint: "#2C4136",
+        },
+        paper: {
+          DEFAULT: "#F1EFE5",
+          raised: "#FBFAF4",
+        },
+        line: {
+          DEFAULT: "#DCD9CA",
+          soft: "#E7E4D6",
+        },
+        gold: {
+          DEFAULT: "#B9822E",
+          soft: "#E6C98A",
+          bg: "#F3E6C9",
+        },
+        teal: {
+          DEFAULT: "#2E6B59",
+          bg: "#DEEBE4",
+        },
+        brick: {
+          DEFAULT: "#AA4630",
+          bg: "#F1DAD1",
+        },
+        text: {
+          DEFAULT: "#1D2620",
+          muted: "#63706A",
+          faint: "#8B958E",
+        },
         background: "var(--background)",
         foreground: "var(--foreground)",
         card: {
@@ -84,6 +115,15 @@ export default {
       },
       boxShadow: {
         sm: "0 1px 2px rgba(0, 0, 0, 0.05)",
+      },
+      keyframes: {
+        riseIn: {
+          from: { opacity: "0", transform: "translateY(6px)" },
+          to: { opacity: "1", transform: "translateY(0)" },
+        },
+      },
+      animation: {
+        riseIn: "riseIn 480ms cubic-bezier(0.22, 1, 0.36, 1) both",
       },
     },
   },

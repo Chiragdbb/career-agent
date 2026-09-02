@@ -84,6 +84,7 @@ from packages.providers.exceptions import (
     ProviderError,
     ProviderNotConfiguredError,
     ProviderRateLimitError,
+    ProviderRateLimitDeferError,
     ProviderStructuredOutputError,
     ProviderTimeoutError,
     ProviderUnavailableError,
@@ -91,6 +92,7 @@ from packages.providers.exceptions import (
 )
 from packages.providers.firecrawl_scraper import FirecrawlScraperProvider
 from packages.providers.llm import (
+    GeminiLLMProvider,
     LLMMessage,
     LLMProvider,
     LLMRequest,
@@ -98,7 +100,6 @@ from packages.providers.llm import (
     MockLLMProvider,
 )
 from packages.providers.llm_adapters import (
-    GeminiLLMProvider,
     GroqLLMProvider,
     OpenAILLMProvider,
     parse_llm_json,
@@ -221,6 +222,7 @@ __all__ = [
     "ProviderMetadata",
     "ProviderNotConfiguredError",
     "ProviderRateLimitError",
+    "ProviderRateLimitDeferError",
     "ProviderStructuredOutputError",
     "ProviderTimeoutError",
     "ProviderUnavailableError",

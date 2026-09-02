@@ -1,7 +1,9 @@
-"""Groq, Gemini, and OpenAI LLMProvider adapters.
+"""Groq and OpenAI LLMProvider adapters.
 
 Structured outputs are validated by domain services before persistence — adapters
 return text/JSON strings and surface vendor error details (e.g. failed_generation).
+
+Gemini lives in packages.providers.llm.gemini (google-genai SDK).
 """
 
 from __future__ import annotations
@@ -17,11 +19,11 @@ from packages.providers.exceptions import (
 )
 from packages.providers.groq_models import DEFAULT_GROQ_MODEL
 from packages.providers.http_utils import request_with_retries
-from packages.providers.llm import LLMProvider, LLMRequest, LLMResponse
+from packages.providers.llm.base import LLMProvider, LLMRequest, LLMResponse
+from packages.providers.llm.gemini import GeminiLLMProvider
 
 _PROVIDER_NAME = "groq-llm"
 _OPENAI_PROVIDER = "openai-llm"
-_GEMINI_PROVIDER = "gemini-llm"
 
 
 def _build_response_format(request: LLMRequest) -> dict[str, Any] | None:
@@ -229,114 +231,6 @@ class OpenAILLMProvider(LLMProvider):
                 units=prompt_tokens + completion_tokens,
                 latency_ms=(time.perf_counter() - started) * 1000.0,
                 provider=_OPENAI_PROVIDER,
-                extra={
-                    "prompt_tokens": prompt_tokens,
-                    "completion_tokens": completion_tokens,
-                    "model": model,
-                },
-            ),
-        )
-
-
-class GeminiLLMProvider(LLMProvider):
-    def __init__(
-        self,
-        *,
-        api_key: str,
-        model: str = "gemini-2.0-flash",
-        max_retries: int = 3,
-        default_timeout_seconds: float = 60.0,
-    ) -> None:
-        key = (api_key or "").strip()
-        if not key:
-            raise ProviderNotConfiguredError(
-                "GEMINI_API_KEY is required for GeminiLLMProvider",
-                provider=_GEMINI_PROVIDER,
-            )
-        self._api_key = key
-        self._model = model
-        self._max_retries = max_retries
-        self._default_timeout = default_timeout_seconds
-        self._meta = ProviderMetadata(
-            name=_GEMINI_PROVIDER,
-            vendor="google",
-            capabilities=frozenset({"chat", "structured", "json"}),
-        )
-
-    @property
-    def metadata(self) -> ProviderMetadata:
-        return self._meta
-
-    def complete(self, request: LLMRequest) -> LLMResponse:
-        started = time.perf_counter()
-        model = request.model or self._model
-        system_parts = [m.content for m in request.messages if m.role == "system"]
-        contents: list[dict[str, Any]] = []
-        for message in request.messages:
-            if message.role == "system":
-                continue
-            role = "model" if message.role == "assistant" else "user"
-            text = message.content
-            if role == "user" and system_parts and not contents:
-                text = "\n\n".join(system_parts + [text])
-            contents.append({"role": role, "parts": [{"text": text}]})
-
-        generation_config: dict[str, Any] = {
-            "temperature": request.temperature,
-        }
-        if request.max_tokens is not None:
-            generation_config["maxOutputTokens"] = request.max_tokens
-        if request.response_format == "json" or request.json_schema is not None:
-            generation_config["responseMimeType"] = "application/json"
-
-        url = (
-            f"https://generativelanguage.googleapis.com/v1beta/models/"
-            f"{model}:generateContent"
-        )
-        response = request_with_retries(
-            method="POST",
-            url=url,
-            provider=_GEMINI_PROVIDER,
-            operation="complete",
-            timeout_seconds=request.timeout_seconds or self._default_timeout,
-            max_retries=self._max_retries,
-            params={"key": self._api_key},
-            headers={"Content-Type": "application/json"},
-            json={"contents": contents, "generationConfig": generation_config},
-        )
-        try:
-            data = response.json()
-        except ValueError as exc:
-            raise ProviderValidationError(
-                "Gemini returned non-JSON response",
-                provider=_GEMINI_PROVIDER,
-                operation="complete",
-                details={"raw_body": response.text[:8000]},
-            ) from exc
-
-        candidates = data.get("candidates") or []
-        if not candidates:
-            raise ProviderValidationError(
-                "Gemini response missing candidates",
-                provider=_GEMINI_PROVIDER,
-                operation="complete",
-                details={"raw_body": response.text[:8000]},
-            )
-        parts = ((candidates[0].get("content") or {}).get("parts")) or []
-        content = "".join(str(part.get("text") or "") for part in parts if isinstance(part, dict))
-        usage_raw = data.get("usageMetadata") or {}
-        prompt_tokens = float(usage_raw.get("promptTokenCount") or 0)
-        completion_tokens = float(usage_raw.get("candidatesTokenCount") or 0)
-        return LLMResponse(
-            content=content,
-            model=model,
-            finish_reason=str(candidates[0].get("finishReason") or "stop"),
-            usage=UsageInfo(
-                operation="complete",
-                unit_type="tokens",
-                units=prompt_tokens + completion_tokens,
-                latency_ms=(time.perf_counter() - started) * 1000.0,
-                provider=_GEMINI_PROVIDER,
                 extra={
                     "prompt_tokens": prompt_tokens,
                     "completion_tokens": completion_tokens,

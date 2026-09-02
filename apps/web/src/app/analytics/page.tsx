@@ -2,12 +2,12 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronDown } from "lucide-react";
 
 import { AppShell } from "@/components/AppShell";
 import { Card } from "@/components/ui/Card";
 import { MetricCard } from "@/components/ui/MetricCard";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { Sparkline } from "@/components/ui/Sparkline";
 import { CardGridSkeleton } from "@/components/ui/Skeleton";
 import { apiFetch } from "@/lib/api";
 import { createClient } from "@/lib/supabase/client";
@@ -85,10 +85,7 @@ export default function AnalyticsPage() {
         title="Analytics"
         subtitle="High-level counts across your career pipeline."
         actions={
-          <div className="flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-xs text-muted-foreground">
-            Last 30 days
-            <ChevronDown className="h-3.5 w-3.5" />
-          </div>
+          <span className="text-xs text-text-muted">All-time summary counts</span>
         }
       />
 
@@ -107,6 +104,26 @@ export default function AnalyticsPage() {
               />
             ))}
           </div>
+          <Card className="p-5">
+            <h2 className="mb-1 text-sm font-semibold text-ink">Applications sent</h2>
+            <p className="mb-3 text-xs text-text-muted">
+              Time-series chart requires backend support — showing current total.
+            </p>
+            <div className="flex items-end gap-4">
+              <span className="font-serif text-3xl font-semibold text-ink">
+                {data.applications_count}
+              </span>
+              <Sparkline
+                points={[
+                  0,
+                  data.applications_count,
+                  Math.max(0, data.applications_count - 1),
+                  data.applications_count,
+                ]}
+                color="#2E6B59"
+              />
+            </div>
+          </Card>
           <Card>
             <h2 className="mb-4 text-sm font-semibold text-foreground">
               Pipeline breakdown

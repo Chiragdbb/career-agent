@@ -69,6 +69,9 @@ def test_is_retriable_extraction_error() -> None:
     assert _is_retriable_extraction_error(
         ProviderRateLimitError("too large", details={"status_code": 413})
     )
+    assert not _is_retriable_extraction_error(
+        ProviderRateLimitError("quota", details={"status_code": 429})
+    )
     assert not _is_retriable_extraction_error(ProviderError("other"))
 
 

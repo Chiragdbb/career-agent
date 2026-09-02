@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { CheckCircle2, Circle } from "lucide-react";
+import { Check } from "lucide-react";
 
-import { Card, CardTitle } from "@/components/ui/Card";
+import { OnboardingIllustration } from "@/components/ui/Illustrations";
+import { cn } from "@/lib/cn";
 
 type OnboardingStep = {
   id: string;
@@ -14,44 +15,67 @@ type OnboardingStep = {
 
 type OnboardingChecklistProps = {
   steps: OnboardingStep[];
+  className?: string;
 };
 
-export function OnboardingChecklist({ steps }: OnboardingChecklistProps) {
-  const incomplete = steps.filter((step) => !step.complete);
-  if (incomplete.length === 0) return null;
+export function OnboardingChecklist({ steps, className }: OnboardingChecklistProps) {
+  const doneCount = steps.filter((s) => s.complete).length;
+  if (doneCount === steps.length) return null;
 
   return (
-    <Card className="mb-6">
-      <CardTitle>Get started</CardTitle>
-      <p className="mt-1 text-sm text-muted-foreground">
-        Complete these steps to unlock job discovery and applications.
-      </p>
-      <ul className="mt-4 space-y-3">
-        {steps.map((step) => (
-          <li key={step.id}>
-            <Link
-              href={step.href}
-              className="flex items-center gap-3 rounded-md border border-border px-3 py-2.5 transition-colors hover:bg-muted/40"
-            >
-              {step.complete ? (
-                <CheckCircle2 className="h-5 w-5 shrink-0 text-primary" aria-hidden />
-              ) : (
-                <Circle className="h-5 w-5 shrink-0 text-muted-foreground" aria-hidden />
-              )}
-              <span
-                className={
-                  step.complete
-                    ? "text-sm text-muted-foreground line-through"
-                    : "text-sm font-medium text-foreground"
-                }
+    <div
+      className={cn(
+        "mb-5 flex animate-riseIn items-center justify-between gap-6 rounded-[14px] bg-ink-soft px-6 py-5",
+        className,
+      )}
+    >
+      <div className="min-w-0 flex-1">
+        <div className="mb-3.5 flex items-baseline gap-2.5">
+          <span className="font-serif text-[19px] font-semibold text-[#F3EFE2]">
+            Let&apos;s set up your search
+          </span>
+          <span className="text-xs text-gold-soft">
+            {doneCount} of {steps.length} done
+          </span>
+        </div>
+        <ul className="flex flex-col gap-2">
+          {steps.map((step) => (
+            <li key={step.id}>
+              <Link
+                href={step.href}
+                className="flex items-center gap-2.5 py-0.5 text-left"
               >
-                {step.label}
-              </span>
-            </Link>
-          </li>
-        ))}
-      </ul>
-    </Card>
+                <span
+                  className={cn(
+                    "flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-[5px] border-[1.5px] transition-all duration-200",
+                    step.complete
+                      ? "border-gold bg-gold"
+                      : "border-[#4A5C51] bg-transparent",
+                  )}
+                >
+                  {step.complete ? (
+                    <Check className="h-3 w-3 text-[#2B1C05]" strokeWidth={3} />
+                  ) : null}
+                </span>
+                <span
+                  className={cn(
+                    "text-[13.5px]",
+                    step.complete
+                      ? "text-[#8A968E] line-through"
+                      : "text-[#E4E0D2]",
+                  )}
+                >
+                  {step.label}
+                </span>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      </div>
+      <div className="hidden shrink-0 opacity-90 sm:block">
+        <OnboardingIllustration />
+      </div>
+    </div>
   );
 }
 

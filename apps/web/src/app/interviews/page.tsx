@@ -6,7 +6,9 @@ import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/AppShell";
 import { Button } from "@/components/ui/Button";
 import { Card, CardTitle } from "@/components/ui/Card";
+import { EmptyState } from "@/components/ui/EmptyState";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { cn } from "@/lib/cn";
 import { apiFetch } from "@/lib/api";
 import { createClient } from "@/lib/supabase/client";
 
@@ -32,6 +34,25 @@ type Offer = {
 };
 
 type Application = { id: string; job_title: string | null; company_name: string | null };
+
+function relativeInterviewTime(scheduledAt: string | null): string {
+  if (!scheduledAt) return "Unscheduled";
+  const date = new Date(scheduledAt);
+  const diff = date.getTime() - Date.now();
+  const days = Math.round(diff / (1000 * 60 * 60 * 24));
+  if (days === 0) return "Today";
+  if (days === 1) return "Tomorrow";
+  if (days > 0 && days < 7) return `In ${days} days`;
+  if (days < 0) return `${Math.abs(days)} days ago`;
+  return date.toLocaleDateString();
+}
+
+function isNextUpcoming(interview: Interview, sorted: Interview[]): boolean {
+  const upcoming = sorted.filter(
+    (i) => i.scheduled_at && new Date(i.scheduled_at).getTime() >= Date.now(),
+  );
+  return upcoming[0]?.id === interview.id;
+}
 
 export default function InterviewsPage() {
   const router = useRouter();
@@ -85,6 +106,13 @@ export default function InterviewsPage() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router]);
+
+  const sortedInterviews = [...interviews].sort((a, b) => {
+    if (!a.scheduled_at && !b.scheduled_at) return 0;
+    if (!a.scheduled_at) return 1;
+    if (!b.scheduled_at) return -1;
+    return new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime();
+  });
 
   async function onCreateInterview(event: FormEvent) {
     event.preventDefault();
@@ -156,14 +184,34 @@ export default function InterviewsPage() {
         <Card>
           <CardTitle>Interviews</CardTitle>
           <ul className="mt-3 space-y-2 text-sm">
-            {interviews.map((i) => (
-              <li key={i.id} className="text-muted-foreground">
-                {i.title || "Interview"} · round {i.round ?? "—"} · {i.status}
-                {i.scheduled_at ? ` · ${i.scheduled_at}` : ""}
-              </li>
-            ))}
-            {!interviews.length ? (
-              <li className="text-muted-foreground">No interviews yet</li>
+            {sortedInterviews.map((i) => {
+              const next = isNextUpcoming(i, sortedInterviews);
+              return (
+                <li
+                  key={i.id}
+                  className={cn(
+                    "rounded-lg border px-3 py-2",
+                    next
+                      ? "border-gold bg-gold-bg/40 text-ink"
+                      : "border-line-soft text-text-muted",
+                  )}
+                >
+                  <p className="font-medium text-foreground">
+                    {i.title || "Interview"}
+                    {next ? " · Next up" : ""}
+                  </p>
+                  <p className="text-xs">
+                    Round {i.round ?? "—"} · {i.status} ·{" "}
+                    {relativeInterviewTime(i.scheduled_at)}
+                  </p>
+                </li>
+              );
+            })}
+            {!sortedInterviews.length ? (
+              <EmptyState
+                title="No interviews scheduled"
+                description="Interviews appear here once you add them to an application."
+              />
             ) : null}
           </ul>
         </Card>

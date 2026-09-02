@@ -6,6 +6,7 @@ import { Suspense, useEffect, useState } from "react";
 
 import { AppSidebar, type NavKey } from "@/components/AppSidebar";
 import { ActivityBar } from "@/components/ActivityBar";
+import { TrailMark } from "@/components/ui/Illustrations";
 import { cn } from "@/lib/cn";
 
 type AppShellProps = {
@@ -13,30 +14,28 @@ type AppShellProps = {
   active?: NavKey;
   className?: string;
   wide?: boolean;
+  /** Hide global ActivityBar (e.g. dashboard renders its own inline) */
+  hideActivityBar?: boolean;
 };
 
 function SidebarFallback() {
-  return (
-    <aside className="hidden h-screen w-60 shrink-0 bg-sidebar md:block" />
-  );
+  return <aside className="hidden h-screen w-[232px] shrink-0 bg-ink md:block" />;
 }
 
 function MobileHeader({ onOpenMenu }: { onOpenMenu: () => void }) {
   return (
-    <header className="sticky top-0 z-30 flex items-center gap-3 border-b border-border bg-background/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80 md:hidden">
+    <header className="sticky top-0 z-30 flex items-center gap-3 border-b border-line bg-paper/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-paper/80 md:hidden">
       <button
         type="button"
         onClick={onOpenMenu}
-        className="rounded-md border border-border p-2 text-foreground hover:bg-muted"
+        className="rounded-md border border-line p-2 text-foreground hover:bg-paper-raised"
         aria-label="Open menu"
       >
         <Menu className="h-5 w-5" />
       </button>
       <div className="flex items-center gap-2">
-        <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary">
-          <span className="font-serif text-sm text-primary-foreground">C</span>
-        </div>
-        <span className="text-sm font-semibold text-foreground">Career Agent</span>
+        <TrailMark size={22} />
+        <span className="font-serif text-sm font-semibold text-ink">Waypoint</span>
       </div>
     </header>
   );
@@ -47,6 +46,7 @@ function AppShellInner({
   active,
   className,
   wide,
+  hideActivityBar,
 }: AppShellProps) {
   const pathname = usePathname();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -65,7 +65,7 @@ function AppShellInner({
   }, [mobileNavOpen]);
 
   return (
-    <div className="flex h-screen overflow-hidden bg-background">
+    <div className="flex h-screen overflow-hidden bg-paper">
       {mobileNavOpen ? (
         <button
           type="button"
@@ -85,12 +85,12 @@ function AppShellInner({
         <MobileHeader onOpenMenu={() => setMobileNavOpen(true)} />
         <main
           className={cn(
-            "flex-1 overflow-y-auto overflow-x-hidden px-4 py-5 sm:px-6 md:px-9 md:py-7",
+            "flex-1 overflow-y-auto overflow-x-hidden px-4 py-5 sm:px-6 md:px-8 md:py-7",
             !wide && "md:max-w-[1200px]",
             className,
           )}
         >
-          <ActivityBar />
+          {!hideActivityBar ? <ActivityBar /> : null}
           {children}
         </main>
       </div>
