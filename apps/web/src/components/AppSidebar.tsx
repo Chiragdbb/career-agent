@@ -5,22 +5,23 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   BarChart3,
   Briefcase,
-  Calendar,
+  CalendarClock,
   CircleUser,
-  Columns3,
   Compass,
   FileText,
   LayoutDashboard,
+  LayoutGrid,
   LogOut,
-  Search,
   Send,
   Settings,
+  Sparkles,
   Users,
   X,
-  Zap,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 
+import { TrailMark } from "@/components/ui/Illustrations";
+import { apiFetch } from "@/lib/api";
 import { cn } from "@/lib/cn";
 
 export type NavKey =
@@ -45,21 +46,43 @@ type NavItem = {
   href: string;
   label: string;
   icon: React.ComponentType<{ className?: string }>;
+  badgeKey?: "applications" | "automations";
 };
 
-const workspaceNav: NavItem[] = [
-  { key: "dashboard", href: "/dashboard", label: "Overview", icon: LayoutDashboard },
+const overviewNav: NavItem = {
+  key: "dashboard",
+  href: "/dashboard",
+  label: "Overview",
+  icon: LayoutDashboard,
+};
+
+const pipelineNav: NavItem[] = [
   { key: "discover", href: "/preferences", label: "Discover", icon: Compass },
   { key: "jobs", href: "/jobs", label: "Jobs", icon: Briefcase },
-  { key: "applications", href: "/applications", label: "Applications", icon: Columns3 },
-  { key: "interviews", href: "/interviews", label: "Interviews", icon: Calendar },
-  { key: "contacts", href: "/contacts", label: "Contacts", icon: Users },
-  { key: "documents", href: "/documents", label: "Documents", icon: FileText },
-  { key: "outreach", href: "/outreach", label: "Outreach", icon: Send },
+  {
+    key: "applications",
+    href: "/applications",
+    label: "Applications",
+    icon: LayoutGrid,
+    badgeKey: "applications",
+  },
+  { key: "interviews", href: "/interviews", label: "Interviews", icon: CalendarClock },
 ];
 
-const automationNav: NavItem[] = [
-  { key: "automations", href: "/tasks", label: "Automations", icon: Zap },
+const supportNav: NavItem[] = [
+  { key: "contacts", href: "/contacts", label: "Contacts", icon: Users },
+  { key: "outreach", href: "/outreach", label: "Outreach", icon: Send },
+  { key: "documents", href: "/documents", label: "Documents", icon: FileText },
+];
+
+const insightNav: NavItem[] = [
+  {
+    key: "automations",
+    href: "/tasks",
+    label: "Automations",
+    icon: Sparkles,
+    badgeKey: "automations",
+  },
   { key: "analytics", href: "/analytics", label: "Analytics", icon: BarChart3 },
 ];
 
@@ -74,13 +97,25 @@ type AppSidebarProps = {
   onClose?: () => void;
 };
 
+function NavGroupLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="px-2.5 pb-1.5 pt-4 text-[11.5px] text-[#7C8880] first:pt-0">
+      {children}
+    </p>
+  );
+}
+
 function NavLink({
   item,
   active,
+  showDot,
+  badge,
   onNavigate,
 }: {
   item: NavItem;
   active: boolean;
+  showDot?: boolean;
+  badge?: number;
   onNavigate?: () => void;
 }) {
   const Icon = item.icon;
@@ -89,23 +124,28 @@ function NavLink({
       href={item.href}
       onClick={onNavigate}
       className={cn(
-        "flex items-center gap-2.5 rounded-md px-2.5 py-2.5 text-[13px] transition-colors md:py-2",
+        "relative flex w-full items-center gap-2.5 rounded-[7px] px-2.5 py-2 text-[13.5px] transition-colors",
         active
-          ? "bg-sidebar-accent text-sidebar-foreground font-medium"
-          : "text-sidebar-muted hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
+          ? "bg-[rgba(185,130,46,0.14)] font-semibold text-gold-soft"
+          : "text-[#B8C2BB] hover:bg-white/5",
       )}
     >
-      <Icon className="h-4 w-4 shrink-0" />
-      {item.label}
+      {showDot !== undefined ? (
+        <span
+          className={cn(
+            "h-1.5 w-1.5 shrink-0 rounded-full",
+            showDot ? "bg-gold" : "bg-[#3B4C42]",
+          )}
+        />
+      ) : null}
+      <Icon className={cn("h-[15px] w-[15px] shrink-0", !active && "opacity-80")} />
+      <span className="flex-1">{item.label}</span>
+      {badge != null && badge > 0 ? (
+        <span className="rounded-full bg-brick px-1.5 py-px text-[11px] font-semibold text-[#FBE6DF]">
+          {badge}
+        </span>
+      ) : null}
     </Link>
-  );
-}
-
-function NavGroupLabel({ children }: { children: React.ReactNode }) {
-  return (
-    <p className="px-2 pb-1 pt-2 text-[10px] font-semibold tracking-wider text-sidebar-muted">
-      {children}
-    </p>
   );
 }
 
@@ -114,8 +154,8 @@ export function AppSidebar({ active, mobileOpen = false, onClose }: AppSidebarPr
   const searchParams = useSearchParams();
   const router = useRouter();
   const [userName, setUserName] = useState("User");
-  const [userEmail, setUserEmail] = useState("");
   const [initials, setInitials] = useState("U");
+  const [badges, setBadges] = useState({ applications: 0, automations: 0 });
 
   useEffect(() => {
     async function loadUser() {
@@ -130,7 +170,6 @@ export function AppSidebar({ active, mobileOpen = false, onClose }: AppSidebarPr
         user.email?.split("@")[0] ||
         "User";
       setUserName(name);
-      setUserEmail(user.email || "");
       const parts = name.split(" ").filter(Boolean);
       setInitials(
         parts.length >= 2
@@ -141,6 +180,50 @@ export function AppSidebar({ active, mobileOpen = false, onClose }: AppSidebarPr
     void loadUser();
   }, []);
 
+  useEffect(() => {
+    async function loadBadges() {
+      try {
+        const [appsRes, tasksRes, summaryRes] = await Promise.all([
+          apiFetch("/api/v1/applications"),
+          apiFetch("/api/v1/human-tasks?status=open"),
+          apiFetch("/api/v1/dashboard/summary"),
+        ]);
+        let applicationsBadge = 0;
+        let automationsBadge = 0;
+        let summary: { open_follow_ups?: number; open_human_tasks?: number } | null =
+          null;
+        if (summaryRes.ok) {
+          summary = (await summaryRes.json()) as {
+            open_follow_ups?: number;
+            open_human_tasks?: number;
+          };
+          automationsBadge = summary?.open_human_tasks ?? 0;
+        }
+        if (tasksRes.ok) {
+          const tasks = (await tasksRes.json()) as unknown[];
+          automationsBadge = Math.max(automationsBadge, tasks.length);
+        }
+        if (appsRes.ok) {
+          const apps = (await appsRes.json()) as { status: string }[];
+          applicationsBadge = apps.filter((a) => {
+            const s = a.status.toLowerCase();
+            return (
+              s.includes("blocked") ||
+              s.includes("action") ||
+              s.includes("paused") ||
+              s.includes("needs")
+            );
+          }).length;
+          applicationsBadge += summary?.open_follow_ups ?? 0;
+        }
+        setBadges({ applications: applicationsBadge, automations: automationsBadge });
+      } catch {
+        /* badges are optional */
+      }
+    }
+    void loadBadges();
+  }, []);
+
   function isActive(item: NavItem) {
     if (active) return active === item.key;
     const tab = searchParams.get("tab");
@@ -148,10 +231,10 @@ export function AppSidebar({ active, mobileOpen = false, onClose }: AppSidebarPr
       return pathname === "/profile" || (pathname === "/settings" && tab === "profile");
     }
     if (item.key === "settings") {
-      return (
-        (pathname === "/settings" && tab !== "profile") ||
-        pathname === "/preferences"
-      );
+      return pathname === "/settings" && tab !== "profile";
+    }
+    if (item.key === "discover") {
+      return pathname === "/preferences";
     }
     const baseHref = item.href.split("?")[0];
     return pathname === baseHref || pathname.startsWith(`${baseHref}/`);
@@ -166,51 +249,58 @@ export function AppSidebar({ active, mobileOpen = false, onClose }: AppSidebarPr
     router.refresh();
   }
 
+  function badgeFor(item: NavItem) {
+    if (!item.badgeKey) return undefined;
+    return badges[item.badgeKey];
+  }
+
   return (
     <aside
       className={cn(
-        "flex h-full w-[min(100vw-3rem,17.5rem)] shrink-0 flex-col justify-between border-r border-sidebar-border bg-sidebar px-3 py-4 md:h-screen md:w-60",
+        "flex h-full w-[min(100vw-3rem,232px)] shrink-0 flex-col bg-ink px-3.5 py-5 md:h-screen md:w-[232px]",
         "fixed inset-y-0 left-0 z-50 transition-transform duration-200 ease-out md:sticky md:top-0 md:translate-x-0",
         mobileOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0",
       )}
       aria-label="Main navigation"
     >
-      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto">
-        <div className="flex items-center justify-between gap-2.5 px-2 py-1">
-          <div className="flex items-center gap-2.5">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
-              <span className="font-serif text-base text-primary-foreground">C</span>
-            </div>
-            <div>
-              <p className="text-sm font-semibold text-sidebar-foreground">
-                Career Agent
-              </p>
-              <p className="text-[10px] text-sidebar-muted">Pro workspace</p>
-            </div>
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+        <div className="mb-5 flex items-center justify-between gap-2 px-2 py-1">
+          <div className="flex items-center gap-2">
+            <TrailMark size={26} />
+            <span className="font-serif text-[16.5px] font-semibold text-[#F3EFE2]">
+              Waypoint
+            </span>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-md p-1.5 text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-foreground md:hidden"
+            className="rounded-md p-1.5 text-[#7C8880] hover:bg-white/5 md:hidden"
             aria-label="Close menu"
           >
             <X className="h-5 w-5" />
           </button>
         </div>
 
-        <div className="hidden items-center justify-between rounded-md border border-sidebar-border bg-sidebar-accent px-2.5 py-2 md:flex">
-          <div className="flex items-center gap-2">
-            <Search className="h-3.5 w-3.5 text-sidebar-muted" />
-            <span className="text-xs text-sidebar-muted">Search...</span>
-          </div>
-          <kbd className="rounded border border-sidebar-border bg-[#18181B] px-1.5 py-0.5 text-[10px] text-sidebar-muted">
-            ⌘K
-          </kbd>
-        </div>
-
         <nav className="flex flex-col gap-0.5">
-          <NavGroupLabel>WORKSPACE</NavGroupLabel>
-          {workspaceNav.map((item) => (
+          <NavLink item={overviewNav} active={isActive(overviewNav)} onNavigate={onClose} />
+
+          <NavGroupLabel>Pipeline</NavGroupLabel>
+          <div className="relative flex flex-col gap-0.5">
+            <div className="absolute bottom-4 left-[15px] top-4 w-px bg-[#2E3F35]" />
+            {pipelineNav.map((item) => (
+              <NavLink
+                key={item.key}
+                item={item}
+                active={isActive(item)}
+                showDot={isActive(item)}
+                badge={badgeFor(item)}
+                onNavigate={onClose}
+              />
+            ))}
+          </div>
+
+          <NavGroupLabel>Support</NavGroupLabel>
+          {supportNav.map((item) => (
             <NavLink
               key={item.key}
               item={item}
@@ -218,20 +308,22 @@ export function AppSidebar({ active, mobileOpen = false, onClose }: AppSidebarPr
               onNavigate={onClose}
             />
           ))}
-          <NavGroupLabel>AUTOMATION</NavGroupLabel>
-          {automationNav.map((item) => (
+
+          <NavGroupLabel>Insight</NavGroupLabel>
+          {insightNav.map((item) => (
             <NavLink
               key={item.key}
               item={item}
               active={isActive(item)}
+              badge={badgeFor(item)}
               onNavigate={onClose}
             />
           ))}
         </nav>
       </div>
 
-      <div className="mt-4 flex shrink-0 flex-col gap-2">
-        <div className="h-px bg-sidebar-border" />
+      <div className="mt-2.5 shrink-0">
+        <div className="my-2.5 h-px bg-[#263831]" />
         {bottomNav.map((item) => (
           <NavLink
             key={item.key}
@@ -240,22 +332,18 @@ export function AppSidebar({ active, mobileOpen = false, onClose }: AppSidebarPr
             onNavigate={onClose}
           />
         ))}
-        <div className="flex items-center gap-2.5 rounded-md bg-sidebar-accent p-2.5">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary">
-            <span className="text-[11px] font-semibold text-primary-foreground">
-              {initials}
-            </span>
+        <div className="mt-2 flex items-center gap-2 px-2 py-1.5">
+          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gold-soft font-serif text-xs font-semibold text-[#3B2A08]">
+            {initials}
           </div>
           <div className="min-w-0 flex-1">
-            <p className="truncate text-xs font-medium text-sidebar-foreground">
-              {userName}
-            </p>
-            <p className="truncate text-[10px] text-sidebar-muted">{userEmail}</p>
+            <p className="truncate text-[12.5px] font-medium text-[#EDE9DB]">{userName}</p>
+            <p className="text-[11px] text-[#7C8880]">Settings</p>
           </div>
           <button
             type="button"
             onClick={() => void signOut()}
-            className="rounded-md p-1 text-sidebar-muted hover:bg-sidebar hover:text-sidebar-foreground"
+            className="rounded-md p-1 text-[#7C8880] hover:bg-white/5 hover:text-[#EDE9DB]"
             title="Sign out"
           >
             <LogOut className="h-3.5 w-3.5" />

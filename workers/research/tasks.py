@@ -11,10 +11,12 @@ from packages.domain.company_research import CompanyResearchService
 from packages.domain.llm_tasks import LLMTaskService
 from packages.providers.factory import (
     ProviderSettings,
+    create_extraction_llm_provider,
     create_llm_provider,
     create_scraper_provider,
     create_search_provider,
 )
+from packages.providers.exceptions import ProviderRateLimitDeferError
 from workers.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
@@ -32,12 +34,13 @@ def _run_company_research(user_id: uuid.UUID, job_id: uuid.UUID, force_refresh: 
     session = _session()
     try:
         llm = create_llm_provider(settings)
+        extraction_llm = create_extraction_llm_provider(settings)
         service = CompanyResearchService(
             session,
             user_id,
             search=create_search_provider(settings),
             scraper=create_scraper_provider(settings),
-            llm_tasks=LLMTaskService(llm),
+            llm_tasks=LLMTaskService(llm, extraction_llm=extraction_llm),
         )
         row = service.research_for_job(job_id, force_refresh=force_refresh)
         return {
@@ -52,7 +55,7 @@ def _run_company_research(user_id: uuid.UUID, job_id: uuid.UUID, force_refresh: 
 @celery_app.task(
     bind=True,
     name="research_company_for_job",
-    autoretry_for=(Exception,),
+    autoretry_for=(ProviderRateLimitDeferError, Exception),
     retry_backoff=True,
     max_retries=3,
 )

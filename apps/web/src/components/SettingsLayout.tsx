@@ -11,7 +11,7 @@ const settingsNav = [
   { id: "preferences", label: "Job preferences", href: "/preferences" },
   { id: "resume", label: "Resume", href: "/documents?tab=resumes" },
   { id: "notifications", label: "Notifications", href: "/settings?tab=notifications" },
-  { id: "email", label: "Email", href: "/settings?tab=email" },
+  { id: "email", label: "Email (Coming soon)", href: "/settings?tab=email" },
 ] as const;
 
 type SettingsLayoutProps = {

@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Activity,
   Brain,
   CheckCircle2,
   ChevronDown,
@@ -11,7 +10,6 @@ import {
   XCircle,
 } from "lucide-react";
 
-import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { useProcessActivity } from "@/hooks/useProcessActivity";
 import { cn } from "@/lib/cn";
@@ -22,7 +20,6 @@ import {
   fetchWorkflowTasks,
   formatWorkflowType,
   isActiveWorkflow,
-  workflowStatusVariant,
   WorkflowRun,
   WorkflowTask,
 } from "@/lib/workflows";
@@ -317,7 +314,7 @@ function JobDiscoveryDetail({ runId }: { runId: string }) {
   );
 }
 
-export function ActivityBar() {
+export function ActivityBar({ className, inline = false }: { className?: string; inline?: boolean }) {
   const { activeRuns, events, loading } = useProcessActivity();
   const [expanded, setExpanded] = useState(false);
 
@@ -330,77 +327,46 @@ export function ActivityBar() {
   if (loading && !hasActivity) return null;
   if (!hasActivity) return null;
 
+  const primaryLabel =
+    activeRuns.length > 0
+      ? `${activeRuns.length} process${activeRuns.length > 1 ? "es" : ""} running`
+      : "Recent activity";
+
   return (
-    <div className="mb-4 rounded-lg border border-border bg-card">
+    <div className={cn("relative", !inline && "mb-4", className)}>
       <button
         type="button"
         onClick={() => setExpanded((v) => !v)}
-        className="flex w-full items-center gap-3 px-4 py-2.5 text-left"
+        className="inline-flex items-center gap-2 rounded-full border border-line bg-paper-raised px-3 py-1.5 text-[12.5px] font-medium text-foreground"
       >
-        {activeRuns.length > 0 ? (
-          <Loader2 className="h-4 w-4 shrink-0 animate-spin text-primary" />
-        ) : (
-          <Activity className="h-4 w-4 shrink-0 text-primary" />
-        )}
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium text-foreground">
-            {activeRuns.length > 0
-              ? `${activeRuns.length} process${activeRuns.length > 1 ? "es" : ""} running`
-              : "Recent activity"}
-          </p>
-          {activeRuns[0] ? (
-            <p className="truncate text-xs text-muted-foreground">
-              {(activeRuns[0].metadata?.status_message as string) ||
-                `${formatWorkflowType(activeRuns[0].workflow_type)} — ${activeRuns[0].status}`}
-            </p>
-          ) : events[0] ? (
-            <p className="truncate text-xs text-muted-foreground">{events[0].message}</p>
-          ) : null}
-        </div>
+        <span className="h-[7px] w-[7px] shrink-0 rounded-full bg-teal shadow-[0_0_0_3px_#DEEBE4]" />
+        {primaryLabel}
         {expanded ? (
-          <ChevronUp className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <ChevronUp className="h-3.5 w-3.5 text-text-muted" />
         ) : (
-          <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <ChevronDown className="h-3.5 w-3.5 text-text-muted" />
         )}
       </button>
 
       {expanded ? (
-        <div className="border-t border-border px-4 py-3">
+        <div className="absolute right-0 top-[calc(100%+8px)] z-20 w-[280px] rounded-[10px] border border-line bg-paper-raised p-3.5 shadow-[0_8px_24px_rgba(22,35,31,0.12)]">
           {activeRuns.length > 0 ? (
-            <section className="mb-4">
-              <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                Active processes
-              </h3>
-              <ul className="space-y-2">
+            <section className="mb-3">
+              <p className="mb-2.5 text-[12.5px] font-semibold text-ink">
+                {formatWorkflowType(activeRuns[0]?.workflow_type || "workflow")}
+              </p>
+              <ul className="flex flex-col gap-2">
                 {activeRuns.map((run) => (
-                  <li
-                    key={run.id}
-                    className="flex items-start justify-between gap-2 rounded-md bg-muted/40 px-3 py-2"
-                  >
-                    <div className="min-w-0">
-                      <p className="text-xs font-medium text-foreground">
-                        {formatWorkflowType(run.workflow_type)}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {(run.metadata?.status_message as string) ||
-                          (run.metadata?.current_step as string) ||
-                          run.status}
-                      </p>
-                      {run.task_count > 0 ? (
-                        <p className="text-xs text-muted-foreground">
-                          {run.completed_task_count}/{run.task_count} steps
-                        </p>
-                      ) : null}
-                    </div>
-                    <Badge
-                      variant={workflowStatusVariant(run.status)}
-                      className="shrink-0 capitalize"
-                    >
-                      {isActiveWorkflow(run.status) ? (
-                        <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                      ) : null}
-                      {run.status}
-                    </Badge>
+                  <li key={run.id} className="flex items-center gap-2">
+                    {isActiveWorkflow(run.status) ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin text-gold" />
+                    ) : (
+                      <CheckCircle2 className="h-3.5 w-3.5 text-teal" />
+                    )}
+                    <span className="text-[12.5px] text-text-muted">
+                      {(run.metadata?.status_message as string) ||
+                        `${formatWorkflowType(run.workflow_type)} — ${run.status}`}
+                    </span>
                   </li>
                 ))}
               </ul>
@@ -408,10 +374,7 @@ export function ActivityBar() {
           ) : null}
 
           {discoveryRuns.length > 0 ? (
-            <section className="mb-4 space-y-3">
-              <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                Discovery details
-              </h3>
+            <section className="mb-3 space-y-2">
               {discoveryRuns.map((run) => (
                 <JobDiscoveryDetail key={run.id} runId={run.id} />
               ))}
@@ -420,26 +383,26 @@ export function ActivityBar() {
 
           {events.length > 0 ? (
             <section>
-              <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-text-faint">
                 Activity log
-              </h3>
+              </p>
               <ul className="max-h-48 space-y-1 overflow-y-auto">
                 {events.slice(0, 15).map((event) => (
                   <li
                     key={event.id}
                     className={cn(
                       "rounded px-2 py-1.5 text-xs",
-                      event.type === "workflow_failed" && "bg-destructive/5",
+                      event.type === "workflow_failed" && "bg-brick-bg/50",
                     )}
                   >
                     <div className="flex items-start gap-2">
-                      <span className="shrink-0 tabular-nums text-muted-foreground">
+                      <span className="shrink-0 tabular-nums text-text-faint">
                         {formatTime(event.timestamp)}
                       </span>
                       <div className="min-w-0 flex-1">
                         <span className="text-foreground">{event.message}</span>
                         {event.detail ? (
-                          <p className="mt-0.5 break-all text-[10px] text-muted-foreground">
+                          <p className="mt-0.5 break-all text-[10px] text-text-muted">
                             {event.detail}
                           </p>
                         ) : null}

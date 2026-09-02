@@ -16,6 +16,7 @@ from packages.providers.factory import (
     create_scraper_provider,
     create_search_provider,
 )
+from packages.providers.exceptions import ProviderRateLimitDeferError
 from workers.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
@@ -93,7 +94,7 @@ def _workflow_cancellation() -> WorkflowCancellation | None:
 @celery_app.task(
     bind=True,
     name="discover_jobs",
-    autoretry_for=(Exception,),
+    autoretry_for=(ProviderRateLimitDeferError, Exception),
     retry_backoff=True,
     retry_backoff_max=300,
     retry_jitter=True,

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -10,7 +12,8 @@ from packages.domain.exceptions import DomainError
 from packages.domain.llm_tasks import LLMTaskService
 from packages.providers.exceptions import ProviderNotConfiguredError
 from packages.providers.llm import MockLLMProvider
-from packages.providers.llm_adapters import GeminiLLMProvider, GroqLLMProvider, parse_llm_json
+from packages.providers.llm.gemini import GeminiLLMProvider
+from packages.providers.llm_adapters import GroqLLMProvider, parse_llm_json
 
 
 class _FakeResponse:
@@ -60,24 +63,17 @@ def test_groq_complete_parses_usage(monkeypatch: pytest.MonkeyPatch) -> None:
     assert response.usage.extra["prompt_tokens"] == 11
 
 
-def test_gemini_complete_parses_usage(monkeypatch: pytest.MonkeyPatch) -> None:
-    def fake_request(**kwargs):
-        assert "generativelanguage.googleapis.com" in kwargs["url"]
-        return _FakeResponse(
-            200,
-            {
-                "candidates": [
-                    {"content": {"parts": [{"text": '{"hello":"world"}'}]}, "finishReason": "STOP"}
-                ],
-                "usageMetadata": {"promptTokenCount": 5, "candidatesTokenCount": 3},
-            },
-        )
-
-    monkeypatch.setattr(
-        "packages.providers.llm_adapters.request_with_retries",
-        fake_request,
+def test_gemini_complete_parses_usage() -> None:
+    client = MagicMock()
+    usage = SimpleNamespace(prompt_token_count=5, candidates_token_count=3)
+    candidate = SimpleNamespace(finish_reason="STOP")
+    client.models.generate_content.return_value = SimpleNamespace(
+        text='{"hello":"world"}',
+        candidates=[candidate],
+        usage_metadata=usage,
     )
-    provider = GeminiLLMProvider(api_key="gem-test")
+
+    provider = GeminiLLMProvider(api_key="gem-test", client=client)
     from packages.providers.llm import LLMMessage, LLMRequest
 
     response = provider.complete(
@@ -85,6 +81,7 @@ def test_gemini_complete_parses_usage(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     assert '"hello"' in response.content
     assert response.usage.units == 8.0
+    assert client.models.generate_content.call_args.kwargs["config"].response_mime_type == "application/json"
 
 
 def test_parse_llm_json_strips_fences() -> None:

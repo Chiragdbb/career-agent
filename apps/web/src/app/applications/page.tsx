@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { FileCheck } from "lucide-react";
 
 import { AppShell } from "@/components/AppShell";
@@ -39,12 +39,27 @@ function columnForStatus(status: string) {
   return "saved";
 }
 
+function daysInStage(appliedAt: string | null): number | null {
+  if (!appliedAt) return null;
+  const diff = Date.now() - new Date(appliedAt).getTime();
+  return Math.floor(diff / (1000 * 60 * 60 * 24));
+}
+
 export default function ApplicationsPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [rows, setRows] = useState<Application[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [view, setView] = useState<"board" | "list">("board");
+  const [view, setView] = useState<"board" | "list">(
+    searchParams.get("view") === "list" ? "list" : "board",
+  );
+
+  useEffect(() => {
+    const v = searchParams.get("view");
+    if (v === "list") setView("list");
+    else if (v === "board") setView("board");
+  }, [searchParams]);
 
   useEffect(() => {
     let cancelled = false;
@@ -148,30 +163,38 @@ export default function ApplicationsPage() {
                   {grouped[col.key]?.length ?? 0}
                 </span>
               </div>
-              {(grouped[col.key] ?? []).map((row) => (
+              {(grouped[col.key] ?? []).map((row) => {
+                const days = daysInStage(row.applied_at);
+                const stale = days != null && days > 10;
+                return (
                 <Link
                   key={row.id}
                   href={`/applications/${row.id}`}
-                  className="rounded-lg border border-border bg-card p-3 transition-shadow hover:shadow-sm"
+                  className="rounded-lg border border-line bg-paper-raised p-3 transition-shadow hover:shadow-sm"
                 >
-                  <p className="text-xs font-semibold text-foreground">
+                  <p className="text-xs font-semibold text-ink">
                     {row.job_title || "Untitled role"}
                   </p>
-                  <p className="mt-1 text-[11px] text-muted-foreground">
+                  <p className="mt-1 text-[11px] text-text-muted">
                     {row.company_name}
                   </p>
-                  <div className="mt-2 flex items-center justify-between">
+                  <div className="mt-2 flex items-center justify-between gap-2">
                     <Badge variant="primary" className="text-[10px]">
                       {row.status}
                     </Badge>
-                    {row.applied_at ? (
-                      <span className="text-[10px] text-muted-foreground">
-                        {new Date(row.applied_at).toLocaleDateString()}
+                    {days != null ? (
+                      <span
+                        className={cn(
+                          "text-[10px]",
+                          stale ? "font-medium text-brick" : "text-text-faint",
+                        )}
+                      >
+                        {days}d in stage{stale ? " · stale" : ""}
                       </span>
                     ) : null}
                   </div>
                 </Link>
-              ))}
+              );})}
               {(grouped[col.key] ?? []).length === 0 ? (
                 <p className="py-4 text-center text-[11px] text-muted-foreground">Empty</p>
               ) : null}

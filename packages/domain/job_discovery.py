@@ -24,7 +24,7 @@ from database.models.enums import (
 from database.models.schema import Company, Job, JobMatch, WorkflowRun, WorkflowTask
 from packages.domain.discovery_logger import DiscoveryFileLogger
 from packages.domain.exceptions import DiscoveryCancelledError, DomainError, NotFoundError
-from packages.domain.extraction_constants import EXTRACTION_CONTENT_PREFILTER_MAX_CHARS
+from packages.domain.extraction_constants import extraction_prefilter_max_chars_for_provider
 from packages.domain.events import UserEventPublisher, UserEventType
 from packages.domain.job_match import JobMatchService
 from packages.domain.job_urls import is_likely_listing_page
@@ -33,6 +33,7 @@ from packages.providers.exceptions import ProviderError
 from packages.domain.job_models import ExtractedJob
 from packages.domain.jobs import load_resume_skills
 from packages.domain.llm_tasks import LLMTaskService
+from packages.domain.provider_usage import ProviderUsageContext, ProviderUsageService
 from packages.domain.preferences import PreferenceSettings, PreferencesService
 from packages.providers.llm import LLMProvider
 from packages.providers.scraper import ScrapeRequest, ScraperProvider
@@ -130,6 +131,11 @@ class JobDiscoveryService:
             self._llm,
             extraction_llm=self._extraction_llm,
             discovery_log=self._file_log,
+            usage_service=ProviderUsageService(self._session),
+            usage_context=ProviderUsageContext(
+                user_id=self._user_id,
+                workflow_run_id=run.id,
+            ),
         )
         self._file_log.log(
             "discovery_started",
@@ -380,10 +386,10 @@ class JobDiscoveryService:
                 content_source=content_source,
                 chars=len(markdown),
             )
-            if (
-                content_source == "scrape"
-                and len(markdown) > EXTRACTION_CONTENT_PREFILTER_MAX_CHARS
-            ):
+            prefilter_limit = extraction_prefilter_max_chars_for_provider(
+                self._extraction_llm.metadata.name
+            )
+            if content_source == "scrape" and len(markdown) > prefilter_limit:
                 raise DomainError(
                     f"Scraped content too large ({len(markdown)} chars) — "
                     "likely a listing page, not a single job posting"
