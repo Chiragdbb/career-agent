@@ -67,6 +67,12 @@ body {
   font-family: var(--font-sans), system-ui, sans-serif;
 }
 
+select {
+  color-scheme: light;
+  color: var(--foreground);
+  background-color: var(--card);
+}
+
 textarea:focus {
   outline: none;
   border-color: #B9822E;
