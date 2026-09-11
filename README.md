@@ -122,4 +122,8 @@ All contributors (human and AI) must follow the rules in **[AGENTS.md](./AGENTS.
 
 ## Status
 
-This repository is under active development. The current layout establishes project structure and schema design. Application services, API endpoints, workers, and migrations will be added in subsequent sessions.
+Foundation through SaaS dashboard is in place. Recent productization work includes
+pgvector hybrid matching, automation rules, provider quotas, security hardening,
+MCP domain-service tools, scheduled discovery, E2E vertical-slice tests, and
+deployment/CI docs. Production cloud deploy still requires human-provided secrets
+(see `docs/deployment.md`).

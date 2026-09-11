@@ -61,10 +61,18 @@ class ProviderSettings:
     hunter_api_key: str = ""
     resend_api_key: str = ""
     resend_from_email: str = ""
+    embedding_api_key: str = ""
+    embedding_model: str = "text-embedding-3-small"
+    embedding_base_url: str = "https://api.openai.com/v1"
+    embedding_dimensions: int = 1536
 
     @classmethod
     def from_env(cls) -> ProviderSettings:
         gemini_tier = normalize_gemini_tier(os.getenv("GEMINI_TIER"))
+        embedding_key = (
+            (os.getenv("EMBEDDING_API_KEY") or "").strip()
+            or (os.getenv("OPENAI_API_KEY") or "").strip()
+        )
         return cls(
             llm_provider=(os.getenv("LLM_PROVIDER") or "groq").strip().lower(),
             groq_api_key=(os.getenv("GROQ_API_KEY") or "").strip(),
@@ -88,6 +96,12 @@ class ProviderSettings:
             hunter_api_key=(os.getenv("HUNTER_API_KEY") or "").strip(),
             resend_api_key=(os.getenv("RESEND_API_KEY") or "").strip(),
             resend_from_email=(os.getenv("RESEND_FROM_EMAIL") or "").strip(),
+            embedding_api_key=embedding_key,
+            embedding_model=(os.getenv("EMBEDDING_MODEL") or "text-embedding-3-small").strip(),
+            embedding_base_url=(
+                os.getenv("EMBEDDING_BASE_URL") or "https://api.openai.com/v1"
+            ).strip().rstrip("/"),
+            embedding_dimensions=int(os.getenv("EMBEDDING_DIMENSIONS") or "1536"),
         )
 
 
@@ -237,6 +251,21 @@ def create_email_verifier_provider(
     return create_mock_providers().email_verifier
 
 
+def create_embedding_provider(settings: ProviderSettings | None = None):
+    """OpenAI-compatible embeddings when keyed; else mock (CI-safe)."""
+    from packages.providers.embedding import OpenAICompatibleEmbeddingProvider
+
+    settings = settings or ProviderSettings.from_env()
+    if settings.embedding_api_key:
+        return OpenAICompatibleEmbeddingProvider(
+            api_key=settings.embedding_api_key,
+            model=settings.embedding_model,
+            base_url=settings.embedding_base_url,
+            dimensions=settings.embedding_dimensions,
+        )
+    return create_mock_providers().embedding
+
+
 def create_email_sender_provider(
     settings: ProviderSettings | None = None,
 ):
@@ -288,6 +317,7 @@ def log_active_providers(settings: ProviderSettings | None = None) -> dict[str, 
         "email_finder": create_email_finder_provider(settings).metadata.name,
         "email_verifier": create_email_verifier_provider(settings).metadata.name,
         "email_sender": create_email_sender_provider(settings).metadata.name,
+        "embedding": create_embedding_provider(settings).metadata.name,
     }
     for capability, name in active.items():
         kind = "mock" if name.startswith("mock-") else "live"

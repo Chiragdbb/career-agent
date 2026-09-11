@@ -271,6 +271,24 @@ celery -A workers.celery_app.celery_app worker --loglevel=info
 
 Registered task modules: discovery, research, contacts, documents, applications, outreach, notifications.
 
+### Semantic matching / automation / MCP (STEPs 35–45)
+
+- `EmbeddingProvider` — mock (CI) or OpenAI-compatible via `EMBEDDING_API_KEY` / `OPENAI_API_KEY`
+- Hybrid scoring in `JobMatchService` (`v2.0-hybrid-semantic`) augments deterministic scores; does not replace them
+- Background tasks: `workers.embeddings.tasks` + Celery beat scheduled discovery (`workers.scheduled.tasks`)
+- `AutomationRuleEngine` — predefined safe actions only; rules in `user_preferences.settings.automation_rules`
+- `ProviderUsageService` quotas + `packages/shared/security.py` (SSRF, uploads, scraped-content guard)
+- Optional: Sentry (`SENTRY_DSN`), PostHog (`POSTHOG_API_KEY`), Notion export (`NOTION_API_KEY`)
+- MCP (`mcp/server.py`) calls domain services only; auth via `MCP_USER_ID` / `MCP_AUTH_SUBJECT` / `MCP_AUTH_TOKEN`. Legacy CRUD preserved in `mcp/legacy_server.py`.
+
+```bash
+python -m alembic upgrade head
+python -m pytest tests/test_embeddings.py tests/test_automation_rules.py tests/test_provider_usage.py tests/test_security.py tests/test_analytics_notion.py tests/test_e2e_vertical_slice.py -v
+celery -A workers.celery_app.celery_app beat --loglevel=info   # scheduled discovery
+```
+
+Deploy docs: [deployment.md](./deployment.md), [production-environment.md](./production-environment.md), [backup-and-recovery.md](./backup-and-recovery.md). CI: `.github/workflows/ci.yml` (deploy gated on secrets).
+
 ## Notes
 
 - Passwords in `.env` / `.env.example` are for **local development only**. Do not reuse them in production.

@@ -417,11 +417,20 @@ class JobDiscoveryService:
                 },
             )
             markdown, content_source = self._scrape_markdown(url, run_id)
+            from packages.shared.security import sanitize_scraped_content, validate_public_url
+
+            try:
+                validate_public_url(url)
+            except Exception as exc:
+                raise DomainError(f"Blocked URL: {exc}") from exc
+            guarded = sanitize_scraped_content(markdown)
+            markdown = guarded.safe_text
             self._file_log.log(
                 "scrape_result",
                 url=url,
                 content_source=content_source,
                 chars=len(markdown),
+                injection_flagged=guarded.flagged,
             )
             prefilter_limit = extraction_prefilter_max_chars_for_provider(
                 self._extraction_llm.metadata.name

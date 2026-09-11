@@ -11,9 +11,11 @@ from app.middleware import CorrelationIdMiddleware, register_exception_handlers
 from app.redis import close_redis, init_redis
 from packages.shared.env import load_project_env
 from packages.shared.logging import configure_logging
+from packages.shared.sentry import init_sentry
 from packages.providers.factory import log_active_providers
 
 load_project_env()
+init_sentry(service="api")
 from app.routers import (
     activity_router,
     analytics_router,
