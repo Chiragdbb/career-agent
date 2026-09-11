@@ -10,35 +10,46 @@ export default {
     extend: {
       colors: {
         ink: {
-          DEFAULT: "#16231F",
-          soft: "#223229",
-          faint: "#2C4136",
+          DEFAULT: "#1e1a24",
+          soft: "#2f2936",
+          faint: "#4a4352",
         },
         paper: {
-          DEFAULT: "#F1EFE5",
-          raised: "#FBFAF4",
+          DEFAULT: "#fef7ff",
+          raised: "#ffffff",
         },
         line: {
-          DEFAULT: "#DCD9CA",
-          soft: "#E7E4D6",
+          DEFAULT: "#ebe4f0",
+          soft: "#f3eef8",
+        },
+        coral: {
+          DEFAULT: "#d63b20",
+          deep: "#b32107",
+          soft: "#ffdad3",
+          bg: "#fff1ee",
         },
         gold: {
-          DEFAULT: "#B9822E",
-          soft: "#E6C98A",
-          bg: "#F3E6C9",
+          DEFAULT: "#d63b20",
+          soft: "#ffdad3",
+          bg: "#fff1ee",
+        },
+        lavender: {
+          DEFAULT: "#e2dfff",
+          deep: "#0c006b",
+          bg: "#f3eef8",
         },
         teal: {
-          DEFAULT: "#2E6B59",
-          bg: "#DEEBE4",
+          DEFAULT: "#047857",
+          bg: "#d1fae5",
         },
         brick: {
-          DEFAULT: "#AA4630",
-          bg: "#F1DAD1",
+          DEFAULT: "#b32107",
+          bg: "#ffdad3",
         },
         text: {
-          DEFAULT: "#1D2620",
-          muted: "#63706A",
-          faint: "#8B958E",
+          DEFAULT: "#1e1a24",
+          muted: "#5b403b",
+          faint: "#8a7a76",
         },
         background: "var(--background)",
         foreground: "var(--foreground)",
@@ -108,13 +119,18 @@ export default {
         sm: "var(--radius-sm)",
         md: "var(--radius-md)",
         lg: "var(--radius-lg)",
+        xl: "32px",
+        "2xl": "40px",
+        "3xl": "48px",
       },
       fontFamily: {
         sans: ["var(--font-sans)", "system-ui", "sans-serif"],
         serif: ["var(--font-serif)", "Georgia", "serif"],
       },
       boxShadow: {
-        sm: "0 1px 2px rgba(0, 0, 0, 0.05)",
+        sm: "0 2px 6px rgba(45, 38, 56, 0.05)",
+        soft: "var(--shadow-soft)",
+        card: "var(--shadow-card)",
       },
       keyframes: {
         riseIn: {

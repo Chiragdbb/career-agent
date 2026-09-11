@@ -40,13 +40,15 @@ export async function updateSession(request: NextRequest) {
     path.startsWith("/resumes") ||
     path.startsWith("/jobs") ||
     path.startsWith("/tasks") ||
+    path.startsWith("/approvals") ||
     path.startsWith("/applications") ||
     path.startsWith("/contacts") ||
     path.startsWith("/outreach") ||
     path.startsWith("/interviews") ||
     path.startsWith("/documents") ||
     path.startsWith("/analytics") ||
-    path.startsWith("/settings");
+    path.startsWith("/settings") ||
+    path.startsWith("/activity");
   const isAuthPage = path === "/login" || path === "/signup";
 
   if (isProtected && !user) {

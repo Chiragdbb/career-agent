@@ -175,7 +175,7 @@ function DocumentsContent() {
             description="Application attachments and generated documents will appear here."
           />
         ) : (
-          <div className="overflow-hidden rounded-lg border border-border bg-card">
+          <div className="overflow-hidden rounded-3xl border border-line bg-white shadow-soft">
             <ul>
               {docs.map((row) => (
                 <li
@@ -234,7 +234,7 @@ function DocumentsContent() {
               }}
             />
           ) : (
-            <div className="overflow-hidden rounded-lg border border-border bg-card">
+            <div className="overflow-hidden rounded-3xl border border-line bg-white shadow-soft">
               <ul>
                 {resumes.map((resume) => (
                   <li key={resume.id} className="border-b border-border last:border-0">

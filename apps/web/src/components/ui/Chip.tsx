@@ -9,17 +9,17 @@ type ChipProps = {
 };
 
 const toneStyles: Record<ChipTone, string> = {
-  neutral: "bg-paper text-text-muted border-line/30",
+  neutral: "bg-paper text-text-muted border-line",
   good: "bg-teal-bg text-teal border-teal/20",
   warn: "bg-brick-bg text-brick border-brick/20",
-  gold: "bg-gold-bg text-[#7A551D] border-gold/20",
+  gold: "bg-coral-bg text-coral-deep border-coral/20",
 };
 
 export function Chip({ children, tone = "neutral", className }: ChipProps) {
   return (
     <span
       className={cn(
-        "inline-flex whitespace-nowrap rounded-full border px-2.5 py-1 text-[12.5px]",
+        "inline-flex whitespace-nowrap rounded-full border px-2.5 py-1 text-[12.5px] font-medium",
         toneStyles[tone],
         className,
       )}

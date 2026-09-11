@@ -33,22 +33,22 @@ export function SettingsLayout({ children, title = "Settings" }: SettingsLayoutP
   }
 
   return (
-    <AppShell active="settings" wide className="!max-w-none">
-      <div className="flex min-h-0 flex-col gap-6 md:min-h-[calc(100vh-3.5rem)] md:flex-row md:gap-0">
-        <nav className="md:w-56 md:shrink-0 md:border-r md:border-border md:pr-4">
-          <h1 className="mb-3 px-1 text-lg font-bold text-foreground md:mb-0 md:px-2 md:pb-4">
+    <AppShell active="settings" wide>
+      <div className="flex min-h-0 flex-col gap-6 md:flex-row md:gap-8">
+        <nav className="md:w-56 md:shrink-0">
+          <h1 className="mb-3 px-1 text-lg font-bold tracking-tight text-ink md:mb-4">
             {title}
           </h1>
-          <ul className="-mx-1 flex gap-2 overflow-x-auto pb-1 md:mx-0 md:flex-col md:gap-0.5 md:overflow-visible md:pb-0">
+          <ul className="-mx-1 flex gap-2 overflow-x-auto pb-1 md:mx-0 md:flex-col md:gap-1 md:overflow-visible md:pb-0">
             {settingsNav.map((item) => (
               <li key={item.id} className="shrink-0 md:shrink">
                 <Link
                   href={item.href}
                   className={cn(
-                    "block whitespace-nowrap rounded-md px-3 py-2 text-[13px] transition-colors",
+                    "block whitespace-nowrap rounded-full px-3 py-2 text-[13px] font-medium transition-colors",
                     isActive(item)
-                      ? "border border-border bg-card font-semibold text-foreground"
-                      : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                      ? "bg-lavender font-semibold text-lavender-deep"
+                      : "text-text-muted hover:bg-white hover:text-ink",
                   )}
                 >
                   {item.label}
@@ -57,7 +57,7 @@ export function SettingsLayout({ children, title = "Settings" }: SettingsLayoutP
             ))}
           </ul>
         </nav>
-        <div className="min-w-0 flex-1 md:pl-8">{children}</div>
+        <div className="min-w-0 flex-1">{children}</div>
       </div>
     </AppShell>
   );

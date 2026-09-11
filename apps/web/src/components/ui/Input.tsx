@@ -10,12 +10,12 @@ export function Input({ label, className, id, ...props }: InputProps) {
   if (label) {
     return (
       <label htmlFor={inputId} className="flex flex-col gap-1.5 text-sm">
-        <span className="font-medium text-foreground">{label}</span>
+        <span className="font-medium text-ink">{label}</span>
         <input
           id={inputId}
           className={cn(
-            "rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm",
-            "placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring/30",
+            "rounded-full border border-input bg-white px-4 py-2.5 text-sm shadow-sm",
+            "placeholder:text-text-faint focus:outline-none focus:ring-2 focus:ring-coral/25",
             className,
           )}
           {...props}
@@ -28,8 +28,8 @@ export function Input({ label, className, id, ...props }: InputProps) {
     <input
       id={inputId}
       className={cn(
-        "rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm",
-        "placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring/30",
+        "rounded-full border border-input bg-white px-4 py-2.5 text-sm shadow-sm",
+        "placeholder:text-text-faint focus:outline-none focus:ring-2 focus:ring-coral/25",
         className,
       )}
       {...props}

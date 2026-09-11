@@ -3,12 +3,14 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { FileCheck } from "lucide-react";
+import { FileCheck, ShieldCheck } from "lucide-react";
 
 import { AppShell } from "@/components/AppShell";
-import { Badge } from "@/components/ui/Badge";
+import { ActionCard } from "@/components/ui/ActionCard";
+import { SoftBadge } from "@/components/ui/SoftBadge";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { PageHeader } from "@/components/ui/PageHeader";
+import { HeroBand } from "@/components/ui/HeroBand";
+import { GoldButton } from "@/components/ui/Button";
 import { apiFetch } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { createClient } from "@/lib/supabase/client";
@@ -23,20 +25,29 @@ type Application = {
 };
 
 const pipelineColumns = [
-  { key: "saved", label: "Saved" },
-  { key: "applied", label: "Applied" },
-  { key: "screening", label: "Screening" },
-  { key: "interview", label: "Interview" },
-  { key: "offer", label: "Offer" },
+  { key: "vetted", label: "Vetted", hint: "Discovered & matched" },
+  { key: "signoff", label: "Sign-off", hint: "Your stamp" },
+  { key: "motion", label: "In Motion", hint: "Applied" },
+  { key: "interview", label: "Interviewing", hint: "Rounds ahead" },
+  { key: "offer", label: "Offer Stage", hint: "Deliberation" },
 ] as const;
 
 function columnForStatus(status: string) {
   const s = status.toLowerCase();
   if (s.includes("offer")) return "offer";
   if (s.includes("interview")) return "interview";
-  if (s.includes("screen")) return "screening";
-  if (s.includes("applied") || s.includes("submit")) return "applied";
-  return "saved";
+  if (s.includes("screen") || s.includes("applied") || s.includes("submit")) {
+    return "motion";
+  }
+  if (
+    s.includes("draft") ||
+    s.includes("ready") ||
+    s.includes("pending") ||
+    s.includes("review")
+  ) {
+    return "signoff";
+  }
+  return "vetted";
 }
 
 function daysInStage(appliedAt: string | null): number | null {
@@ -103,128 +114,193 @@ export default function ApplicationsPage() {
 
   return (
     <AppShell active="applications" wide>
-      <PageHeader
-        title="Applications"
-        serif
-        actions={
-          <div className="flex w-full gap-1 rounded-md bg-muted p-1 sm:w-auto">
-            <button
-              type="button"
-              onClick={() => setView("board")}
-              className={cn(
-                "flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors sm:flex-none",
-                view === "board"
-                  ? "border border-border bg-card font-semibold text-foreground shadow-sm"
-                  : "text-muted-foreground",
-              )}
-            >
-              Board
-            </button>
-            <button
-              type="button"
-              onClick={() => setView("list")}
-              className={cn(
-                "rounded-md px-3 py-1.5 text-xs transition-colors",
-                view === "list"
-                  ? "border border-border bg-card font-semibold text-foreground shadow-sm"
-                  : "text-muted-foreground",
-              )}
-            >
-              List
-            </button>
+      <HeroBand className="mb-8">
+        <div className="grid gap-6 lg:grid-cols-12 lg:items-end">
+          <div className="lg:col-span-8">
+            <SoftBadge tone="lavender" className="mb-3">
+              Active opportunities
+            </SoftBadge>
+            <h1 className="text-3xl font-bold tracking-tight text-ink sm:text-4xl">
+              Your career trajectory,{" "}
+              <span className="font-serif italic text-coral">unfolded.</span>
+            </h1>
+            <p className="mt-3 max-w-xl text-sm text-text-muted">
+              Track every stage with human control. Submissions only happen when
+              you have evidence and choose to proceed.
+            </p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              {(
+                [
+                  ["board", "Visual Journey"],
+                  ["list", "Compact Table"],
+                ] as const
+              ).map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => setView(id)}
+                  className={cn(
+                    "rounded-full px-3.5 py-1.5 text-xs font-semibold",
+                    view === id
+                      ? "bg-lavender text-lavender-deep"
+                      : "bg-white/70 text-text-muted",
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+              <Link
+                href="/activity"
+                className="rounded-full bg-white/70 px-3.5 py-1.5 text-xs font-semibold text-text-muted hover:text-ink"
+              >
+                Activity Log
+              </Link>
+            </div>
           </div>
-        }
-      />
+          <ActionCard className="lg:col-span-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-text-faint">
+              Stage health
+            </p>
+            <p className="mt-1 text-3xl font-bold text-ink">{rows.length}</p>
+            <p className="text-xs text-text-muted">applications in motion</p>
+          </ActionCard>
+        </div>
+      </HeroBand>
 
       {error ? <p className="mb-4 text-sm text-destructive">{error}</p> : null}
 
       {loading ? (
-        <p className="py-8 text-sm text-muted-foreground">Loading…</p>
-      ) : !loading && rows.length === 0 && !error ? (
+        <p className="py-8 text-sm text-text-muted">Loading…</p>
+      ) : rows.length === 0 && !error ? (
         <EmptyState
           icon={FileCheck}
           title="No applications yet"
           description="Save a job and start an application to track your pipeline here."
-          primaryActionLabel="Browse jobs"
+          primaryActionLabel="Browse opportunities"
           actionHref="/jobs"
         />
       ) : view === "board" ? (
-        <div className="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-4 md:snap-none">
+        <div className="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-4">
           {pipelineColumns.map((col) => (
             <div
               key={col.key}
-              className="flex min-w-[85vw] flex-1 snap-center flex-col gap-2 rounded-lg bg-muted p-3 sm:min-w-[200px] md:min-w-[200px]"
+              className={cn(
+                "flex min-w-[85vw] flex-1 snap-center flex-col gap-2 rounded-3xl border border-line bg-white p-3 shadow-soft sm:min-w-[220px]",
+                col.key === "signoff" && "border-coral/30 bg-coral-bg/30",
+              )}
             >
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-muted-foreground">
-                  {col.label}
-                </span>
-                <span className="text-[11px] text-muted-foreground">
-                  {grouped[col.key]?.length ?? 0}
-                </span>
+              <div className="px-1 pb-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-ink">{col.label}</span>
+                  <span className="text-[11px] font-semibold text-text-faint">
+                    {grouped[col.key]?.length ?? 0}
+                  </span>
+                </div>
+                <p className="text-[10px] text-text-faint">{col.hint}</p>
               </div>
               {(grouped[col.key] ?? []).map((row) => {
                 const days = daysInStage(row.applied_at);
                 const stale = days != null && days > 10;
+                const initial = (row.company_name || "?").charAt(0);
                 return (
-                <Link
-                  key={row.id}
-                  href={`/applications/${row.id}`}
-                  className="rounded-lg border border-line bg-paper-raised p-3 transition-shadow hover:shadow-sm"
-                >
-                  <p className="text-xs font-semibold text-ink">
-                    {row.job_title || "Untitled role"}
-                  </p>
-                  <p className="mt-1 text-[11px] text-text-muted">
-                    {row.company_name}
-                  </p>
-                  <div className="mt-2 flex items-center justify-between gap-2">
-                    <Badge variant="primary" className="text-[10px]">
-                      {row.status}
-                    </Badge>
+                  <Link
+                    key={row.id}
+                    href={`/applications/${row.id}`}
+                    className="rounded-2xl border border-line bg-white p-3 transition-shadow hover:shadow-soft"
+                  >
+                    <div className="mb-2 flex items-center gap-2">
+                      <span className="flex size-8 items-center justify-center rounded-xl bg-lavender text-xs font-bold text-lavender-deep">
+                        {initial}
+                      </span>
+                      <div className="min-w-0">
+                        <p className="truncate text-xs font-bold text-ink">
+                          {row.job_title || "Untitled role"}
+                        </p>
+                        <p className="truncate text-[11px] text-text-muted">
+                          {row.company_name}
+                        </p>
+                      </div>
+                    </div>
+                    {col.key === "signoff" ? (
+                      <SoftBadge tone="coral" className="mb-2">
+                        Your stamp required
+                      </SoftBadge>
+                    ) : (
+                      <SoftBadge tone="lavender" className="mb-2">
+                        {row.status}
+                      </SoftBadge>
+                    )}
                     {days != null ? (
-                      <span
+                      <p
                         className={cn(
                           "text-[10px]",
                           stale ? "font-medium text-brick" : "text-text-faint",
                         )}
                       >
-                        {days}d in stage{stale ? " · stale" : ""}
+                        Day {days}
+                        {stale ? " · needs attention" : ""}
+                      </p>
+                    ) : null}
+                    {col.key === "signoff" ? (
+                      <span className="mt-2 inline-block text-[11px] font-bold text-coral">
+                        Inspect &amp; approve →
                       </span>
                     ) : null}
-                  </div>
-                </Link>
-              );})}
+                  </Link>
+                );
+              })}
               {(grouped[col.key] ?? []).length === 0 ? (
-                <p className="py-4 text-center text-[11px] text-muted-foreground">Empty</p>
+                <p className="py-6 text-center text-[11px] text-text-faint">
+                  Empty
+                </p>
               ) : null}
             </div>
           ))}
         </div>
       ) : (
-        <div className="overflow-hidden rounded-lg border border-border bg-card">
+        <div className="overflow-hidden rounded-3xl border border-line bg-white shadow-soft">
           <ul>
             {rows.map((row) => (
-              <li key={row.id} className="border-b border-border last:border-0">
+              <li key={row.id} className="border-b border-line last:border-0">
                 <Link
                   href={`/applications/${row.id}`}
-                  className="flex items-center justify-between px-4 py-3 hover:bg-muted/30"
+                  className="flex items-center justify-between px-4 py-3.5 hover:bg-paper"
                 >
                   <div>
-                    <p className="text-sm font-medium text-foreground">
+                    <p className="text-sm font-semibold text-ink">
                       {row.job_title || "Untitled role"}
                     </p>
-                    <p className="text-xs text-muted-foreground">
+                    <p className="text-xs text-text-muted">
                       {[row.company_name, row.status].filter(Boolean).join(" · ")}
                     </p>
                   </div>
-                  <Badge variant="default">{row.status}</Badge>
+                  <SoftBadge tone="lavender">{row.status}</SoftBadge>
                 </Link>
               </li>
             ))}
           </ul>
         </div>
       )}
+
+      {rows.length > 0 ? (
+        <ActionCard className="mt-8 !flex-row flex-wrap items-center justify-between gap-4">
+          <div className="flex items-start gap-3">
+            <div className="flex size-10 items-center justify-center rounded-full bg-teal-bg">
+              <ShieldCheck className="h-5 w-5 text-teal" />
+            </div>
+            <div>
+              <h3 className="font-bold text-ink">Human control active</h3>
+              <p className="mt-1 max-w-xl text-sm text-text-muted">
+                Waypoint will not mark an application submitted without explicit
+                submission evidence from you.
+              </p>
+            </div>
+          </div>
+          <GoldButton onClick={() => router.push("/approvals")}>
+            Open Approvals
+          </GoldButton>
+        </ActionCard>
+      ) : null}
     </AppShell>
   );
 }

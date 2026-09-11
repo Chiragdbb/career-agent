@@ -4,7 +4,7 @@ import type { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/cn";
 
 type ButtonVariant = "primary" | "gold" | "secondary" | "ghost" | "destructive";
-type ButtonSize = "default" | "icon";
+type ButtonSize = "default" | "icon" | "lg";
 
 type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: ButtonVariant;
@@ -15,20 +15,21 @@ type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
 
 const variantStyles: Record<ButtonVariant, string> = {
   primary:
-    "bg-primary text-primary-foreground border border-primary hover:brightness-105 active:scale-[0.98] disabled:opacity-50",
+    "bg-coral text-white border border-coral hover:bg-coral-deep active:scale-[0.98] disabled:opacity-50",
   gold:
-    "bg-gold text-[#2B1C05] border border-gold font-semibold hover:brightness-105 active:scale-[0.98] disabled:opacity-50",
+    "bg-coral text-white border border-coral font-semibold hover:bg-coral-deep active:scale-[0.98] disabled:opacity-50",
   secondary:
-    "border border-line bg-transparent text-foreground hover:bg-paper-raised disabled:opacity-45",
+    "border border-line bg-white text-ink hover:bg-paper disabled:opacity-45",
   ghost:
-    "border border-line bg-transparent text-foreground hover:bg-paper-raised disabled:opacity-45",
+    "border border-line bg-transparent text-ink hover:bg-white/80 disabled:opacity-45",
   destructive:
-    "bg-destructive text-white hover:bg-destructive/90 disabled:opacity-60",
+    "bg-coral-deep text-white hover:brightness-95 disabled:opacity-60",
 };
 
 const sizeStyles: Record<ButtonSize, string> = {
-  default: "px-4 py-2 text-[13.5px] font-medium gap-1.5",
-  icon: "h-9 w-9 p-0",
+  default: "rounded-full px-5 py-2.5 text-[13.5px] font-semibold gap-1.5",
+  lg: "rounded-full px-6 py-3 text-sm font-semibold gap-2",
+  icon: "h-10 w-10 rounded-full p-0",
 };
 
 export function Button({
@@ -44,7 +45,7 @@ export function Button({
   return (
     <button
       className={cn(
-        "inline-flex items-center justify-center rounded-lg transition-all duration-150",
+        "inline-flex items-center justify-center transition-all duration-150",
         variantStyles[variant],
         sizeStyles[size],
         className,
@@ -62,7 +63,7 @@ export function Button({
   );
 }
 
-/** Primary gold CTA matching reference GoldButton */
+/** Primary CTA — coral (kept as GoldButton for call-site compatibility) */
 export function GoldButton({
   className,
   loading,
@@ -73,7 +74,7 @@ export function GoldButton({
 }: Omit<ButtonProps, "variant">) {
   return (
     <Button
-      variant="gold"
+      variant="primary"
       className={className}
       loading={loading}
       icon={Icon}
@@ -85,7 +86,6 @@ export function GoldButton({
   );
 }
 
-/** Secondary outlined button matching reference GhostButton */
 export function GhostButton({
   className,
   loading,

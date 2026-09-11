@@ -55,7 +55,7 @@ export function NotificationBell() {
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="relative rounded-md border border-line p-2 text-ink hover:bg-paper-raised"
+        className="relative rounded-full border border-line p-2 text-ink hover:bg-paper"
         aria-label="Notifications"
       >
         <Bell className="h-4 w-4" />

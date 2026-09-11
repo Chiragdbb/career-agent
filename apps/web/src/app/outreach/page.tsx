@@ -1,34 +1,36 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Check } from "lucide-react";
+import { Check, Heart, Shield, Clock } from "lucide-react";
 
 import { AppShell } from "@/components/AppShell";
-import { Badge } from "@/components/ui/Badge";
-import { Button } from "@/components/ui/Button";
+import { ActionCard } from "@/components/ui/ActionCard";
+import { SoftBadge } from "@/components/ui/SoftBadge";
+import { Button, GhostButton, GoldButton } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorBanner } from "@/components/ui/ErrorBanner";
-import { PageHeader } from "@/components/ui/PageHeader";
+import { HeroBand } from "@/components/ui/HeroBand";
 import { CardGridSkeleton } from "@/components/ui/Skeleton";
 import { apiFetch } from "@/lib/api";
-import { outreachColumnForStatus } from "@/lib/outreach";
+import {
+  isDraftedOutreachStatus,
+  outreachColumnForStatus,
+} from "@/lib/outreach";
 import { createClient } from "@/lib/supabase/client";
+import { cn } from "@/lib/cn";
 
 type Outreach = {
   id: string;
   contact_id: string;
   status: string;
   subject: string | null;
+  body?: string | null;
+  reason?: string | null;
 };
 
-const columns = [
-  { key: "to_contact", label: "To Contact" },
-  { key: "drafted", label: "Drafted" },
-  { key: "approved", label: "Approved" },
-  { key: "sent", label: "Sent" },
-];
+type FilterId = "all" | "signoff" | "scheduled" | "replies";
 
 export default function OutreachPage() {
   const router = useRouter();
@@ -37,6 +39,7 @@ export default function OutreachPage() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [approvingId, setApprovingId] = useState<string | null>(null);
+  const [filter, setFilter] = useState<FilterId>("signoff");
 
   const loadRows = useCallback(async () => {
     const response = await apiFetch("/api/v1/outreach");
@@ -94,23 +97,92 @@ export default function OutreachPage() {
     }
   }
 
-  const grouped = columns.reduce(
-    (acc, col) => {
-      acc[col.key] = rows.filter((r) => outreachColumnForStatus(r.status) === col.key);
-      return acc;
-    },
-    {} as Record<string, Outreach[]>,
+  const drafted = rows.filter((r) => isDraftedOutreachStatus(r.status));
+  const sent = rows.filter((r) => outreachColumnForStatus(r.status) === "sent");
+  const approved = rows.filter(
+    (r) => outreachColumnForStatus(r.status) === "approved",
   );
+
+  const filtered = useMemo(() => {
+    if (filter === "signoff") return drafted;
+    if (filter === "scheduled") return approved;
+    if (filter === "replies") return sent;
+    return rows;
+  }, [filter, drafted, approved, sent, rows]);
+
+  const filters: { id: FilterId; label: string }[] = [
+    { id: "all", label: `All Outreach (${rows.length})` },
+    { id: "signoff", label: `Ready for Sign-off (${drafted.length})` },
+    { id: "scheduled", label: `Approved (${approved.length})` },
+    { id: "replies", label: `Sent (${sent.length})` },
+  ];
 
   return (
     <AppShell active="outreach" wide>
-      <PageHeader
-        title="Outreach"
-        subtitle="Drafts and sent messages (approval required before send)."
-      />
+      <HeroBand className="mb-8">
+        <div className="grid gap-8 lg:grid-cols-12 lg:items-center">
+          <div className="lg:col-span-7">
+            <h1 className="text-3xl font-bold tracking-tight text-ink sm:text-4xl">
+              Conversations with{" "}
+              <span className="font-serif italic text-coral">human warmth.</span>
+            </h1>
+            <p className="mt-4 max-w-xl text-sm leading-relaxed text-text-muted sm:text-[15px]">
+              Draft notes in your voice, then approve before anything is sent.
+              Cold spam stays off the table.
+            </p>
+            <div className="mt-5 flex flex-wrap gap-4 text-sm font-semibold text-ink">
+              <span className="inline-flex items-center gap-1.5">
+                <Heart className="h-4 w-4 text-coral" /> {sent.length} sent
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <Shield className="h-4 w-4 text-teal" /> Approval required
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <Clock className="h-4 w-4 text-lavender-deep" />{" "}
+                {drafted.length} awaiting seal
+              </span>
+            </div>
+          </div>
+          <ActionCard className="lg:col-span-5 !bg-lavender/50">
+            <p className="text-sm font-semibold text-lavender-deep">
+              Warm introductions ready
+            </p>
+            <p className="mt-2 text-sm text-text-muted">
+              Crafted for your review. Read, polish, or approve with one press —
+              send is always a separate step.
+            </p>
+          </ActionCard>
+        </div>
+      </HeroBand>
+
+      <div className="mb-6 flex gap-2 overflow-x-auto pb-1">
+        {filters.map((f) => (
+          <button
+            key={f.id}
+            type="button"
+            onClick={() => setFilter(f.id)}
+            className={cn(
+              "shrink-0 rounded-full px-3.5 py-2 text-[13px] font-semibold transition-colors",
+              filter === f.id
+                ? "bg-white text-ink shadow-soft ring-1 ring-coral/30"
+                : "text-text-muted hover:bg-white/70",
+            )}
+          >
+            {filter === f.id && f.id === "signoff" ? (
+              <span className="mr-1.5 inline-block size-1.5 rounded-full bg-coral" />
+            ) : null}
+            {f.label}
+          </button>
+        ))}
+      </div>
+
       {error ? <p className="mb-4 text-sm text-destructive">{error}</p> : null}
       {actionError ? (
-        <ErrorBanner message={actionError} onRetry={() => setActionError(null)} retryLabel="Dismiss" />
+        <ErrorBanner
+          message={actionError}
+          onRetry={() => setActionError(null)}
+          retryLabel="Dismiss"
+        />
       ) : null}
 
       {loading ? (
@@ -118,40 +190,35 @@ export default function OutreachPage() {
       ) : rows.length === 0 ? (
         <EmptyState
           title="No outreach drafted yet"
-          description="Outreach drafts are created automatically during application workflows and research. Approved messages appear here before send."
+          description="Outreach drafts appear here during application workflows. Approve before send."
         />
       ) : (
-        <div className="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-4">
-          {columns.map((col) => (
-            <div
-              key={col.key}
-              className="flex min-w-[85vw] flex-1 snap-center flex-col gap-2 rounded-lg bg-muted p-3 sm:min-w-[200px]"
-            >
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] font-semibold text-muted-foreground">
-                  {col.label}
-                </span>
-                <span className="text-[10px] text-muted-foreground">
-                  {grouped[col.key]?.length ?? 0}
-                </span>
-              </div>
-              {(grouped[col.key] ?? []).map((row) => (
-                <div
-                  key={row.id}
-                  className="rounded-md border border-border bg-card p-2.5 transition-shadow hover:shadow-sm"
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <Link href={`/outreach/${row.id}`} className="min-w-0 flex-1">
-                      <p className="text-xs font-semibold text-foreground">
+        <div className="grid gap-6 lg:grid-cols-12">
+          <div className="space-y-4 lg:col-span-8">
+            {filtered.length === 0 ? (
+              <p className="rounded-2xl border border-line bg-white p-6 text-sm text-text-muted shadow-soft">
+                Nothing in this filter.
+              </p>
+            ) : (
+              filtered.map((row) => (
+                <ActionCard key={row.id}>
+                  <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <Link
+                        href={`/outreach/${row.id}`}
+                        className="text-lg font-bold text-ink hover:text-coral"
+                      >
                         {row.subject || "Untitled outreach"}
-                      </p>
-                    </Link>
-                    {col.key === "drafted" ? (
+                      </Link>
+                      <div className="mt-2">
+                        <SoftBadge tone="peach">{row.status}</SoftBadge>
+                      </div>
+                    </div>
+                    {isDraftedOutreachStatus(row.status) ? (
                       <Button
                         type="button"
                         variant="secondary"
                         size="icon"
-                        className="h-7 w-7 shrink-0"
                         disabled={approvingId === row.id}
                         title="Approve"
                         aria-label="Approve outreach"
@@ -165,20 +232,96 @@ export default function OutreachPage() {
                       </Button>
                     ) : null}
                   </div>
-                  <Link href={`/outreach/${row.id}`}>
-                    <Badge variant="default" className="mt-2 text-[10px]">
-                      {row.status}
-                    </Badge>
-                  </Link>
-                </div>
-              ))}
-              {(grouped[col.key] ?? []).length === 0 ? (
-                <p className="py-4 text-center text-[11px] text-muted-foreground">
-                  Empty
-                </p>
-              ) : null}
+                  {row.reason ? (
+                    <div className="mb-3 rounded-2xl bg-paper px-3 py-2 text-sm text-text-muted">
+                      {row.reason}
+                    </div>
+                  ) : null}
+                  <div className="rounded-2xl border border-line bg-paper/50 p-3">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-text-faint">
+                      Draft preview
+                    </p>
+                    <p className="mt-2 line-clamp-4 text-sm leading-relaxed text-ink">
+                      {row.body?.trim() ||
+                        "Open to read the full draft before approving or sending."}
+                    </p>
+                  </div>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {isDraftedOutreachStatus(row.status) ? (
+                      <GoldButton
+                        disabled={approvingId === row.id}
+                        onClick={() => void approveFromKanban(row.id)}
+                      >
+                        Approve draft
+                      </GoldButton>
+                    ) : null}
+                    <GhostButton onClick={() => router.push(`/outreach/${row.id}`)}>
+                      Personalize
+                    </GhostButton>
+                  </div>
+                </ActionCard>
+              ))
+            )}
+          </div>
+
+          <aside className="space-y-4 lg:col-span-4">
+            <ActionCard>
+              <h3 className="text-sm font-bold text-ink">Recent warm dialogues</h3>
+              <ul className="mt-3 space-y-3">
+                {sent.slice(0, 4).map((row) => (
+                  <li key={row.id}>
+                    <Link
+                      href={`/outreach/${row.id}`}
+                      className="block rounded-xl bg-paper px-3 py-2 hover:bg-lavender/40"
+                    >
+                      <p className="text-sm font-semibold text-ink">
+                        {row.subject || "Sent note"}
+                      </p>
+                      <p className="text-xs text-text-muted">{row.status}</p>
+                    </Link>
+                  </li>
+                ))}
+                {sent.length === 0 ? (
+                  <p className="text-xs text-text-muted">
+                    Sent conversations will appear here.
+                  </p>
+                ) : null}
+              </ul>
+            </ActionCard>
+            <ActionCard>
+              <h3 className="text-sm font-bold text-ink">Your voice guardrails</h3>
+              <ul className="mt-3 space-y-2 text-sm text-text-muted">
+                <li className="flex items-center gap-2">
+                  <span className="size-1.5 rounded-full bg-teal" />
+                  Peer-to-peer framing
+                </li>
+                <li className="flex items-center gap-2">
+                  <span className="size-1.5 rounded-full bg-teal" />
+                  Cite shared work when known
+                </li>
+                <li className="flex items-center gap-2">
+                  <span className="size-1.5 rounded-full bg-teal" />
+                  Never invent experience
+                </li>
+              </ul>
+            </ActionCard>
+            <div className="grid grid-cols-2 gap-2">
+              <GhostButton
+                className="!h-auto !flex-col !gap-1 !rounded-2xl !py-4"
+                onClick={() => router.push("/contacts")}
+              >
+                <span className="text-xs font-bold">Draft custom</span>
+                <span className="text-[10px] text-text-faint">via contacts</span>
+              </GhostButton>
+              <GhostButton
+                className="!h-auto !flex-col !gap-1 !rounded-2xl !py-4"
+                onClick={() => router.push("/approvals")}
+              >
+                <span className="text-xs font-bold">Approvals</span>
+                <span className="text-[10px] text-text-faint">seal queue</span>
+              </GhostButton>
             </div>
-          ))}
+          </aside>
         </div>
       )}
     </AppShell>
