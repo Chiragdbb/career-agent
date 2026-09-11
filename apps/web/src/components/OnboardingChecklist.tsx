@@ -25,16 +25,16 @@ export function OnboardingChecklist({ steps, className }: OnboardingChecklistPro
   return (
     <div
       className={cn(
-        "mb-5 flex animate-riseIn items-center justify-between gap-6 rounded-[14px] bg-ink-soft px-6 py-5",
+        "mb-8 flex animate-riseIn items-center justify-between gap-6 rounded-3xl border border-line bg-white px-6 py-5 shadow-soft",
         className,
       )}
     >
       <div className="min-w-0 flex-1">
         <div className="mb-3.5 flex items-baseline gap-2.5">
-          <span className="font-serif text-[19px] font-semibold text-[#F3EFE2]">
+          <span className="text-[19px] font-bold tracking-tight text-ink">
             Let&apos;s set up your search
           </span>
-          <span className="text-xs text-gold-soft">
+          <span className="text-xs font-semibold text-coral">
             {doneCount} of {steps.length} done
           </span>
         </div>
@@ -47,22 +47,22 @@ export function OnboardingChecklist({ steps, className }: OnboardingChecklistPro
               >
                 <span
                   className={cn(
-                    "flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-[5px] border-[1.5px] transition-all duration-200",
+                    "flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full border-[1.5px] transition-all duration-200",
                     step.complete
-                      ? "border-gold bg-gold"
-                      : "border-[#4A5C51] bg-transparent",
+                      ? "border-coral bg-coral"
+                      : "border-line bg-transparent",
                   )}
                 >
                   {step.complete ? (
-                    <Check className="h-3 w-3 text-[#2B1C05]" strokeWidth={3} />
+                    <Check className="h-3 w-3 text-white" strokeWidth={3} />
                   ) : null}
                 </span>
                 <span
                   className={cn(
                     "text-[13.5px]",
                     step.complete
-                      ? "text-[#8A968E] line-through"
-                      : "text-[#E4E0D2]",
+                      ? "text-text-faint line-through"
+                      : "text-text-muted",
                   )}
                 >
                   {step.label}

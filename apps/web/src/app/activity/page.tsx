@@ -41,7 +41,7 @@ export default function ActivityPage() {
   });
 
   return (
-    <AppShell active="dashboard" wide hideActivityBar>
+    <AppShell active="activity" wide hideActivityBar>
       <PageHeader
         title="Activity log"
         subtitle="Persistent workflow history, oldest to newest."
@@ -51,7 +51,7 @@ export default function ActivityPage() {
       ) : entries.length === 0 ? (
         <p className="text-sm text-text-muted">No activity yet.</p>
       ) : (
-        <div className="rounded-lg border border-line bg-paper-raised">
+        <div className="rounded-3xl border border-line bg-white shadow-soft">
           <ul className="divide-y divide-line">
             {entries.map((entry) => (
               <li key={entry.id} className="px-4 py-3 text-sm">

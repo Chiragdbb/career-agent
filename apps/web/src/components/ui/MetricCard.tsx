@@ -24,26 +24,26 @@ export function MetricCard({
 }: MetricCardProps) {
   const changeColors = {
     success: "text-teal",
-    warning: "text-gold",
+    warning: "text-coral",
     muted: "text-text-muted",
     down: "text-brick",
   };
 
   const resolvedColor =
     sparklineColor ??
-    (changeVariant === "down" || up === false ? "#AA4630" : "#2E6B59");
+    (changeVariant === "down" || up === false ? "#B32107" : "#047857");
 
   return (
     <div
       className={cn(
-        "rounded-xl border border-line bg-paper-raised px-[18px] py-4",
+        "rounded-2xl border border-line bg-white px-5 py-4 shadow-soft",
         className,
       )}
     >
-      <span className="text-[12.5px] text-text-muted">{label}</span>
+      <span className="text-[12.5px] font-medium text-text-muted">{label}</span>
       <div className="mt-2 flex items-end justify-between gap-2">
         <div>
-          <div className="font-serif text-[28px] font-semibold leading-none text-ink">
+          <div className="text-[28px] font-bold leading-none tracking-tight text-ink">
             {value}
           </div>
           {change ? (

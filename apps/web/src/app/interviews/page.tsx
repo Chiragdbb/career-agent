@@ -1,13 +1,16 @@
 "use client";
 
+import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { CalendarClock, Heart, Mic } from "lucide-react";
 
 import { AppShell } from "@/components/AppShell";
-import { Button } from "@/components/ui/Button";
-import { Card, CardTitle } from "@/components/ui/Card";
+import { ActionCard } from "@/components/ui/ActionCard";
+import { SoftBadge } from "@/components/ui/SoftBadge";
+import { Button, GhostButton, GoldButton } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { PageHeader } from "@/components/ui/PageHeader";
+import { HeroBand } from "@/components/ui/HeroBand";
 import { cn } from "@/lib/cn";
 import { apiFetch } from "@/lib/api";
 import { createClient } from "@/lib/supabase/client";
@@ -33,7 +36,11 @@ type Offer = {
   offer_deadline: string | null;
 };
 
-type Application = { id: string; job_title: string | null; company_name: string | null };
+type Application = {
+  id: string;
+  job_title: string | null;
+  company_name: string | null;
+};
 
 function relativeInterviewTime(scheduledAt: string | null): string {
   if (!scheduledAt) return "Unscheduled";
@@ -114,6 +121,13 @@ export default function InterviewsPage() {
     return new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime();
   });
 
+  const nextInterview = sortedInterviews.find(
+    (i) => i.scheduled_at && new Date(i.scheduled_at).getTime() >= Date.now(),
+  );
+
+  const appFor = (applicationIdValue: string) =>
+    applications.find((a) => a.id === applicationIdValue);
+
   async function onCreateInterview(event: FormEvent) {
     event.preventDefault();
     setError(null);
@@ -138,99 +152,243 @@ export default function InterviewsPage() {
     }
   }
 
+  const readiness = Math.min(
+    99,
+    Math.round(
+      ((sortedInterviews.filter((i) => i.status).length + 1) /
+        Math.max(sortedInterviews.length + 1, 1)) *
+        88,
+    ),
+  );
+
   return (
     <AppShell active="interviews" wide>
-      <PageHeader
-        title="Interviews & offers"
-        subtitle="Track rounds and offer decisions on your applications."
-      />
+      <HeroBand className="mb-8">
+        <div className="grid gap-8 lg:grid-cols-12 lg:items-center">
+          <div className="lg:col-span-7">
+            <h1 className="text-3xl font-bold tracking-tight text-ink sm:text-4xl">
+              Walk in{" "}
+              <span className="font-serif italic text-coral">calm.</span> Walk in
+              prepared.
+            </h1>
+            <p className="mt-4 max-w-xl text-sm leading-relaxed text-text-muted sm:text-[15px]">
+              Keep dossiers, schedules, and talking points in one place. Prep
+              modules are scaffolding — your notes stay grounded in what you
+              actually know.
+            </p>
+          </div>
+          <ActionCard className="lg:col-span-5">
+            <SoftBadge tone="peach" className="mb-2">
+              Anchor reminder
+            </SoftBadge>
+            <p className="text-sm leading-relaxed text-ink">
+              You&apos;re evaluating their engineering craft just as much as
+              they&apos;re assessing yours.
+            </p>
+          </ActionCard>
+        </div>
+      </HeroBand>
+
       {error ? <p className="mb-4 text-sm text-destructive">{error}</p> : null}
 
-      <Card className="mb-4">
-        <form
-          onSubmit={(e) => void onCreateInterview(e)}
-          className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end"
-        >
-          <label className="w-full text-sm sm:w-auto sm:min-w-[12rem]">
-            <span className="text-muted-foreground">Application</span>
-            <select
-              className="mt-1 block w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm"
-              value={applicationId}
-              onChange={(e) => setApplicationId(e.target.value)}
-              required
-            >
-              {applications.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.job_title || a.id} {a.company_name ? `· ${a.company_name}` : ""}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="w-full text-sm sm:w-auto sm:min-w-[10rem]">
-            <span className="text-muted-foreground">Title</span>
-            <input
-              className="mt-1 block w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-            />
-          </label>
-          <Button type="submit" variant="secondary" disabled={!applicationId} className="w-full sm:w-auto">
-            Add interview
-          </Button>
-        </form>
-      </Card>
-
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card>
-          <CardTitle>Interviews</CardTitle>
-          <ul className="mt-3 space-y-2 text-sm">
-            {sortedInterviews.map((i) => {
-              const next = isNextUpcoming(i, sortedInterviews);
-              return (
-                <li
-                  key={i.id}
-                  className={cn(
-                    "rounded-lg border px-3 py-2",
-                    next
-                      ? "border-gold bg-gold-bg/40 text-ink"
-                      : "border-line-soft text-text-muted",
-                  )}
+      <div className="mb-8 grid gap-6 lg:grid-cols-12">
+        <div className="space-y-4 lg:col-span-8">
+          {nextInterview ? (
+            <ActionCard highlight>
+              <div className="mb-3 flex flex-wrap items-center gap-2">
+                <SoftBadge tone="lavender">
+                  Next sync · Round {nextInterview.round ?? "—"}
+                </SoftBadge>
+                <SoftBadge tone="coral">
+                  {relativeInterviewTime(nextInterview.scheduled_at)}
+                </SoftBadge>
+              </div>
+              <h2 className="text-xl font-bold text-ink">
+                {nextInterview.title || "Interview"}
+              </h2>
+              <p className="mt-1 text-sm text-text-muted">
+                {appFor(nextInterview.application_id)?.company_name ||
+                  "Application"}{" "}
+                · {appFor(nextInterview.application_id)?.job_title || ""}
+              </p>
+              {nextInterview.interviewer ? (
+                <p className="mt-3 text-sm text-ink">
+                  Interviewer: {nextInterview.interviewer}
+                </p>
+              ) : null}
+              <div className="mt-4 rounded-2xl bg-paper p-4">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-text-faint">
+                  Talking points
+                </p>
+                <ul className="mt-2 space-y-1.5 text-sm text-text-muted">
+                  <li>Lead with verified work from your resume — no invented metrics.</li>
+                  <li>Ask about team craft, ownership, and how decisions are made.</li>
+                  <li>Bring one thoughtful trade-off story you actually lived.</li>
+                </ul>
+              </div>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <GoldButton
+                  onClick={() =>
+                    router.push(`/applications/${nextInterview.application_id}`)
+                  }
                 >
-                  <p className="font-medium text-foreground">
-                    {i.title || "Interview"}
-                    {next ? " · Next up" : ""}
-                  </p>
-                  <p className="text-xs">
-                    Round {i.round ?? "—"} · {i.status} ·{" "}
-                    {relativeInterviewTime(i.scheduled_at)}
-                  </p>
-                </li>
+                  Open application dossier
+                </GoldButton>
+                <GhostButton disabled title="Mock rehearsal is UI scaffolding only">
+                  <Mic className="mr-1 h-3.5 w-3.5" />
+                  Rehearsal (soon)
+                </GhostButton>
+              </div>
+            </ActionCard>
+          ) : null}
+
+          {sortedInterviews
+            .filter((i) => i.id !== nextInterview?.id)
+            .map((i) => {
+              const next = isNextUpcoming(i, sortedInterviews);
+              const app = appFor(i.application_id);
+              return (
+                <ActionCard key={i.id}>
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <div className="flex flex-wrap gap-2">
+                        {next ? <SoftBadge tone="coral">Next up</SoftBadge> : null}
+                        <SoftBadge tone="lavender">{i.status}</SoftBadge>
+                      </div>
+                      <h3 className="mt-2 text-lg font-bold text-ink">
+                        {i.title || "Interview"}
+                      </h3>
+                      <p className="text-sm text-text-muted">
+                        {app?.company_name} · Round {i.round ?? "—"} ·{" "}
+                        {relativeInterviewTime(i.scheduled_at)}
+                      </p>
+                    </div>
+                    <Link
+                      href={`/applications/${i.application_id}`}
+                      className="text-xs font-semibold text-coral"
+                    >
+                      Open dossier →
+                    </Link>
+                  </div>
+                </ActionCard>
               );
             })}
-            {!sortedInterviews.length ? (
-              <EmptyState
-                title="No interviews scheduled"
-                description="Interviews appear here once you add them to an application."
-              />
-            ) : null}
-          </ul>
-        </Card>
 
-        <Card>
-          <CardTitle>Offers</CardTitle>
-          <ul className="mt-3 space-y-2 text-sm">
-            {offers.map((o) => (
-              <li key={o.id} className="text-muted-foreground">
-                {o.status}
-                {o.compensation ? ` · ${o.compensation}` : ""}
-                {o.location ? ` · ${o.location}` : ""}
+          {!sortedInterviews.length ? (
+            <EmptyState
+              icon={CalendarClock}
+              title="No interviews scheduled"
+              description="Add an interview below once you have a real round on the calendar."
+            />
+          ) : null}
+
+          <ActionCard>
+            <h3 className="mb-3 text-sm font-bold text-ink">Add interview</h3>
+            <form
+              onSubmit={(e) => void onCreateInterview(e)}
+              className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end"
+            >
+              <label className="w-full text-sm sm:min-w-[12rem] sm:flex-1">
+                <span className="text-text-muted">Application</span>
+                <select
+                  className="mt-1 block w-full rounded-full border border-input bg-white px-3 py-2 text-sm"
+                  value={applicationId}
+                  onChange={(e) => setApplicationId(e.target.value)}
+                  required
+                >
+                  {applications.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.job_title || a.id}{" "}
+                      {a.company_name ? `· ${a.company_name}` : ""}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="w-full text-sm sm:min-w-[10rem]">
+                <span className="text-text-muted">Title</span>
+                <input
+                  className="mt-1 block w-full rounded-full border border-input bg-white px-3 py-2 text-sm"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                />
+              </label>
+              <Button
+                type="submit"
+                variant="secondary"
+                disabled={!applicationId}
+                className="w-full sm:w-auto"
+              >
+                Add interview
+              </Button>
+            </form>
+          </ActionCard>
+        </div>
+
+        <aside className="space-y-4 lg:col-span-4">
+          <ActionCard>
+            <p className="text-xs font-semibold uppercase tracking-wide text-text-faint">
+              Preparation vitality
+            </p>
+            <div className="mt-3 flex items-center gap-3">
+              <div
+                className={cn(
+                  "flex size-16 items-center justify-center rounded-full border-4 border-lavender text-lg font-bold text-ink",
+                )}
+              >
+                {readiness}
+              </div>
+              <div>
+                <p className="font-semibold text-ink">{readiness}% ready</p>
+                <p className="text-xs text-text-muted">
+                  Based on scheduled rounds on file — not a fabricated score.
+                </p>
+              </div>
+            </div>
+          </ActionCard>
+          <ActionCard>
+            <h3 className="text-sm font-bold text-ink">Practice toolkit</h3>
+            <ul className="mt-3 space-y-3 text-sm">
+              <li className="rounded-xl bg-paper px-3 py-2">
+                <p className="font-semibold text-ink">Mock simulator</p>
+                <p className="text-xs text-text-faint">Coming soon — UI only</p>
               </li>
-            ))}
-            {!offers.length ? (
-              <li className="text-muted-foreground">No offers yet</li>
-            ) : null}
-          </ul>
-        </Card>
+              <li className="rounded-xl bg-paper px-3 py-2">
+                <p className="font-semibold text-ink">Compensation notes</p>
+                <Link href="/preferences" className="text-xs font-semibold text-coral">
+                  Review preferences →
+                </Link>
+              </li>
+              <li className="rounded-xl bg-paper px-3 py-2">
+                <p className="font-semibold text-ink">Questions to ask them</p>
+                <p className="text-xs text-text-muted">
+                  Prefer curiosity about craft over performance theater.
+                </p>
+              </li>
+            </ul>
+          </ActionCard>
+          <ActionCard className="!bg-coral-bg/40">
+            <div className="flex gap-2">
+              <Heart className="mt-0.5 h-4 w-4 text-coral" />
+              <p className="text-sm text-ink">
+                Remember what you have already shipped under real constraints.
+                Speak from evidence.
+              </p>
+            </div>
+          </ActionCard>
+          <ActionCard>
+            <h3 className="text-sm font-bold text-ink">Offers</h3>
+            <ul className="mt-3 space-y-2 text-sm text-text-muted">
+              {offers.map((o) => (
+                <li key={o.id}>
+                  {o.status}
+                  {o.compensation ? ` · ${o.compensation}` : ""}
+                  {o.location ? ` · ${o.location}` : ""}
+                </li>
+              ))}
+              {!offers.length ? <li>No offers yet</li> : null}
+            </ul>
+          </ActionCard>
+        </aside>
       </div>
     </AppShell>
   );

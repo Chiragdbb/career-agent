@@ -3,13 +3,21 @@
 import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Bookmark, Briefcase, ExternalLink, Play, Trash2 } from "lucide-react";
+import {
+  ArrowRight,
+  Bookmark,
+  Briefcase,
+  Play,
+  Sparkles,
+  Trash2,
+} from "lucide-react";
 
 import { AppShell } from "@/components/AppShell";
-import { Badge } from "@/components/ui/Badge";
-import { Button } from "@/components/ui/Button";
+import { ActionCard } from "@/components/ui/ActionCard";
+import { SoftBadge } from "@/components/ui/SoftBadge";
+import { Button, GhostButton, GoldButton } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { PageHeader } from "@/components/ui/PageHeader";
+import { HeroBand } from "@/components/ui/HeroBand";
 import { useProcessActivity } from "@/hooks/useProcessActivity";
 import { apiFetch } from "@/lib/api";
 import { SegmentedTabs } from "@/components/ui/SegmentedTabs";
@@ -28,9 +36,17 @@ type JobMatchSummary = {
   work_arrangement: string | null;
   url: string | null;
   is_new?: boolean;
+  rationale?: string | null;
 };
 
 const tabs = ["All", "Saved", "New", "High Match", "Applied", "Dismissed"] as const;
+
+const exploreHints = [
+  "Staff frontend roles",
+  "Fully remote React",
+  "Design systems",
+  "Product-led teams",
+];
 
 export default function JobsPage() {
   const router = useRouter();
@@ -42,6 +58,7 @@ export default function JobsPage() {
   const [jobs, setJobs] = useState<JobMatchSummary[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [activeTab, setActiveTab] = useState<(typeof tabs)[number]>("All");
+  const [exploreQuery, setExploreQuery] = useState("");
   const [activeDiscoveryRunId, setActiveDiscoveryRunId] = useState<string | null>(null);
   const { activeRuns } = useProcessActivity();
   const activeDiscovery = activeRuns.find((run) => run.workflow_type === "job_discovery");
@@ -125,8 +142,8 @@ export default function JobsPage() {
     };
   }, [router, loadJobs, activeTab]);
 
-  async function onDiscover(event: FormEvent) {
-    event.preventDefault();
+  async function onDiscover(event?: FormEvent) {
+    event?.preventDefault();
     if (discoveryBlocked) {
       window.dispatchEvent(new CustomEvent("activity-bar:expand"));
       return;
@@ -137,7 +154,12 @@ export default function JobsPage() {
     try {
       const response = await apiFetch("/api/v1/jobs/discover", {
         method: "POST",
-        body: JSON.stringify({ max_results: 5 }),
+        body: JSON.stringify({
+          max_results: 5,
+          ...(exploreQuery.trim()
+            ? { query_hint: exploreQuery.trim() }
+            : {}),
+        }),
       });
       if (response.status === 409) {
         const body = await response.json().catch(() => null);
@@ -192,6 +214,27 @@ export default function JobsPage() {
     }
   }
 
+  async function singleAction(id: string, action: "save" | "start_pipeline") {
+    setActing(true);
+    setError(null);
+    try {
+      const response = await apiFetch("/api/v1/jobs/actions/batch", {
+        method: "POST",
+        body: JSON.stringify({ match_ids: [id], action }),
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(body?.error?.message || `API ${response.status}`);
+      }
+      await refreshJobs();
+      setMessage(action === "save" ? "Saved." : "Pipeline started.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Action failed");
+    } finally {
+      setActing(false);
+    }
+  }
+
   const filteredJobs = useMemo(() => {
     return jobs.filter((job) => {
       if (activeTab === "All") return job.status !== "dismissed";
@@ -204,70 +247,108 @@ export default function JobsPage() {
     });
   }, [jobs, activeTab]);
 
-  const allSelected =
-    filteredJobs.length > 0 && filteredJobs.every((j) => selected.has(j.id));
-
-  function toggleAll() {
-    if (allSelected) {
-      setSelected(new Set());
-    } else {
-      setSelected(new Set(filteredJobs.map((j) => j.id)));
-    }
-  }
-
-  function toggleOne(id: string) {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }
-
   return (
     <AppShell active="jobs" wide>
-      <PageHeader
-        title="Jobs"
-        actions={
-          <form
-            data-discover-form
-            onSubmit={(e) => void onDiscover(e)}
+      <HeroBand className="mb-8 text-center">
+        <SoftBadge tone="white" className="mx-auto mb-4 shadow-sm">
+          Curated for your trajectory
+        </SoftBadge>
+        <h1 className="mx-auto max-w-2xl text-3xl font-bold tracking-tight text-ink sm:text-4xl">
+          Where do you want to take your work next?
+        </h1>
+        <p className="mx-auto mt-3 max-w-xl text-sm leading-relaxed text-text-muted sm:text-[15px]">
+          Quietly tailored openings shaped around your preferences — review,
+          save, or start a pitch when you are ready.
+        </p>
+        <form
+          data-discover-form
+          onSubmit={(e) => void onDiscover(e)}
+          className="mx-auto mt-6 flex w-full max-w-2xl flex-col gap-3 sm:flex-row sm:items-center"
+        >
+          <div className="flex flex-1 items-center gap-2 rounded-full border border-line bg-white px-4 py-2 shadow-soft">
+            <Sparkles className="h-4 w-4 text-coral" />
+            <input
+              value={exploreQuery}
+              onChange={(e) => setExploreQuery(e.target.value)}
+              placeholder="Find roles that match your craft…"
+              className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-text-faint"
+            />
+          </div>
+          <GoldButton
+            type="submit"
+            disabled={discovering || acting}
             className="w-full sm:w-auto"
           >
-            <Button
-              type="submit"
-              disabled={discovering || acting}
-              title={discoveryBlocked ? "Discovery already running" : undefined}
-              className="w-full sm:w-auto"
+            {discoveryBlocked
+              ? "Discovery running"
+              : discovering
+                ? "Starting…"
+                : "Explore with Waypoint"}
+            <ArrowRight className="ml-1 h-3.5 w-3.5" />
+          </GoldButton>
+        </form>
+        <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+          <span className="text-xs text-text-faint">Try exploring</span>
+          {exploreHints.map((hint) => (
+            <button
+              key={hint}
+              type="button"
+              onClick={() => setExploreQuery(hint)}
+              className="rounded-full bg-white/80 px-3 py-1 text-xs font-medium text-text-muted shadow-sm hover:text-ink"
             >
-              {discoveryBlocked
-                ? "Discovery already running"
-                : discovering
-                  ? "Starting…"
-                  : "Discover More"}
-            </Button>
-          </form>
-        }
-      />
+              {hint}
+            </button>
+          ))}
+        </div>
+      </HeroBand>
 
-      <SegmentedTabs
-        tabs={tabs.map((t) => ({ id: t, label: t }))}
-        active={activeTab}
-        onChange={setActiveTab}
-        variant="underline"
-        className="mb-4"
-      />
+      <ActionCard className="mb-8 !flex-row flex-wrap items-center justify-between gap-4">
+        <div>
+          <SoftBadge tone="lavender" className="mb-2">
+            Market note
+          </SoftBadge>
+          <h2 className="text-lg font-bold text-ink">
+            Discovery watches teams that match your preferences.
+          </h2>
+          <p className="mt-1 max-w-xl text-sm text-text-muted">
+            Set intentions in Discover, then let Waypoint surface roles for your
+            review — nothing is sent without your seal.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-3 text-sm font-semibold text-coral">
+            <Link href="/preferences">Set intentions →</Link>
+            <Link href="/approvals">Review approvals →</Link>
+          </div>
+        </div>
+        <GhostButton onClick={() => router.push("/preferences")}>
+          Open Discover
+        </GhostButton>
+      </ActionCard>
+
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-xl font-bold tracking-tight text-ink">
+          Curated Opportunities
+          <span className="ml-2 text-base font-semibold text-text-muted">
+            ({filteredJobs.length})
+          </span>
+        </h2>
+        <SegmentedTabs
+          tabs={tabs.map((t) => ({ id: t, label: t }))}
+          active={activeTab}
+          onChange={setActiveTab}
+          variant="underline"
+        />
+      </div>
 
       {error ? <p className="mb-4 text-sm text-destructive">{error}</p> : null}
-      {message ? <p className="mb-4 text-sm text-primary">{message}</p> : null}
+      {message ? <p className="mb-4 text-sm text-coral">{message}</p> : null}
 
       {selected.size > 0 ? (
-        <div className="mb-4 flex flex-wrap items-center gap-2 rounded-lg border border-border bg-muted/30 px-4 py-3">
-          <span className="text-sm text-foreground">{selected.size} selected</span>
+        <div className="mb-4 flex flex-wrap items-center gap-2 rounded-2xl border border-line bg-white px-4 py-3 shadow-soft">
+          <span className="text-sm text-ink">{selected.size} selected</span>
           <Button
             variant="secondary"
             disabled={acting}
-            className="px-3 py-1.5 text-xs"
+            className="!rounded-full px-3 py-1.5 text-xs"
             onClick={() => void runBatchAction("save")}
           >
             <Bookmark className="mr-1.5 h-3.5 w-3.5" />
@@ -275,7 +356,7 @@ export default function JobsPage() {
           </Button>
           <Button
             disabled={acting}
-            className="px-3 py-1.5 text-xs"
+            className="!rounded-full px-3 py-1.5 text-xs"
             onClick={() => void runBatchAction("start_pipeline")}
           >
             <Play className="mr-1.5 h-3.5 w-3.5" />
@@ -284,7 +365,7 @@ export default function JobsPage() {
           <Button
             variant="secondary"
             disabled={acting}
-            className="px-3 py-1.5 text-xs"
+            className="!rounded-full px-3 py-1.5 text-xs"
             onClick={() => void runBatchAction("dismiss")}
           >
             <Trash2 className="mr-1.5 h-3.5 w-3.5" />
@@ -294,133 +375,112 @@ export default function JobsPage() {
       ) : null}
 
       {loading ? (
-        <p className="py-8 text-sm text-muted-foreground">Loading…</p>
+        <p className="py-8 text-sm text-text-muted">Loading…</p>
       ) : filteredJobs.length === 0 ? (
         <EmptyState
           icon={Briefcase}
-          title="No jobs yet"
-          description="Set your preferences and run discovery to find matching roles."
-          primaryActionLabel="Discover jobs"
-          onPrimaryAction={() => {
-            const form = document.querySelector<HTMLFormElement>("form[data-discover-form]");
-            form?.requestSubmit();
-          }}
+          title="No opportunities yet"
+          description="Set your preferences and explore with Waypoint to find matching roles."
+          primaryActionLabel="Explore"
+          onPrimaryAction={() => void onDiscover()}
         />
       ) : (
-        <>
-          <ul className="space-y-2 md:hidden">
-            {filteredJobs.map((job) => (
-              <li
-                key={job.id}
-                className={cn(
-                  "rounded-lg border border-border bg-card p-4",
-                  selected.has(job.id) && "ring-2 ring-primary/30",
-                )}
-              >
-                <div className="flex items-start gap-3">
-                  <input
-                    type="checkbox"
-                    checked={selected.has(job.id)}
-                    onChange={() => toggleOne(job.id)}
-                    className="mt-1 h-4 w-4 rounded border-border"
-                    aria-label={`Select ${job.title}`}
-                  />
-                  <div className="min-w-0 flex-1">
-                    <Link href={`/jobs/${job.id}`} className="font-medium text-foreground hover:text-primary">
-                      {job.title}
-                    </Link>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {[job.company_name, job.location, job.work_arrangement]
-                        .filter(Boolean)
-                        .join(" · ")}
-                    </p>
-                    <div className="mt-2 flex items-center gap-2">
-                      {job.is_new ? (
-                        <Badge variant="primary" className="text-[10px]">
-                          New
-                        </Badge>
-                      ) : null}
-                      <Badge variant="default" className="capitalize">
-                        {job.status}
-                      </Badge>
-                      <span className="text-xs font-semibold text-primary">
-                        {job.score != null ? `${Math.round(job.score * 100)}%` : "—"}
-                      </span>
+        <ul className="space-y-4">
+          {filteredJobs.map((job) => {
+            const scorePct =
+              job.score != null ? Math.round(job.score * 100) : null;
+            const initial = (job.company_name || job.title || "?").charAt(0);
+            return (
+              <li key={job.id}>
+                <ActionCard className="!p-5 sm:!p-6">
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="flex min-w-0 flex-1 gap-3">
+                      <input
+                        type="checkbox"
+                        checked={selected.has(job.id)}
+                        onChange={() => {
+                          setSelected((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(job.id)) next.delete(job.id);
+                            else next.add(job.id);
+                            return next;
+                          });
+                        }}
+                        className="mt-2 h-4 w-4 rounded border-line"
+                        aria-label={`Select ${job.title}`}
+                      />
+                      <div className="flex size-12 shrink-0 items-center justify-center rounded-2xl bg-lavender text-sm font-bold text-lavender-deep">
+                        {initial}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Link
+                            href={`/jobs/${job.id}`}
+                            className="text-lg font-bold text-ink hover:text-coral"
+                          >
+                            {job.title}
+                          </Link>
+                          {job.is_new ? (
+                            <SoftBadge tone="coral">New</SoftBadge>
+                          ) : null}
+                          {scorePct != null ? (
+                            <SoftBadge
+                              tone={scorePct >= 80 ? "mint" : "lavender"}
+                            >
+                              {scorePct}% alignment
+                            </SoftBadge>
+                          ) : null}
+                        </div>
+                        <p className="mt-1 text-sm text-text-muted">
+                          {[job.company_name, job.location, job.work_arrangement]
+                            .filter(Boolean)
+                            .join(" · ")}
+                        </p>
+                        <div
+                          className={cn(
+                            "mt-3 rounded-2xl px-3 py-2.5 text-sm text-ink",
+                            "bg-coral-bg/60",
+                          )}
+                        >
+                          <p className="text-[10px] font-bold uppercase tracking-wider text-coral-deep">
+                            Why this may fit
+                          </p>
+                          <p className="mt-1 text-text-muted">
+                            {job.rationale?.trim() ||
+                              `Match status: ${job.status}. Open the role to review details before starting a pitch.`}
+                          </p>
+                        </div>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <SoftBadge tone="white">{job.status}</SoftBadge>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 flex-wrap gap-2 sm:flex-col sm:items-stretch">
+                      <GoldButton
+                        disabled={acting}
+                        onClick={() => void singleAction(job.id, "start_pipeline")}
+                      >
+                        Start tailored pitch
+                      </GoldButton>
+                      <GhostButton
+                        disabled={acting}
+                        onClick={() => void singleAction(job.id, "save")}
+                      >
+                        Save for later
+                      </GhostButton>
+                      <Link
+                        href={`/jobs/${job.id}`}
+                        className="text-center text-xs font-semibold text-coral"
+                      >
+                        Review dossier →
+                      </Link>
                     </div>
                   </div>
-                </div>
+                </ActionCard>
               </li>
-            ))}
-          </ul>
-
-          <div className="hidden overflow-hidden rounded-lg border border-border bg-card md:block">
-            <div className="grid grid-cols-[40px_1fr_120px_100px_100px_120px] gap-4 border-b border-border bg-muted px-4 py-3 text-xs text-muted-foreground">
-              <span>
-                <input
-                  type="checkbox"
-                  checked={allSelected}
-                  onChange={toggleAll}
-                  aria-label="Select all jobs"
-                  className="h-4 w-4 rounded border-border"
-                />
-              </span>
-              <span>Job</span>
-              <span>Location</span>
-              <span>Match</span>
-              <span>Status</span>
-              <span>Actions</span>
-            </div>
-            <ul>
-              {filteredJobs.map((job) => (
-                <li
-                  key={job.id}
-                  className={cn(
-                    "grid grid-cols-[40px_1fr_120px_100px_100px_120px] gap-4 border-b border-border px-4 py-3.5 last:border-0 hover:bg-muted/30",
-                    selected.has(job.id) && "bg-primary/5",
-                  )}
-                >
-                  <input
-                    type="checkbox"
-                    checked={selected.has(job.id)}
-                    onChange={() => toggleOne(job.id)}
-                    className="mt-1 h-4 w-4 rounded border-border"
-                    aria-label={`Select ${job.title}`}
-                  />
-                  <div>
-                    <Link
-                      href={`/jobs/${job.id}`}
-                      className="text-sm font-medium text-foreground hover:text-primary"
-                    >
-                      {job.title}
-                    </Link>
-                    <p className="mt-0.5 text-xs text-muted-foreground">
-                      {job.company_name}
-                      {job.work_arrangement ? ` · ${job.work_arrangement}` : ""}
-                    </p>
-                  </div>
-                  <span className="text-xs text-muted-foreground">
-                    {job.location || "—"}
-                  </span>
-                  <span className="text-xs font-semibold text-primary">
-                    {job.score != null ? `${Math.round(job.score * 100)}%` : "—"}
-                  </span>
-                  <Badge variant="default" className="w-fit capitalize">
-                    {job.status}
-                  </Badge>
-                  <div className="flex items-center gap-1">
-                    <Link
-                      href={`/jobs/${job.id}`}
-                      className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-                      title="View details"
-                    >
-                      <ExternalLink className="h-3.5 w-3.5" />
-                    </Link>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </div>
-        </>
+            );
+          })}
+        </ul>
       )}
     </AppShell>
   );

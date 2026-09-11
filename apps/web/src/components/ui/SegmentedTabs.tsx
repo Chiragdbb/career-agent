@@ -33,10 +33,10 @@ export function SegmentedTabs<T extends string>({
             type="button"
             onClick={() => onChange(tab.id)}
             className={cn(
-              "shrink-0 rounded-md px-3.5 py-2 text-[13px] font-medium transition-colors sm:px-3.5",
+              "shrink-0 rounded-full px-3.5 py-2 text-[13px] font-semibold transition-colors",
               active === tab.id
-                ? "border border-border bg-card font-semibold text-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground",
+                ? "bg-lavender text-lavender-deep"
+                : "text-text-muted hover:text-ink",
             )}
           >
             {tab.label}
@@ -53,17 +53,17 @@ export function SegmentedTabs<T extends string>({
         className,
       )}
     >
-      <div className="inline-flex min-w-full gap-1 rounded-md bg-muted p-1 sm:min-w-0">
+      <div className="inline-flex min-w-full gap-1 rounded-full bg-muted p-1 sm:min-w-0">
         {tabs.map((tab) => (
           <button
             key={tab.id}
             type="button"
             onClick={() => onChange(tab.id)}
             className={cn(
-              "shrink-0 rounded-sm px-3 py-1.5 text-xs font-medium transition-colors",
+              "shrink-0 rounded-full px-3.5 py-1.5 text-xs font-semibold transition-colors",
               active === tab.id
-                ? "border border-border bg-card text-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground",
+                ? "bg-white text-ink shadow-sm"
+                : "text-text-muted hover:text-ink",
             )}
           >
             {tab.label}

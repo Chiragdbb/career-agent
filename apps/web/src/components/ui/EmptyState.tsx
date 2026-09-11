@@ -36,25 +36,25 @@ export function EmptyState({
   return (
     <div
       className={cn(
-        "flex flex-col items-center px-6 py-10 text-center",
+        "flex flex-col items-center rounded-3xl border border-line bg-white px-6 py-12 text-center shadow-soft",
         className,
       )}
     >
       {Icon ? (
-        <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-line-soft">
-          <Icon className="h-5 w-5 text-text-muted" />
+        <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-lavender">
+          <Icon className="h-5 w-5 text-lavender-deep" />
         </div>
       ) : (
         <EmptyDoodle />
       )}
-      <p className="mt-3 font-serif text-[17px] text-ink">{title}</p>
+      <p className="mt-3 text-[17px] font-bold tracking-tight text-ink">{title}</p>
       {description ? (
-        <p className="mt-2 max-w-[280px] text-[13.5px] leading-relaxed text-text-muted">
+        <p className="mt-2 max-w-[320px] text-[13.5px] leading-relaxed text-text-muted">
           {description}
         </p>
       ) : null}
       {label ? (
-        <div className="mt-4">
+        <div className="mt-5">
           {href ? (
             <Link href={href}>
               <GoldButton>{label}</GoldButton>

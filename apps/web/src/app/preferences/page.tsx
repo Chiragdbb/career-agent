@@ -203,15 +203,14 @@ export default function PreferencesPage() {
       <PageHeader
         title="Discover"
         large
-        serif
         subtitle="Describe your ideal role, refine the details, and save your search preferences."
       />
 
       {error ? <p className="mb-4 text-sm text-destructive">{error}</p> : null}
       {success ? <p className="mb-4 text-sm text-teal">{success}</p> : null}
       {showDiscoverCta ? (
-        <Card className="mb-4 border-gold/30 bg-gold-bg/40">
-          <p className="font-serif text-lg font-semibold text-ink">
+        <Card className="mb-4 border-coral/30 bg-coral-bg/40">
+          <p className="text-lg font-bold tracking-tight text-ink">
             Run your first job discovery now?
           </p>
           <p className="mt-1 text-sm text-text-muted">
