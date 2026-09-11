@@ -19,7 +19,7 @@ export function ScoreRing({ value, size = 64, className }: ScoreRingProps) {
           cx={size / 2}
           cy={size / 2}
           r={r}
-          stroke="#E7E4D6"
+          stroke="#E2DFFF"
           strokeWidth="5"
           fill="none"
         />
@@ -27,7 +27,7 @@ export function ScoreRing({ value, size = 64, className }: ScoreRingProps) {
           cx={size / 2}
           cy={size / 2}
           r={r}
-          stroke="#B9822E"
+          stroke="#D63B20"
           strokeWidth="5"
           fill="none"
           strokeDasharray={c}
@@ -40,7 +40,7 @@ export function ScoreRing({ value, size = 64, className }: ScoreRingProps) {
         />
       </svg>
       <div className="absolute inset-0 flex items-center justify-center">
-        <span className="font-serif text-base font-semibold text-ink">{value}</span>
+        <span className="text-base font-bold text-ink">{value}</span>
       </div>
     </div>
   );

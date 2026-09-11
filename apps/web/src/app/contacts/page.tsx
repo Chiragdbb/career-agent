@@ -72,7 +72,7 @@ export default function ContactsPage() {
 
   return (
     <AppShell active="contacts" wide>
-      <PageHeader title="Contacts" large serif subtitle="People tied to your applications — recruiters, hiring managers, referrals." />
+      <PageHeader title="Contacts" large subtitle="People tied to your applications — recruiters, hiring managers, referrals." />
 
       <SegmentedTabs
         tabs={tabs}
@@ -92,7 +92,7 @@ export default function ContactsPage() {
           description="Contacts appear here after job discovery and company research identify recruiters, hiring managers, and referral paths."
         />
       ) : (
-        <div className="overflow-hidden rounded-lg border border-border bg-card">
+        <div className="overflow-hidden rounded-3xl border border-line bg-white shadow-soft">
           {filtered.map((row) => (
             <ContactRow
               key={row.id}
