@@ -170,7 +170,16 @@ class PreferencesService:
 
     def update(self, settings: PreferenceSettings) -> UserPreference:
         row = self.get_or_create()
-        row.settings = settings.model_dump(mode="json")
+        # Preserve automation_rules (and other non-PreferenceSettings keys).
+        previous = dict(row.settings) if isinstance(row.settings, dict) else {}
+        preserved = {
+            key: value
+            for key, value in previous.items()
+            if key not in PreferenceSettings.model_fields
+        }
+        payload = settings.model_dump(mode="json")
+        payload.update(preserved)
+        row.settings = payload
         self._session.commit()
         self._session.refresh(row)
         return row

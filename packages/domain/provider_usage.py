@@ -1,17 +1,75 @@
-"""Persist provider call usage for cost and quota analytics."""
+"""Persist provider call usage and enforce per-user quotas."""
 
 from __future__ import annotations
 
 import logging
 import uuid
 from dataclasses import dataclass
+from datetime import datetime, timezone
+from enum import Enum
+from typing import Any
 
+from pydantic import BaseModel, Field
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from database.models.schema import ProviderUsage
+from packages.domain.exceptions import DomainError
 from packages.providers.base import UsageInfo
 
 logger = logging.getLogger("career.provider_usage")
+
+
+class QuotaExceededError(DomainError):
+    """User or global provider quota would be exceeded."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        quota_key: str,
+        used: float,
+        limit: float,
+        action: str = "reject",
+    ) -> None:
+        super().__init__(message)
+        self.quota_key = quota_key
+        self.used = used
+        self.limit = limit
+        self.action = action  # reject | defer | queue
+
+
+class QuotaAction(str, Enum):
+    reject = "reject"
+    defer = "defer"
+    queue = "queue"
+
+
+class ProviderQuotaLimits(BaseModel):
+    """Daily per-user quotas for third-party operations."""
+
+    searches: int = Field(default=100, ge=0)
+    scraped_pages: int = Field(default=200, ge=0)
+    company_research: int = Field(default=50, ge=0)
+    contacts: int = Field(default=100, ge=0)
+    applications: int = Field(default=30, ge=0)
+    emails: int = Field(default=50, ge=0)
+    llm_tokens: int = Field(default=500_000, ge=0)
+    embeddings: int = Field(default=200, ge=0)
+
+
+_OPERATION_QUOTA_MAP: dict[str, str] = {
+    "search": "searches",
+    "scrape": "scraped_pages",
+    "crawl": "scraped_pages",
+    "research_company": "company_research",
+    "people_search": "contacts",
+    "find_email": "contacts",
+    "verify_email": "contacts",
+    "send_email": "emails",
+    "complete": "llm_tokens",
+    "embed": "embeddings",
+}
 
 
 @dataclass(frozen=True)
@@ -22,10 +80,18 @@ class ProviderUsageContext:
 
 
 class ProviderUsageService:
-    """Write normalized provider usage rows (including Gemini RPM signals)."""
+    """Write normalized provider usage rows and enforce daily quotas."""
 
-    def __init__(self, session: Session) -> None:
+    def __init__(
+        self,
+        session: Session,
+        *,
+        limits: ProviderQuotaLimits | None = None,
+        on_exceed: QuotaAction = QuotaAction.reject,
+    ) -> None:
         self._session = session
+        self._limits = limits or ProviderQuotaLimits()
+        self._on_exceed = on_exceed
 
     def record(
         self,
@@ -36,6 +102,7 @@ class ProviderUsageService:
         usage: UsageInfo,
         success: bool = True,
         error: str | None = None,
+        request_id: str | None = None,
     ) -> None:
         token_count: int | None = None
         if usage.unit_type == "tokens":
@@ -45,8 +112,13 @@ class ProviderUsageService:
         if usage.unit_type == "requests":
             credit_count = float(usage.units)
 
-        payload = dict(usage.extra)
+        payload: dict[str, Any] = dict(usage.extra)
         payload["unit_type"] = usage.unit_type
+        if request_id:
+            payload["request_id"] = request_id
+        elif usage.extra.get("request_id"):
+            payload["request_id"] = usage.extra["request_id"]
+        payload["recorded_at"] = datetime.now(timezone.utc).isoformat()
 
         row = ProviderUsage(
             user_id=context.user_id,
@@ -67,3 +139,96 @@ class ProviderUsageService:
             self._session.flush()
         except Exception:
             logger.warning("provider_usage_record_failed", exc_info=True)
+
+    def check_quota(
+        self,
+        user_id: uuid.UUID,
+        operation: str,
+        *,
+        units: float = 1.0,
+    ) -> None:
+        """Raise QuotaExceededError when the daily limit would be exceeded."""
+        quota_key = _OPERATION_QUOTA_MAP.get(operation)
+        if quota_key is None:
+            return
+        limit = float(getattr(self._limits, quota_key))
+        if limit <= 0:
+            raise QuotaExceededError(
+                f"Quota disabled for {quota_key}",
+                quota_key=quota_key,
+                used=0,
+                limit=limit,
+                action=self._on_exceed.value,
+            )
+        used = self.usage_today(user_id, quota_key)
+        if used + units > limit:
+            raise QuotaExceededError(
+                f"Daily {quota_key} quota exceeded ({used}/{limit})",
+                quota_key=quota_key,
+                used=used,
+                limit=limit,
+                action=self._on_exceed.value,
+            )
+
+    def usage_today(self, user_id: uuid.UUID, quota_key: str) -> float:
+        start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+        operations = [op for op, key in _OPERATION_QUOTA_MAP.items() if key == quota_key]
+        if not operations:
+            return 0.0
+        query = (
+            self._session.query(ProviderUsage)
+            .filter(
+                ProviderUsage.user_id == user_id,
+                ProviderUsage.operation.in_(operations),
+                ProviderUsage.created_at >= start,
+                ProviderUsage.success.is_(True),
+            )
+        )
+        if quota_key == "llm_tokens":
+            total = query.with_entities(func.coalesce(func.sum(ProviderUsage.token_count), 0)).scalar()
+            return float(total or 0)
+        return float(query.count())
+
+    def summarize_today(self, user_id: uuid.UUID) -> dict[str, float]:
+        return {
+            key: self.usage_today(user_id, key)
+            for key in (
+                "searches",
+                "scraped_pages",
+                "company_research",
+                "contacts",
+                "applications",
+                "emails",
+                "llm_tokens",
+                "embeddings",
+            )
+        }
+
+
+class UsageTrackingMiddleware:
+    """Thin helper for provider factory / workers to check + record usage."""
+
+    def __init__(self, usage: ProviderUsageService, context: ProviderUsageContext) -> None:
+        self._usage = usage
+        self._context = context
+
+    def before(self, operation: str, *, units: float = 1.0) -> None:
+        self._usage.check_quota(self._context.user_id, operation, units=units)
+
+    def after(
+        self,
+        *,
+        provider_name: str,
+        operation: str,
+        usage: UsageInfo,
+        success: bool = True,
+        error: str | None = None,
+    ) -> None:
+        self._usage.record(
+            context=self._context,
+            provider_name=provider_name,
+            operation=operation,
+            usage=usage,
+            success=success,
+            error=error,
+        )
