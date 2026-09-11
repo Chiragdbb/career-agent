@@ -85,10 +85,16 @@ class ResumeService:
     def upload(self, payload: ResumeUploadInput) -> ResumeDetail:
         if not payload.data:
             raise DomainError("Uploaded file is empty")
-        if len(payload.data) > 10 * 1024 * 1024:
-            raise DomainError("Resume file must be 10MB or smaller")
+        from packages.shared.security import validate_upload_file
 
-        mime_type = detect_mime_type(payload.filename, payload.content_type)
+        mime_type = validate_upload_file(
+            filename=payload.filename,
+            data=payload.data,
+            content_type=payload.content_type,
+        )
+        # Prefer detector when magic-byte validation passed.
+        detected = detect_mime_type(payload.filename, payload.content_type)
+        mime_type = detected or mime_type
         plain_text = extract_text(payload.data, mime_type)
         structured = parse_structured_resume(plain_text)
         content_hash = hashlib.sha256(payload.data).hexdigest()

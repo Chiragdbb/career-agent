@@ -1,4 +1,9 @@
-"""Job matching against user preferences with tiered skill alignment."""
+"""Job matching against user preferences with tiered skill + semantic hybrid scoring.
+
+Deterministic preference scoring remains primary. Semantic similarity (pgvector
+embeddings) augments the total when embeddings are available — it never replaces
+role/location/salary/skills/seniority scoring.
+"""
 
 from __future__ import annotations
 
@@ -8,7 +13,8 @@ from dataclasses import dataclass
 from sqlalchemy.orm import Session
 
 from database.models.enums import JobMatchStatus
-from database.models.schema import Company, Job, JobMatch
+from database.models.schema import Company, Job, JobMatch, ResumeVersion, UserProfile
+from packages.domain.embeddings import EmbeddingService
 from packages.domain.exceptions import NotFoundError
 from packages.domain.preferences import (
     PreferenceSettings,
@@ -17,6 +23,10 @@ from packages.domain.preferences import (
 )
 from packages.domain.skill_match import SkillMatchService
 from packages.providers.embedding import EmbeddingProvider
+
+# Versioned hybrid algorithm: deterministic core + optional semantic blend.
+SCORING_ALGORITHM_VERSION = "v2.0-hybrid-semantic"
+SEMANTIC_BLEND_WEIGHT = 0.15
 
 
 @dataclass(frozen=True)
@@ -38,6 +48,9 @@ class ScoreBreakdown:
     salary: float
     skills: float
     seniority: float
+    semantic: float = 0.5
+    deterministic_total: float = 0.0
+    algorithm_version: str = SCORING_ALGORITHM_VERSION
     notes: tuple[str, ...] = ()
 
 
@@ -54,16 +67,19 @@ class JobMatchService:
         skill_high_threshold: float = 0.85,
         skill_low_threshold: float = 0.7,
         skill_possible_weight: float = 0.5,
+        semantic_blend_weight: float = SEMANTIC_BLEND_WEIGHT,
     ) -> None:
         self._session = session
         self._user_id = user_id
         self._weights = weights or MatchWeights()
+        self._embedding = embedding
         self._skill_matcher = SkillMatchService(
             embedding,
             high_threshold=skill_high_threshold,
             low_threshold=skill_low_threshold,
         )
         self._skill_possible_weight = skill_possible_weight
+        self._semantic_blend = max(0.0, min(0.5, semantic_blend_weight))
 
     def score_job(
         self,
@@ -72,6 +88,8 @@ class JobMatchService:
         *,
         company_name: str | None = None,
         resume_skills: list[str] | None = None,
+        profile: UserProfile | None = None,
+        resume_version: ResumeVersion | None = None,
     ) -> ScoreBreakdown:
         details = job.details if isinstance(job.details, dict) else {}
         title = (job.title or "").lower()
@@ -122,7 +140,7 @@ class JobMatchService:
             notes.append("missing_company")
 
         w = self._weights
-        total = (
+        deterministic = (
             role_score * w.role
             + location_score * w.location
             + arrangement_score * w.work_arrangement
@@ -130,6 +148,23 @@ class JobMatchService:
             + skills_score * w.skills
             + seniority_score * w.seniority
         )
+
+        semantic = 0.5
+        if self._embedding is not None:
+            embed_svc = EmbeddingService(self._session, self._embedding)
+            semantic = embed_svc.similarity_against_profile(
+                job, profile, resume_version=resume_version
+            )
+            if job.embedding is None:
+                notes.append("missing_job_embedding")
+            elif profile is None or profile.embedding is None:
+                if resume_version is None or resume_version.embedding is None:
+                    notes.append("missing_candidate_embedding")
+        else:
+            notes.append("semantic_disabled")
+
+        blend = self._semantic_blend
+        total = deterministic * (1.0 - blend) + semantic * blend
         return ScoreBreakdown(
             total=round(total, 4),
             role=role_score,
@@ -138,6 +173,9 @@ class JobMatchService:
             salary=salary_score,
             skills=skills_score,
             seniority=seniority_score,
+            semantic=round(semantic, 4),
+            deterministic_total=round(deterministic, 4),
+            algorithm_version=SCORING_ALGORITHM_VERSION,
             notes=tuple(notes),
         )
 
@@ -153,11 +191,24 @@ class JobMatchService:
             raise NotFoundError("Job not found")
         company = self._session.query(Company).filter(Company.id == job.company_id).one_or_none()
         prefs = preferences or PreferencesService(self._session, self._user_id).get_settings()
+        profile = (
+            self._session.query(UserProfile)
+            .filter(UserProfile.user_id == self._user_id)
+            .one_or_none()
+        )
+        resume_version = (
+            self._session.query(ResumeVersion)
+            .filter(ResumeVersion.user_id == self._user_id)
+            .order_by(ResumeVersion.created_at.desc())
+            .first()
+        )
         breakdown = self.score_job(
             job,
             prefs,
             company_name=company.name if company else None,
             resume_skills=resume_skills,
+            profile=profile,
+            resume_version=resume_version,
         )
         details = job.details if isinstance(job.details, dict) else {}
         job_skills = [
@@ -170,6 +221,12 @@ class JobMatchService:
             "matched": skill_alignment.matched,
             "possible": skill_alignment.possible,
             "missing": skill_alignment.missing,
+            "scoring": {
+                "version": breakdown.algorithm_version,
+                "deterministic": breakdown.deterministic_total,
+                "semantic": breakdown.semantic,
+                "blend_weight": self._semantic_blend,
+            },
         }
 
         row = (
@@ -178,9 +235,11 @@ class JobMatchService:
             .one_or_none()
         )
         summary = (
-            f"score={breakdown.total}; "
+            f"score={breakdown.total}; det={breakdown.deterministic_total}; "
+            f"sem={breakdown.semantic}; "
             f"role={breakdown.role}; location={breakdown.location}; "
-            f"salary={breakdown.salary}; skills={breakdown.skills}"
+            f"salary={breakdown.salary}; skills={breakdown.skills}; "
+            f"algo={breakdown.algorithm_version}"
         )
         if breakdown.notes:
             summary += f"; notes={','.join(breakdown.notes)}"
@@ -194,12 +253,16 @@ class JobMatchService:
                 score=breakdown.total,
                 fit_summary=summary,
                 skill_alignment=alignment_payload,
+                scoring_algorithm_version=breakdown.algorithm_version,
+                semantic_score=breakdown.semantic,
             )
             self._session.add(row)
         else:
             row.score = breakdown.total
             row.fit_summary = summary
             row.skill_alignment = alignment_payload
+            row.scoring_algorithm_version = breakdown.algorithm_version
+            row.semantic_score = breakdown.semantic
         self._session.commit()
         self._session.refresh(row)
         return row
@@ -264,23 +327,9 @@ def _salary_score(
         return 0.5
     if salary_ceiling >= minimum_salary:
         return 1.0
-    # Partial credit if within 15%.
     if salary_ceiling >= int(minimum_salary * 0.85):
         return 0.4
     return 0.0
-
-
-def _skills_score(
-    job_skills: list[str], resume_skills: list[str], notes: list[str]
-) -> float:
-    if not job_skills:
-        notes.append("missing_skills")
-        return 0.5
-    if not resume_skills:
-        return 0.3
-    resume_set = {s.lower() for s in resume_skills}
-    hits = sum(1 for skill in job_skills if skill in resume_set)
-    return hits / max(len(job_skills), 1)
 
 
 def _seniority_score(seniority: str, preferred: list) -> float:

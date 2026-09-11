@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+jobs:
+  api-tests:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: career
+          POSTGRES_PASSWORD: career
+          POSTGRES_DB: career_agent
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U career -d career_agent"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://career:career@localhost:5432/career_agent
+      REDIS_URL: redis://localhost:6379/0
+      APP_ENV: test
+      PYTHONPATH: ".:apps/api"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Migrate
+        run: python -m alembic upgrade head
+      - name: Unit + integration tests (mocked providers)
+        run: >
+          python -m pytest
+          tests/test_embeddings.py
+          tests/test_automation_rules.py
+          tests/test_provider_usage.py
+          tests/test_security.py
+          tests/test_analytics_notion.py
+          tests/test_skill_match.py
+          tests/test_job_match.py
+          tests/test_application_engine.py
+          tests/test_saas_pipeline.py
+          tests/test_e2e_vertical_slice.py
+          tests/test_tenant_isolation.py
+          -q
+
+  web-build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - run: npm ci
+      - run: npm run build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: public-anon-key
+          NEXT_PUBLIC_API_BASE_URL: http://localhost:8000
+
+  # Deploy is intentionally not run until HUMAN INPUT provides cloud secrets.
+  # Add a deploy job that needs: Vercel/Render tokens, production DATABASE_URL, etc.

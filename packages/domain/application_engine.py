@@ -116,6 +116,52 @@ class ApplicationEngine:
         self._session = session
         self._user_id = user_id
 
+    def prepare(
+        self,
+        job_id: uuid.UUID,
+        *,
+        resume_version_id: uuid.UUID | None = None,
+        cover_letter_document_id: uuid.UUID | None = None,
+    ) -> Application:
+        """Create (or return existing) draft application in PREPARED engine state."""
+        existing = (
+            self._session.query(Application)
+            .filter(
+                Application.user_id == self._user_id,
+                Application.job_id == job_id,
+                Application.status != ApplicationStatus.withdrawn,
+            )
+            .order_by(Application.created_at.desc())
+            .first()
+        )
+        if existing is not None:
+            return existing
+        app = Application(
+            id=uuid.uuid4(),
+            user_id=self._user_id,
+            job_id=job_id,
+            status=ApplicationStatus.draft,
+            resume_version_id=resume_version_id,
+            cover_letter_document_id=cover_letter_document_id,
+            submission_evidence={"engine_status": EngineState.PREPARED.value},
+        )
+        self._session.add(app)
+        event = ApplicationEvent(
+            id=uuid.uuid4(),
+            user_id=self._user_id,
+            application_id=app.id,
+            event_type="engine_transition:->PREPARED",
+            payload={
+                "to_state": EngineState.PREPARED.value,
+                "actor": "system",
+                "at": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+        self._session.add(event)
+        self._session.commit()
+        self._session.refresh(app)
+        return app
+
     def get_state(self, application_id: uuid.UUID) -> EngineState:
         app = self._get_app(application_id)
         return self._read_engine_state(app)

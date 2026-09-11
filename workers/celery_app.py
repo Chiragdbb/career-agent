@@ -26,6 +26,8 @@ celery_app = Celery(
         "workers.applications.tasks",
         "workers.outreach.tasks",
         "workers.notifications.tasks",
+        "workers.embeddings.tasks",
+        "workers.scheduled.tasks",
     ],
 )
 
@@ -41,6 +43,18 @@ celery_app.conf.update(
     task_default_retry_delay=30,
     task_time_limit=900,
     task_soft_time_limit=840,
+    beat_schedule={
+        "discover-jobs-daily": {
+            "task": "scheduled.discover_jobs_for_active_users",
+            "schedule": 60 * 60 * 24,  # every 24h; override via CELERY_BEAT if needed
+            "kwargs": {"max_users": 50},
+        },
+        "notify-high-fit-hourly": {
+            "task": "scheduled.notify_high_fit_matches",
+            "schedule": 60 * 60,
+            "kwargs": {"min_score": 0.75},
+        },
+    },
 )
 
 
@@ -48,3 +62,6 @@ celery_app.conf.update(
 def _configure_worker_logging(**_kwargs: object) -> None:
     level = os.getenv("LOG_LEVEL", "INFO")
     configure_logging(level=level)
+    from packages.shared.sentry import init_sentry
+
+    init_sentry(service="celery")

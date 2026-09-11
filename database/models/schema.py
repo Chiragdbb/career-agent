@@ -3,6 +3,7 @@
 import uuid
 
 import sqlalchemy as sa
+from pgvector.sqlalchemy import Vector
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 
 from database.models.base import Base, UUIDMixin, TimestampMixin
@@ -35,6 +36,9 @@ from database.models.enums import (
     WorkflowRunStatus,
     WorkflowTaskStatus,
 )
+
+# Default embedding dimensionality for OpenAI-compatible / mock providers.
+EMBEDDING_DIMENSIONS = 1536
 
 # Models are derived from database/schema-notes.md.
 # schema-notes.md focuses on entities/relationships/statuses rather than full
@@ -75,6 +79,11 @@ class UserProfile(UUIDMixin, TimestampMixin, Base):
     location = sa.Column(sa.Text)
     linkedin_url = sa.Column(sa.Text)
     summary = sa.Column(sa.Text)
+
+    embedding = sa.Column(Vector(EMBEDDING_DIMENSIONS), nullable=True)
+    embedding_model = sa.Column(sa.Text)
+    embedding_version = sa.Column(sa.Text)
+    embedding_generated_at = sa.Column(sa.DateTime(timezone=True))
 
 
 class UserPreference(UUIDMixin, TimestampMixin, Base):
@@ -142,6 +151,12 @@ class ResumeVersion(UUIDMixin, TimestampMixin, Base):
     plain_text = sa.Column(sa.Text)
     sections = sa.Column(sa.dialects.postgresql.JSONB)
     parser_version = sa.Column(sa.Text)
+
+    embedding = sa.Column(Vector(EMBEDDING_DIMENSIONS), nullable=True)
+    embedding_model = sa.Column(sa.Text)
+    embedding_version = sa.Column(sa.Text)
+    embedding_generated_at = sa.Column(sa.DateTime(timezone=True))
+    section_embeddings = sa.Column(sa.dialects.postgresql.JSONB)
 
 
 class Document(UUIDMixin, TimestampMixin, Base):
@@ -236,6 +251,11 @@ class CompanyResearch(UUIDMixin, TimestampMixin, Base):
     summary = sa.Column(sa.Text)
     data = sa.Column(sa.dialects.postgresql.JSONB)
 
+    embedding = sa.Column(Vector(EMBEDDING_DIMENSIONS), nullable=True)
+    embedding_model = sa.Column(sa.Text)
+    embedding_version = sa.Column(sa.Text)
+    embedding_generated_at = sa.Column(sa.DateTime(timezone=True))
+
 
 class JobSource(UUIDMixin, TimestampMixin, Base):
     __tablename__ = "job_sources"
@@ -288,6 +308,11 @@ class Job(UUIDMixin, TimestampMixin, Base):
         index=True,
     )
 
+    embedding = sa.Column(Vector(EMBEDDING_DIMENSIONS), nullable=True)
+    embedding_model = sa.Column(sa.Text)
+    embedding_version = sa.Column(sa.Text)
+    embedding_generated_at = sa.Column(sa.DateTime(timezone=True))
+
     __table_args__ = (
         sa.UniqueConstraint("url", name="uq_jobs_url"),
         sa.UniqueConstraint("external_id", name="uq_jobs_external_id"),
@@ -321,6 +346,8 @@ class JobMatch(UUIDMixin, TimestampMixin, Base):
     fit_summary = sa.Column(sa.Text)
     decision_note = sa.Column(sa.Text)
     skill_alignment = sa.Column(sa.dialects.postgresql.JSONB)
+    scoring_algorithm_version = sa.Column(sa.Text)
+    semantic_score = sa.Column(sa.Float)
 
     __table_args__ = (
         sa.UniqueConstraint("user_id", "job_id", name="uq_job_matches_user_job"),
