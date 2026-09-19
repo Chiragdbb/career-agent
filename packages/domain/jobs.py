@@ -478,3 +478,23 @@ def _as_str(value: object) -> str | None:
         return None
     text = str(value).strip()
     return text or None
+
+
+# Re-exports for the tiered scrape contract (spec §2.3).
+from packages.domain.job_normalize import (  # noqa: E402
+    normalize_job_posting,
+    persist_structured_job,
+    structured_to_extracted,
+)
+from packages.domain.job_posting import StructuredJobPosting  # noqa: E402
+
+__all__ = [
+    "JobListingService",
+    "JobMatchSummary",
+    "JobMatchDetail",
+    "DiscoveryEnqueueResult",
+    "StructuredJobPosting",
+    "normalize_job_posting",
+    "persist_structured_job",
+    "structured_to_extracted",
+]
