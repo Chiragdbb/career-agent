@@ -121,7 +121,12 @@ class LLMTaskService:
         return self._prompt_version
 
     def extract_job(self, *, url: str, scraped_markdown: str) -> ExtractedJob:
-        """Extract a job posting from untrusted scraped markdown."""
+        """Extract a job posting from cleaned scraped body prose (never raw HTML/DOM)."""
+        # Guard: reject obvious HTML dumps so LLM context stays bounded and untrusted markup
+        # cannot dominate the prompt.
+        lowered = (scraped_markdown or "")[:200].lower()
+        if "<html" in lowered or "<!doctype" in lowered:
+            raise DomainError("Raw HTML must not be passed to job extraction LLM")
         provider_name = self._extraction_llm.metadata.name
         max_chars = extraction_max_chars_for_provider(provider_name)
         retry_chars = extraction_retry_max_chars_for_provider(provider_name)

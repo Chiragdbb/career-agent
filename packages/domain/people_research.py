@@ -283,6 +283,9 @@ class PeopleResearchService:
                 status=ContactStatus.identified,
                 name=hit.full_name,
                 title=hit.title,
+                source="apollo" if "apollo" in provider else "manual",
+                confidence="unverified",
+                last_verified_at=discovered_at,
             )
             self._session.add(contact)
             self._session.flush()
@@ -290,6 +293,9 @@ class PeopleResearchService:
             contact.name = hit.full_name
             if hit.title:
                 contact.title = hit.title
+            contact.source = contact.source or ("apollo" if "apollo" in provider else "manual")
+            contact.confidence = contact.confidence or "unverified"
+            contact.last_verified_at = discovered_at
 
         self._session.add(
             ContactSource(

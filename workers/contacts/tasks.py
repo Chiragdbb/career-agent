@@ -30,6 +30,36 @@ def _run_people_research(user_id: uuid.UUID, company_id: uuid.UUID) -> dict:
     settings = ProviderSettings.from_env()
     session = _session()
     try:
+        from packages.domain.contacts import ContactEnrichmentService
+        from packages.providers.factory import create_playwright_contacts_provider
+
+        # Prefer tiered find_or_enrich_contact; fall back to bulk people research.
+        enrich = ContactEnrichmentService(
+            session,
+            user_id,
+            people=create_people_provider(settings),
+            email_finder=create_email_finder_provider(settings),
+            playwright_contacts=create_playwright_contacts_provider(settings),
+        )
+        resolved = enrich.find_or_enrich_contact(company_id)
+        if resolved.contact is not None:
+            session.commit()
+            return {
+                "company_id": str(company_id),
+                "tier": resolved.tier,
+                "cache_hit": resolved.cache_hit,
+                "people_count": 1,
+                "people": [
+                    {
+                        "name": resolved.contact.name,
+                        "title": resolved.contact.title,
+                        "source": resolved.contact.source,
+                        "confidence": resolved.contact.confidence,
+                        "contact_id": str(resolved.contact.id),
+                    }
+                ],
+            }
+
         service = PeopleResearchService(
             session,
             user_id,
@@ -40,6 +70,8 @@ def _run_people_research(user_id: uuid.UUID, company_id: uuid.UUID) -> dict:
         result = service.research_company(company_id)
         return {
             "company_id": str(company_id),
+            "tier": "people_research_bulk",
+            "cache_hit": False,
             "people_count": len(result.people),
             "people": [p.model_dump(mode="json") for p in result.people[:20]],
         }

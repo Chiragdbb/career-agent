@@ -296,11 +296,21 @@ class Job(UUIDMixin, TimestampMixin, Base):
 
     title = sa.Column(sa.Text, nullable=False)
     url = sa.Column(sa.Text)
-    external_id = sa.Column(sa.Text)
+    external_id = sa.Column(sa.Text)  # site-specific ID (spec: external_job_id)
+    source = sa.Column(sa.Text)  # playwright | firecrawl | …
+    company_domain = sa.Column(sa.Text)
     description = sa.Column(sa.Text)
     details = sa.Column(sa.dialects.postgresql.JSONB)
+    skills = sa.Column(sa.dialects.postgresql.ARRAY(sa.Text))
+    remote_type = sa.Column(sa.Text)  # remote | hybrid | onsite
+    employment_type = sa.Column(sa.Text)
+    seniority = sa.Column(sa.Text)
+    salary_min = sa.Column(sa.Numeric)
+    salary_max = sa.Column(sa.Numeric)
+    salary_currency = sa.Column(sa.Text)
     posted_at = sa.Column(sa.DateTime(timezone=True))
     last_scraped_at = sa.Column(sa.DateTime(timezone=True))
+    scraped_at = sa.Column(sa.DateTime(timezone=True))
     discovery_run_id = sa.Column(
         PG_UUID(as_uuid=True),
         sa.ForeignKey("workflow_runs.id", ondelete="SET NULL"),
@@ -315,7 +325,15 @@ class Job(UUIDMixin, TimestampMixin, Base):
 
     __table_args__ = (
         sa.UniqueConstraint("url", name="uq_jobs_url"),
-        sa.UniqueConstraint("external_id", name="uq_jobs_external_id"),
+        sa.Index(
+            "jobs_external_dedup",
+            "external_id",
+            "company_domain",
+            unique=True,
+            postgresql_where=sa.text("external_id IS NOT NULL"),
+        ),
+        sa.Index("ix_jobs_source", "source"),
+        sa.Index("ix_jobs_company_domain", "company_domain"),
     )
 
 
@@ -427,6 +445,9 @@ class Contact(UUIDMixin, TimestampMixin, Base):
 
     name = sa.Column(sa.Text)
     title = sa.Column(sa.Text)
+    source = sa.Column(sa.Text)  # playwright | apollo | hunter | contactout | manual
+    confidence = sa.Column(sa.Text)  # verified | guessed | unverified
+    last_verified_at = sa.Column(sa.DateTime(timezone=True))
 
 
 class ContactSource(UUIDMixin, TimestampMixin, Base):
@@ -816,7 +837,7 @@ class ProviderUsage(UUIDMixin, TimestampMixin, Base):
     user_id = sa.Column(
         PG_UUID(as_uuid=True),
         sa.ForeignKey("users.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,
         index=True,
     )
 
@@ -837,14 +858,25 @@ class ProviderUsage(UUIDMixin, TimestampMixin, Base):
     provider_name = sa.Column(sa.Text, nullable=False)
     operation = sa.Column(sa.Text, nullable=False)
 
+    related_entity_type = sa.Column(sa.Text)
+    related_entity_id = sa.Column(PG_UUID(as_uuid=True))
+
     token_count = sa.Column(sa.BigInteger)
+    tokens_input = sa.Column(sa.Integer)
+    tokens_output = sa.Column(sa.Integer)
+    requests_count = sa.Column(sa.Integer, nullable=False, default=1)
     credit_count = sa.Column(sa.Float)
     cost_estimate = sa.Column(sa.Float)
     latency_ms = sa.Column(sa.Integer)
 
     success = sa.Column(sa.Boolean, nullable=False, default=True)
     error = sa.Column(sa.Text)
+    error_code = sa.Column(sa.Text)
     payload = sa.Column(sa.dialects.postgresql.JSONB)
+
+    __table_args__ = (
+        sa.Index("provider_usage_provider_day", "provider_name", "created_at"),
+    )
 
 
 class AuditLog(UUIDMixin, TimestampMixin, Base):

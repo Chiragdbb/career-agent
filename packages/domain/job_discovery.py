@@ -34,13 +34,21 @@ from packages.domain.workflow_cancellation import WorkflowCancellation
 from packages.providers.base import UsageInfo
 from packages.providers.exceptions import ProviderError
 from packages.domain.job_models import ExtractedJob
+from packages.domain.job_normalize import normalize_job_posting, persist_structured_job, structured_to_extracted
+from packages.domain.job_posting import StructuredJobPosting
 from packages.domain.jobs import load_resume_skills
 from packages.domain.llm_tasks import LLMTaskService
 from packages.domain.provider_usage import ProviderUsageContext, ProviderUsageService
 from packages.domain.preferences import PreferenceSettings, PreferencesService
 from packages.providers.llm import LLMProvider
+from packages.providers.playwright_jobs import (
+    MockPlaywrightJobsProvider,
+    PlaywrightJobsProvider,
+    is_known_job_board,
+)
 from packages.providers.scraper import ScrapeRequest, ScraperProvider
 from packages.providers.search import SearchProvider, SearchRequest
+from packages.providers.usage_logging import call_with_usage_log
 
 logger = logging.getLogger("career.fetch")
 
@@ -71,6 +79,7 @@ class JobDiscoveryService:
         scraper: ScraperProvider,
         llm: LLMProvider,
         extraction_llm: LLMProvider | None = None,
+        playwright_jobs: PlaywrightJobsProvider | MockPlaywrightJobsProvider | None = None,
         max_results: int = 5,
         events: UserEventPublisher | None = None,
         cancellation: WorkflowCancellation | None = None,
@@ -83,6 +92,7 @@ class JobDiscoveryService:
         self._scraper = scraper
         self._llm = llm
         self._extraction_llm = extraction_llm or llm
+        self._playwright_jobs = playwright_jobs
         self._llm_tasks = LLMTaskService(llm, extraction_llm=self._extraction_llm)
         self._max_results = max_results
         self._events = events
@@ -92,6 +102,7 @@ class JobDiscoveryService:
         self._url_context: dict[str, dict[str, str]] = {}
         self._file_log: DiscoveryFileLogger | None = None
         self._current_run_id: uuid.UUID | None = None
+        self._usage = ProviderUsageService(session)
 
     def run(
         self,
@@ -416,6 +427,53 @@ class JobDiscoveryService:
                     "status": "running",
                 },
             )
+
+            # Tiered scrape: Playwright (known boards) → Firecrawl one-off → LLM on cleaned schema only.
+            structured = self._try_structured_scrape(url, run_id)
+            if structured is not None:
+                job = persist_structured_job(
+                    self._session,
+                    structured,
+                    user_id=self._user_id,
+                    run_id=run_id,
+                )
+                extracted = structured_to_extracted(structured)
+                content_source = structured.source
+                result.scrapes_fresh += 1
+                result.created_jobs.append(job.id)
+                self._complete_task(
+                    task,
+                    {
+                        "job_id": str(job.id),
+                        "title": job.title,
+                        "company_id": str(job.company_id),
+                        "content_source": content_source,
+                    },
+                )
+                self._publish_progress(
+                    run_id=run_id,
+                    step="ingest_url",
+                    phase="result",
+                    message=f"Added “{job.title}” at {extracted.company_name or 'unknown company'}.",
+                    data={
+                        "url": url,
+                        "job_id": str(job.id),
+                        "title": job.title,
+                        "company": extracted.company_name,
+                        "content_source": content_source,
+                        "status": "completed",
+                    },
+                )
+                logger.info(
+                    "RECEIVED job url=%s title=%r company=%r job_id=%s source=%s",
+                    url,
+                    job.title,
+                    extracted.company_name,
+                    job.id,
+                    content_source,
+                )
+                return
+
             markdown, content_source = self._scrape_markdown(url, run_id)
             from packages.shared.security import sanitize_scraped_content, validate_public_url
 
@@ -469,7 +527,11 @@ class JobDiscoveryService:
                 .one()
             )
             self._ensure_not_cancelled(run)
-            extracted = self._llm_tasks.extract_job(url=url, scraped_markdown=markdown)
+            # Pass cleaned prose only — never raw HTML/DOM to the LLM.
+            extracted = self._llm_tasks.extract_job(
+                url=url,
+                scraped_markdown=markdown,
+            )
             self._file_log.log(
                 "extract_success",
                 url=url,
@@ -537,6 +599,60 @@ class JobDiscoveryService:
             )
             logger.error("ERROR ingest url=%s error=%s", url, exc, exc_info=True)
             self._file_log.log("ingest_failed", url=url, error=str(exc))
+
+    def _try_structured_scrape(
+        self,
+        url: str,
+        run_id: uuid.UUID,
+    ) -> StructuredJobPosting | None:
+        """Playwright for known boards; Firecrawl structured extract for one-offs only."""
+        context = ProviderUsageContext(user_id=self._user_id, workflow_run_id=run_id)
+
+        if self._playwright_jobs is not None and (
+            self._playwright_jobs.can_handle(url) or is_known_job_board(url)
+        ):
+            try:
+                result = call_with_usage_log(
+                    self._usage,
+                    context=context,
+                    provider=self._playwright_jobs.metadata.name,
+                    operation="job_extraction",
+                    fn=lambda: self._playwright_jobs.scrape_job(url),
+                    usage_from_result=lambda r: r.usage,
+                )
+                return normalize_job_posting(result.posting)
+            except Exception as exc:
+                logger.warning("PLAYWRIGHT_JOBS_FAILED url=%s error=%s", url, exc)
+                if is_known_job_board(url):
+                    # Known boards must not fall through to Firecrawl.
+                    return None
+
+        if is_known_job_board(url):
+            return None
+
+        extract_fn = getattr(self._scraper, "extract_structured_job", None)
+        if extract_fn is None:
+            return None
+        try:
+            raw, usage = call_with_usage_log(
+                self._usage,
+                context=context,
+                provider=self._scraper.metadata.name,
+                operation="job_extraction",
+                fn=lambda: extract_fn(url),
+                usage_from_result=lambda pair: pair[1],
+            )
+            raw = dict(raw)
+            raw.setdefault("source", "firecrawl")
+            raw.setdefault("application_url", url)
+            if "scraped_at" not in raw:
+                raw["scraped_at"] = datetime.now(timezone.utc).isoformat()
+            if not raw.get("external_job_id"):
+                raw["external_job_id"] = job_fingerprint_from_url(url)
+            return normalize_job_posting(raw)
+        except Exception as exc:
+            logger.warning("FIRECRAWL_STRUCTURED_FAILED url=%s error=%s", url, exc)
+            return None
 
     def _scrape_markdown(self, url: str, run_id: uuid.UUID) -> tuple[str, str]:
         run = (
@@ -617,6 +733,23 @@ class JobDiscoveryService:
             existing.company_id = company.id
             existing.details = details
             existing.last_scraped_at = now
+            existing.scraped_at = now
+            if extracted.skills:
+                existing.skills = list(extracted.skills)
+            if extracted.work_arrangement:
+                existing.remote_type = (
+                    "onsite" if extracted.work_arrangement == "on_site" else extracted.work_arrangement
+                )
+            if extracted.employment_type:
+                existing.employment_type = extracted.employment_type
+            if extracted.seniority:
+                existing.seniority = extracted.seniority
+            if extracted.salary_min is not None:
+                existing.salary_min = extracted.salary_min
+            if extracted.salary_max is not None:
+                existing.salary_max = extracted.salary_max
+            if extracted.currency:
+                existing.salary_currency = extracted.currency
             if run_id is not None:
                 existing.discovery_run_id = run_id
             self._session.flush()
@@ -636,6 +769,11 @@ class JobDiscoveryService:
         company = self._get_or_create_company(extracted.company_name)
         details = extracted.model_dump(mode="json")
         details["fingerprint"] = fingerprint
+        remote = None
+        if extracted.work_arrangement == "on_site":
+            remote = "onsite"
+        elif extracted.work_arrangement in ("remote", "hybrid"):
+            remote = extracted.work_arrangement
         job = Job(
             id=uuid.uuid4(),
             company_id=company.id,
@@ -643,9 +781,18 @@ class JobDiscoveryService:
             title=extracted.title,
             url=url,
             external_id=extracted.external_id or fingerprint,
+            source="llm_extract",
             description=extracted.description,
             details=details,
+            skills=list(extracted.skills) or None,
+            remote_type=remote,
+            employment_type=extracted.employment_type,
+            seniority=extracted.seniority,
+            salary_min=extracted.salary_min,
+            salary_max=extracted.salary_max,
+            salary_currency=extracted.currency,
             last_scraped_at=now,
+            scraped_at=now,
             discovery_run_id=run_id,
         )
         try:
@@ -867,3 +1014,7 @@ def job_fingerprint(job: ExtractedJob) -> str:
         ]
     )
     return hashlib.sha256(basis.encode("utf-8")).hexdigest()[:32]
+
+
+def job_fingerprint_from_url(url: str) -> str:
+    return hashlib.sha256(normalize_job_url(url).encode("utf-8")).hexdigest()[:32]
