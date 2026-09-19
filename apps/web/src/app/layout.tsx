@@ -32,7 +32,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${plusJakarta.variable} ${fraunces.variable}`}>
+    <html
+      lang="en"
+      className={`${plusJakarta.variable} ${fraunces.variable}`}
+      suppressHydrationWarning
+    >
       <body className="min-h-screen bg-paper font-sans text-foreground antialiased">
         <Suspense fallback={null}>{children}</Suspense>
       </body>
