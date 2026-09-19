@@ -13,6 +13,7 @@ from packages.providers.factory import (
     ProviderSettings,
     create_extraction_llm_provider,
     create_llm_provider,
+    create_playwright_jobs_provider,
     create_scraper_provider,
     create_search_provider,
 )
@@ -45,6 +46,7 @@ def _run_discovery(user_id: uuid.UUID, workflow_run_id: uuid.UUID, max_results: 
             scraper=create_scraper_provider(settings),
             llm=create_llm_provider(settings),
             extraction_llm=create_extraction_llm_provider(settings),
+            playwright_jobs=create_playwright_jobs_provider(settings),
             max_results=max_results,
         events=events,
         cancellation=cancellation,

@@ -143,6 +143,35 @@ def create_scraper_provider(settings: ProviderSettings | None = None) -> Scraper
     return FallbackScraperProvider(scrapers)
 
 
+def create_playwright_jobs_provider(settings: ProviderSettings | None = None):
+    """Primary free job scraper for known boards. Falls back to mock in CI."""
+    from packages.providers.playwright_jobs import (
+        MockPlaywrightJobsProvider,
+        PlaywrightJobsProvider,
+    )
+
+    _ = settings or ProviderSettings.from_env()
+    try:
+        return PlaywrightJobsProvider()
+    except Exception:
+        logger.info("playwright_jobs_unavailable_using_mock")
+        return MockPlaywrightJobsProvider()
+
+
+def create_playwright_contacts_provider(settings: ProviderSettings | None = None):
+    from packages.providers.playwright_contacts import (
+        MockPlaywrightContactsProvider,
+        PlaywrightContactsProvider,
+    )
+
+    _ = settings or ProviderSettings.from_env()
+    try:
+        return PlaywrightContactsProvider()
+    except Exception:
+        logger.info("playwright_contacts_unavailable_using_mock")
+        return MockPlaywrightContactsProvider()
+
+
 def _try_get_redis():
     try:
         from app.redis import get_redis

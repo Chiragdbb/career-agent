@@ -102,3 +102,20 @@ class FallbackScraperProvider(ScraperProvider):
             provider=self._meta.name,
             operation="crawl_site",
         )
+
+    def extract_structured_job(self, url: str, *, timeout_seconds: float | None = None):
+        """Delegate to the first backend that implements structured extract."""
+        errors: list[str] = []
+        for provider in self._providers:
+            extract_fn = getattr(provider, "extract_structured_job", None)
+            if extract_fn is None:
+                continue
+            try:
+                return extract_fn(url, timeout_seconds=timeout_seconds)
+            except Exception as exc:
+                errors.append(f"{provider.metadata.name}: {exc}")
+        raise ProviderError(
+            f"No scraper could extract structured job for {url}: {'; '.join(errors) or 'unsupported'}",
+            provider=self._meta.name,
+            operation="job_extraction",
+        )

@@ -193,6 +193,12 @@ Design documentation for the AI Career Agent PostgreSQL schema. **No SQL in this
 - Optional link to `job_sources`.
 - One-to-many with `job_matches`, `applications`.
 
+**Scrape metadata (tiered pipeline):**
+- `external_id` — site-specific job id (spec name: `external_job_id`); deduped with `company_domain`.
+- `source` — `playwright` | `firecrawl` | `llm_extract`.
+- `company_domain`, `skills[]`, `remote_type`, `employment_type`, `seniority`, `salary_*`, `scraped_at`.
+- Playwright is primary for known boards; Firecrawl structured extract is one-off only.
+
 **Lifecycle / status:**
 - `active` — open and accepting applications.
 - `closed` — explicitly closed by employer.
@@ -262,6 +268,12 @@ Design documentation for the AI Career Agent PostgreSQL schema. **No SQL in this
 - Belongs to `users` and `people`.
 - Optional links to `companies`, `applications`, or `jobs` for context.
 - One-to-many with `contact_sources`, `email_verifications`, `outreach`.
+
+**Tiered enrichment metadata:**
+- `source` — `playwright` | `apollo` | `hunter` | `contactout` | `manual`.
+- `confidence` — `verified` | `guessed` | `unverified`.
+- `last_verified_at` — cache freshness; stale after `CONTACT_STALENESS_DAYS` (default 120).
+- Resolution order: DB cache → Playwright (company-owned pages only; never LinkedIn) → Apollo/Hunter.
 
 **Lifecycle / status:**
 - `identified` — known but not verified.
@@ -493,16 +505,18 @@ Design documentation for the AI Career Agent PostgreSQL schema. **No SQL in this
 
 ## provider_usage
 
-**One row represents:** A record of a call to an external provider (LLM, Tavily, Firecrawl, storage, email API, etc.) for metering and audit.
+**One row represents:** A record of a call to an external provider (LLM, Tavily, Firecrawl, Playwright, Apollo, Hunter, storage, email API, etc.) for metering and audit.
 
-**Ownership / tenant:** Owned by `user_id`. Tenant-isolated.
+**Ownership / tenant:** Owned by `user_id` when user-initiated; may be `NULL` for system-level jobs.
 
 **Important relationships:**
-- Belongs to `users`.
-- Optional links to `workflow_tasks`, `workflow_runs`.
+- Belongs to `users` (optional).
+- Optional links to `workflow_tasks`, `workflow_runs`, and polymorphic `related_entity_type` / `related_entity_id`.
 
 **Lifecycle / status:**
-- Append-only usage log. Fields: provider name, operation, token/credit counts, cost estimate, latency, success/failure.
+- Append-only usage log. Fields: provider name, operation, token/credit counts (`tokens_input` / `tokens_output` / `requests_count`), cost estimate, latency, success/failure (`error_code`).
+- Logged at the provider adapter layer (including failed attempts) so fallback rates are measurable.
+- Efficiency report (cache hit rate, Playwright vs paid contact tiers, scraper split, free-tier headroom) is derived via `ProviderUsageService.efficiency_report()`.
 
 ---
 
