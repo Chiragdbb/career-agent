@@ -24,7 +24,7 @@ from database.models.enums import (
 )
 from database.models.schema import Company, Job, JobMatch, WorkflowRun, WorkflowTask
 from packages.domain.discovery_lock import DiscoveryLock
-from packages.domain.discovery_logger import DiscoveryFileLogger
+from packages.domain.discovery_logger import DiscoveryRunLogger
 from packages.domain.exceptions import DiscoveryCancelledError, DomainError, NotFoundError
 from packages.domain.extraction_constants import extraction_prefilter_max_chars_for_provider
 from packages.domain.events import UserEventPublisher, UserEventType
@@ -38,7 +38,11 @@ from packages.domain.job_normalize import normalize_job_posting, persist_structu
 from packages.domain.job_posting import StructuredJobPosting
 from packages.domain.jobs import load_resume_skills
 from packages.domain.llm_tasks import LLMTaskService
-from packages.domain.provider_usage import ProviderUsageContext, ProviderUsageService
+from packages.domain.provider_usage import (
+    ProviderQuotaLimits,
+    ProviderUsageContext,
+    ProviderUsageService,
+)
 from packages.domain.preferences import PreferenceSettings, PreferencesService
 from packages.providers.llm import LLMProvider
 from packages.providers.playwright_jobs import (
@@ -68,7 +72,7 @@ DEFAULT_SCRAPE_FRESHNESS_DAYS = 14
 
 
 class JobDiscoveryService:
-    """Discover and ingest jobs for one tenant using mocked or real providers."""
+    """Discover and ingest jobs for one tenant using live or injected providers."""
 
     def __init__(
         self,
@@ -100,9 +104,10 @@ class JobDiscoveryService:
         self._discovery_lock = discovery_lock
         self._scrape_freshness_days = scrape_freshness_days
         self._url_context: dict[str, dict[str, str]] = {}
-        self._file_log: DiscoveryFileLogger | None = None
+        self._file_log: DiscoveryRunLogger | None = None
         self._current_run_id: uuid.UUID | None = None
         self._usage = ProviderUsageService(session)
+        self._run_status: str = "running"
 
     def run(
         self,
@@ -122,6 +127,26 @@ class JobDiscoveryService:
             )
             if run is None:
                 raise NotFoundError("Workflow run not found")
+            if run.status in (
+                WorkflowRunStatus.cancelled,
+                WorkflowRunStatus.cancelling,
+            ) or (
+                self._cancellation is not None and self._cancellation.is_cancelled(run.id)
+            ):
+                run.status = WorkflowRunStatus.cancelled
+                metadata = dict(run.metadata_json or {})
+                metadata["current_step"] = "cancelled"
+                metadata["status_message"] = "Discovery cancelled"
+                metadata.setdefault(
+                    "cancelled_at", datetime.now(timezone.utc).isoformat()
+                )
+                run.metadata_json = metadata
+                self._session.commit()
+                if self._discovery_lock is not None:
+                    self._discovery_lock.release(self._user_id)
+                if self._cancellation is not None:
+                    self._cancellation.clear(run.id)
+                return DiscoveryResult(workflow_run_id=run.id)
             run.status = WorkflowRunStatus.running
             metadata = dict(run.metadata_json or {})
             metadata.setdefault("prompt_version", self._llm_tasks.prompt_version)
@@ -151,7 +176,8 @@ class JobDiscoveryService:
 
         result = DiscoveryResult(workflow_run_id=run.id)
         self._current_run_id = run.id
-        self._file_log = DiscoveryFileLogger(run.id)
+        self._run_status = "running"
+        self._file_log = DiscoveryRunLogger(run.id, workflow_type="job_discovery")
         self._llm_tasks = LLMTaskService(
             self._llm,
             extraction_llm=self._extraction_llm,
@@ -162,13 +188,22 @@ class JobDiscoveryService:
                 workflow_run_id=run.id,
             ),
         )
+        self._file_log.config = self._build_run_config()
+        self._file_log.knobs_touched = self._knobs_touched()
         self._file_log.log(
-            "discovery_started",
+            "run_started",
             user_id=str(self._user_id),
             max_results=self._max_results,
+            config=self._file_log.config,
         )
         try:
             queries = _build_queries(prefs)
+            self._file_log.queries = list(queries)
+            self._file_log.log(
+                "queries_planned",
+                queries=queries,
+                derivation="roles[:3] x locations[:2] → '{role} jobs {location}'",
+            )
             self._update_run_metadata(
                 run,
                 current_step="search",
@@ -218,8 +253,13 @@ class JobDiscoveryService:
                     "duplicate_count": len(result.duplicate_jobs),
                 },
             )
+            self._run_status = "completed"
+            self._file_log.counts["created"] = len(result.created_jobs)
+            self._file_log.counts["duplicates"] = len(result.duplicate_jobs)
+            self._file_log.counts["skipped_invalid"] = result.skipped_invalid
+            self._file_log.errors = list(result.errors)
             self._file_log.log(
-                "discovery_completed",
+                "run_completed",
                 created=len(result.created_jobs),
                 duplicates=len(result.duplicate_jobs),
                 skipped=result.skipped_invalid,
@@ -247,7 +287,9 @@ class JobDiscoveryService:
                 },
             )
             logger.info("discovery_cancelled run_id=%s", run.id)
-            self._file_log.log("discovery_cancelled", errors=result.errors)
+            self._run_status = "cancelled"
+            self._file_log.errors = list(result.errors)
+            self._file_log.log("run_cancelled", errors=result.errors)
             return result
         except Exception as exc:
             run.status = WorkflowRunStatus.failed
@@ -266,14 +308,76 @@ class JobDiscoveryService:
                 },
             )
             logger.error("ERROR discovery run_id=%s error=%s", run.id, exc, exc_info=True)
-            self._file_log.log("discovery_failed", error=str(exc), errors=result.errors)
+            self._run_status = "failed"
+            self._file_log.errors = list(result.errors) + [str(exc)]
+            self._file_log.log("run_failed", error=str(exc), errors=result.errors)
             raise
         finally:
+            if self._file_log is not None:
+                self._file_log.write_summary(
+                    status=self._run_status,
+                    usage=self._usage_rollup(run.id),
+                )
             if self._discovery_lock is not None:
                 self._discovery_lock.release(self._user_id)
             if self._cancellation is not None and self._current_run_id is not None:
                 self._cancellation.clear(self._current_run_id)
         return result
+
+    def _build_run_config(self) -> dict:
+        limits = ProviderQuotaLimits()
+        return {
+            "search_provider": self._search.metadata.name,
+            "scraper_provider": self._scraper.metadata.name,
+            "llm_provider": self._llm.metadata.name,
+            "extraction_llm_provider": self._extraction_llm.metadata.name,
+            "playwright_jobs_provider": (
+                self._playwright_jobs.metadata.name if self._playwright_jobs else None
+            ),
+            "max_results": self._max_results,
+            "scrape_freshness_days": self._scrape_freshness_days,
+            "prompt_version": self._llm_tasks.prompt_version,
+            "quota_limits": limits.model_dump(),
+            "bodies_enabled": self._file_log.bodies_enabled if self._file_log else False,
+            "snippet_chars": self._file_log.snippet_chars if self._file_log else 500,
+        }
+
+    @staticmethod
+    def _knobs_touched() -> list[str]:
+        import os
+
+        knobs = [
+            "max_results",
+            "LLM_PROVIDER",
+            "GROQ_MODEL",
+            "GEMINI_MODEL",
+            "GEMINI_EXTRACTION_MODEL",
+            "GEMINI_TIER",
+            "OPENAI_MODEL",
+            "EXTRACTION_LLM_PROVIDER",
+            "EXTRACTION_LLM_MODEL",
+            "TAVILY_API_KEY",
+            "FIRECRAWL_BASE_URL",
+            "FIRECRAWL_API_KEY",
+            "DISCOVERY_LOG_BODIES",
+            "DISCOVERY_LOG_SNIPPET_CHARS",
+        ]
+        present = []
+        for key in knobs:
+            if key == "max_results":
+                present.append(key)
+            elif key.endswith("_API_KEY"):
+                if os.getenv(key, "").strip():
+                    present.append(f"{key}=set")
+            elif os.getenv(key, "").strip():
+                present.append(key)
+        return present
+
+    def _usage_rollup(self, run_id: uuid.UUID) -> dict:
+        return self._usage.summarize_workflow_run(
+            workflow_run_id=run_id,
+            user_id=self._user_id,
+        )
 
     def _ensure_not_cancelled(self, run: WorkflowRun) -> None:
         self._session.refresh(run)
@@ -299,6 +403,8 @@ class JobDiscoveryService:
         job_ids = list(dict.fromkeys(result.created_jobs + result.duplicate_jobs))
         if not job_ids:
             return
+        if self._file_log is not None:
+            self._file_log.log("score_started", job_count=len(job_ids))
         resume_skills = load_resume_skills(self._session, self._user_id)
         matcher = JobMatchService(self._session, self._user_id)
         for job_id in job_ids:
@@ -309,7 +415,16 @@ class JobDiscoveryService:
             )
             if run is not None:
                 self._ensure_not_cancelled(run)
-            matcher.upsert_match(job_id, preferences=prefs, resume_skills=resume_skills)
+            match = matcher.upsert_match(job_id, preferences=prefs, resume_skills=resume_skills)
+            if self._file_log is not None:
+                score = getattr(match, "score", None)
+                self._file_log.log(
+                    "score_job",
+                    job_id=str(job_id),
+                    score=score,
+                )
+        if self._file_log is not None:
+            self._file_log.log("score_completed", job_count=len(job_ids))
 
     def _search_urls(
         self, queries: list[str], run_id: uuid.UUID, result: DiscoveryResult
@@ -333,6 +448,14 @@ class JobDiscoveryService:
                 data={"provider": provider, "query": query, "status": "running"},
             )
             logger.info("FETCH search provider=%s query=%r", provider, query)
+            if self._file_log is not None:
+                self._file_log.bump("search_calls")
+                self._file_log.log(
+                    "search_request",
+                    provider=provider,
+                    query=query,
+                    max_results=self._max_results,
+                )
             try:
                 response = self._search.search(
                     SearchRequest(query=query, max_results=self._max_results)
@@ -343,12 +466,14 @@ class JobDiscoveryService:
                     if normalized and normalized not in seen:
                         if is_likely_listing_page(normalized):
                             logger.info("SKIP listing page url=%s", normalized)
-                            self._file_log.log(
-                                "url_skipped",
-                                url=normalized,
-                                reason="listing_page",
-                                query=query,
-                            )
+                            if self._file_log is not None:
+                                self._file_log.bump("urls_skipped")
+                                self._file_log.log(
+                                    "url_skipped",
+                                    url=normalized,
+                                    reason="listing_page",
+                                    query=query,
+                                )
                             continue
                         seen.add(normalized)
                         ordered.append(normalized)
@@ -358,6 +483,17 @@ class JobDiscoveryService:
                             "snippet": str(hit.snippet or ""),
                             "query": query,
                         }
+                if self._file_log is not None:
+                    self._file_log.bump("urls_found", len(found))
+                    self._file_log.log(
+                        "search_result",
+                        provider=provider,
+                        query=query,
+                        hits=len(response.results),
+                        accepted=len(found),
+                        urls=found,
+                        usage_units=getattr(response.usage, "units", None),
+                    )
                 self._complete_task(task, {"urls": found})
                 self._publish_progress(
                     run_id=run_id,
@@ -381,6 +517,13 @@ class JobDiscoveryService:
             except Exception as exc:
                 self._fail_task(task, str(exc))
                 result.errors.append(f"search:{query}:{exc}")
+                if self._file_log is not None:
+                    self._file_log.log(
+                        "search_failed",
+                        provider=provider,
+                        query=query,
+                        error=str(exc),
+                    )
                 self._publish_progress(
                     run_id=run_id,
                     step="search",
@@ -399,7 +542,9 @@ class JobDiscoveryService:
     def _ingest_url(self, url: str, run_id: uuid.UUID, result: DiscoveryResult) -> None:
         if is_likely_listing_page(url):
             logger.info("SKIP listing page ingest url=%s", url)
-            self._file_log.log("url_skipped", url=url, reason="listing_page")
+            if self._file_log is not None:
+                self._file_log.bump("urls_skipped")
+                self._file_log.log("url_skipped", url=url, reason="listing_page")
             result.skipped_invalid += 1
             return
 
@@ -409,6 +554,14 @@ class JobDiscoveryService:
             result.duplicate_jobs.append(existing.id)
             result.scrapes_cached += 1
             self._record_scrape_usage(run_id, cached=True)
+            if self._file_log is not None:
+                self._file_log.bump("duplicates")
+                self._file_log.log(
+                    "scrape_fresh_hit",
+                    url=url,
+                    job_id=str(existing.id),
+                    reason="fresh_cache",
+                )
             return
 
         task = self._start_task(run_id, "ingest_url", {"url": url})
@@ -429,6 +582,8 @@ class JobDiscoveryService:
             )
 
             # Tiered scrape: Playwright (known boards) → Firecrawl one-off → LLM on cleaned schema only.
+            if self._file_log is not None:
+                self._file_log.log("scrape_request", url=url, provider=scrape_provider)
             structured = self._try_structured_scrape(url, run_id)
             if structured is not None:
                 job = persist_structured_job(
@@ -441,6 +596,23 @@ class JobDiscoveryService:
                 content_source = structured.source
                 result.scrapes_fresh += 1
                 result.created_jobs.append(job.id)
+                if self._file_log is not None:
+                    self._file_log.bump("scrapes")
+                    self._file_log.bump("created")
+                    self._file_log.log(
+                        "scrape_result",
+                        url=url,
+                        content_source=content_source,
+                        chars=len(structured.description or "") + len(structured.title or ""),
+                    )
+                    self._file_log.log(
+                        "job_created",
+                        url=url,
+                        job_id=str(job.id),
+                        title=job.title,
+                        company=extracted.company_name,
+                        content_source=content_source,
+                    )
                 self._complete_task(
                     task,
                     {
@@ -483,13 +655,22 @@ class JobDiscoveryService:
                 raise DomainError(f"Blocked URL: {exc}") from exc
             guarded = sanitize_scraped_content(markdown)
             markdown = guarded.safe_text
-            self._file_log.log(
-                "scrape_result",
-                url=url,
-                content_source=content_source,
-                chars=len(markdown),
-                injection_flagged=guarded.flagged,
-            )
+            if self._file_log is not None:
+                self._file_log.bump("scrapes")
+                scrape_fields = {
+                    "url": url,
+                    "content_source": content_source,
+                    "chars": len(markdown),
+                    "injection_flagged": guarded.flagged,
+                }
+                scrape_fields.update(
+                    self._file_log.payload_fields(
+                        text=markdown,
+                        snippet_key="scraped_snippet",
+                        body_key="scraped_markdown",
+                    )
+                )
+                self._file_log.log("scrape_result", **scrape_fields)
             prefilter_limit = extraction_prefilter_max_chars_for_provider(
                 self._extraction_llm.metadata.name
             )
@@ -532,17 +713,29 @@ class JobDiscoveryService:
                 url=url,
                 scraped_markdown=markdown,
             )
-            self._file_log.log(
-                "extract_success",
-                url=url,
-                title=extracted.title,
-                company=extracted.company_name,
-            )
+            if self._file_log is not None:
+                self._file_log.bump("extracts")
+                self._file_log.log(
+                    "extract_success",
+                    url=url,
+                    title=extracted.title,
+                    company=extracted.company_name,
+                )
             job = self._persist_extracted(extracted, run_id=run_id, existing=existing)
             if content_source == "scrape":
                 result.scrapes_fresh += 1
                 self._record_scrape_usage(run_id, cached=False)
             result.created_jobs.append(job.id)
+            if self._file_log is not None:
+                self._file_log.bump("created")
+                self._file_log.log(
+                    "job_created",
+                    url=url,
+                    job_id=str(job.id),
+                    title=job.title,
+                    company=extracted.company_name,
+                    content_source=content_source,
+                )
             self._complete_task(
                 task,
                 {
@@ -586,7 +779,9 @@ class JobDiscoveryService:
                 data={"url": url, "error": str(exc), "status": "skipped"},
             )
             logger.error("ERROR ingest url=%s error=%s", url, exc)
-            self._file_log.log("extract_skipped", url=url, error=str(exc))
+            if self._file_log is not None:
+                self._file_log.bump("skipped_invalid")
+                self._file_log.log("extract_skipped", url=url, error=str(exc))
         except Exception as exc:
             self._fail_task(task, str(exc))
             result.errors.append(f"ingest:{url}:{exc}")
@@ -598,7 +793,8 @@ class JobDiscoveryService:
                 data={"url": url, "error": str(exc), "status": "failed"},
             )
             logger.error("ERROR ingest url=%s error=%s", url, exc, exc_info=True)
-            self._file_log.log("ingest_failed", url=url, error=str(exc))
+            if self._file_log is not None:
+                self._file_log.log("ingest_failed", url=url, error=str(exc))
 
     def _try_structured_scrape(
         self,
@@ -677,12 +873,14 @@ class JobDiscoveryService:
                 return markdown, "scrape"
         except (ProviderError, OSError, ConnectionError) as exc:
             logger.warning("SCRAPE_FALLBACK url=%s provider=%s error=%s", url, scrape_provider, exc)
-            self._file_log.log(
-                "scrape_failed",
-                url=url,
-                provider=scrape_provider,
-                error=str(exc),
-            )
+            if self._file_log is not None:
+                self._file_log.bump("scrape_failures")
+                self._file_log.log(
+                    "scrape_failed",
+                    url=url,
+                    provider=scrape_provider,
+                    error=str(exc),
+                )
 
         ctx = self._url_context.get(url, {})
         title = ctx.get("title") or "Job posting"

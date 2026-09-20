@@ -64,6 +64,21 @@ def cancel_user():
         session.close()
 
 
+def test_cancel_queued_run_finalizes_and_releases_lock(cancel_user) -> None:
+    session, user, redis = cancel_user
+    lock = DiscoveryLock(redis)
+    cancellation = WorkflowCancellation(redis)
+    trigger = DiscoveryTriggerService(session, user.id, discovery_lock=lock)
+    queued = trigger.enqueue(max_results=1)
+    assert lock.get_holder(user.id) == queued.workflow_run_id
+
+    run = trigger.cancel(queued.workflow_run_id, cancellation=cancellation)
+    assert run.status == WorkflowRunStatus.cancelled
+    assert run.metadata_json["current_step"] == "cancelled"
+    assert lock.get_holder(user.id) is None
+    assert cancellation.is_cancelled(queued.workflow_run_id)
+
+
 def test_cancel_before_run_results_in_cancelled(cancel_user) -> None:
     session, user, redis = cancel_user
     lock = DiscoveryLock(redis)
@@ -72,8 +87,6 @@ def test_cancel_before_run_results_in_cancelled(cancel_user) -> None:
     queued = trigger.enqueue(max_results=1)
 
     url = f"https://jobs.example.com/cancel-{uuid.uuid4()}"
-    search = MockSearchProvider(results=[SearchHit(title="A", url=url, snippet="")])
-    scraper = MockScraperProvider(pages=[ScrapedPage(url=url, markdown="# Job A")])
     scrape_calls = {"count": 0}
 
     class CountingScraper(MockScraperProvider):
@@ -92,7 +105,7 @@ def test_cancel_before_run_results_in_cancelled(cancel_user) -> None:
     service = JobDiscoveryService(
         session,
         user.id,
-        search=search,
+        search=MockSearchProvider(results=[SearchHit(title="A", url=url, snippet="")]),
         scraper=scraper,
         llm=MockLLMProvider(content=job_json),
         cancellation=cancellation,
