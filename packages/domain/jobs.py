@@ -393,16 +393,27 @@ class DiscoveryTriggerService:
         run = self.get_run(run_id)
         if run.status not in self.ACTIVE_STATUSES:
             raise DomainError("Workflow is not active")
-        run.status = WorkflowRunStatus.cancelling
+
+        now = datetime.now(timezone.utc).isoformat()
         metadata = dict(run.metadata_json or {})
-        metadata["current_step"] = "cancelling"
-        metadata["status_message"] = "Cancellation requested"
-        metadata["cancel_requested_at"] = datetime.now(timezone.utc).isoformat()
+        metadata["cancel_requested_at"] = now
+
+        # Queued (or stuck cancelling) never had a runner observing the flag — finalize now.
+        # Running jobs: mark cancelled immediately for UI, and signal Redis so the worker
+        # stops at the next cooperative checkpoint.
+        run.status = WorkflowRunStatus.cancelled
+        metadata["current_step"] = "cancelled"
+        metadata["status_message"] = "Discovery cancelled"
+        metadata["cancelled_at"] = now
         run.metadata_json = metadata
         run.error = None
         self._session.commit()
+
         if cancellation is not None:
             cancellation.request_cancel(run_id)
+        if self._discovery_lock is not None:
+            self._discovery_lock.release(self._user_id)
+
         self._session.refresh(run)
         return run
 
