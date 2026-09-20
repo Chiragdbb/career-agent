@@ -12,7 +12,7 @@ from typing import Any, Protocol, TypeVar
 from pydantic import BaseModel, ValidationError
 
 from packages.domain.content_truncation import truncate_for_extraction
-from packages.domain.discovery_logger import DiscoveryFileLogger
+from packages.domain.discovery_logger import DiscoveryRunLogger
 from packages.domain.exceptions import DomainError
 from packages.domain.extraction_constants import (
     extraction_max_chars_for_provider,
@@ -103,7 +103,7 @@ class LLMTaskService:
         model: str | None = None,
         extraction_model: str | None = None,
         prompt_version: str = PROMPT_VERSION,
-        discovery_log: DiscoveryFileLogger | _DiscoveryLog | None = None,
+        discovery_log: DiscoveryRunLogger | _DiscoveryLog | None = None,
         usage_service: ProviderUsageService | None = None,
         usage_context: ProviderUsageContext | None = None,
     ) -> None:
@@ -370,6 +370,29 @@ class LLMTaskService:
             temperature=0.1,
             max_tokens=2048,
         )
+        resolved_model = request.model or getattr(provider_impl.metadata, "name", None)
+        if self._discovery_log is not None:
+            req_fields: dict[str, Any] = {
+                "operation": operation,
+                "provider": provider,
+                "model": resolved_model,
+                "prompt_version": self._prompt_version,
+                "max_tokens": request.max_tokens,
+                "system_chars": len(system),
+                "user_chars": len(user),
+            }
+            if isinstance(self._discovery_log, DiscoveryRunLogger):
+                req_fields.update(
+                    self._discovery_log.payload_fields(
+                        text=system, snippet_key="system_snippet", body_key="prompt_body_system"
+                    )
+                )
+                req_fields.update(
+                    self._discovery_log.payload_fields(
+                        text=user, snippet_key="user_snippet", body_key="prompt_body_user"
+                    )
+                )
+            self._discovery_log.log("llm_request", **req_fields)
         try:
             response = provider_impl.complete(request)
             logger.info(
@@ -380,8 +403,42 @@ class LLMTaskService:
                 response.usage.extra.get("requests_this_minute"),
             )
             self._record_provider_usage(operation=operation, response=response, success=True)
+            tokens_in = response.usage.extra.get("prompt_tokens") or response.usage.extra.get(
+                "tokens_input"
+            )
+            tokens_out = response.usage.extra.get("completion_tokens") or response.usage.extra.get(
+                "tokens_output"
+            )
+            if self._discovery_log is not None:
+                result_fields: dict[str, Any] = {
+                    "operation": operation,
+                    "provider": provider,
+                    "model": resolved_model,
+                    "chars": len(response.content),
+                    "tokens_in": tokens_in,
+                    "tokens_out": tokens_out,
+                    "latency_ms": response.usage.latency_ms,
+                    "usage_units": response.usage.units,
+                }
+                if isinstance(self._discovery_log, DiscoveryRunLogger):
+                    result_fields.update(
+                        self._discovery_log.payload_fields(
+                            text=response.content,
+                            snippet_key="llm_snippet",
+                            body_key="llm_raw",
+                        )
+                    )
+                self._discovery_log.log("llm_result", **result_fields)
             return parse_llm_json(response.content)
         except ProviderRateLimitDeferError as exc:
+            if self._discovery_log is not None:
+                self._discovery_log.log(
+                    "llm_failed",
+                    operation=operation,
+                    provider=provider,
+                    error="rate_limit_deferred",
+                    error_details=dict(exc.details),
+                )
             if self._usage_service is not None and self._usage_context is not None:
                 self._usage_service.record(
                     context=self._usage_context,
@@ -399,6 +456,13 @@ class LLMTaskService:
                 )
             raise
         except ProviderStructuredOutputError as exc:
+            if self._discovery_log is not None:
+                self._discovery_log.log(
+                    "llm_failed",
+                    operation=operation,
+                    provider=provider,
+                    error=str(exc),
+                )
             self._log_schema_failure(
                 operation=operation,
                 provider=provider,
@@ -407,6 +471,13 @@ class LLMTaskService:
             )
             raise DomainError(f"Invalid LLM output for {operation}") from exc
         except ProviderValidationError as exc:
+            if self._discovery_log is not None:
+                self._discovery_log.log(
+                    "llm_failed",
+                    operation=operation,
+                    provider=provider,
+                    error=str(exc),
+                )
             raw_content = str(exc.details.get("raw_content") or exc.details.get("raw_body") or "")
             self._log_schema_failure(
                 operation=operation,
@@ -416,6 +487,13 @@ class LLMTaskService:
             )
             raise DomainError(f"Invalid LLM output for {operation}") from exc
         except ProviderError as exc:
+            if self._discovery_log is not None:
+                self._discovery_log.log(
+                    "llm_failed",
+                    operation=operation,
+                    provider=provider,
+                    error=str(exc),
+                )
             if operation == "extract_job" and _is_retriable_extraction_error(exc):
                 self._log_schema_failure(
                     operation=operation,
@@ -431,6 +509,13 @@ class LLMTaskService:
             )
             raise
         except Exception as exc:
+            if self._discovery_log is not None:
+                self._discovery_log.log(
+                    "llm_failed",
+                    operation=operation,
+                    provider=provider,
+                    error=str(exc),
+                )
             logger.error(
                 "ERROR llm provider=%s operation=%s error=%s",
                 provider,

@@ -48,11 +48,11 @@ def _run_discovery(user_id: uuid.UUID, workflow_run_id: uuid.UUID, max_results: 
             extraction_llm=create_extraction_llm_provider(settings),
             playwright_jobs=create_playwright_jobs_provider(settings),
             max_results=max_results,
-        events=events,
-        cancellation=cancellation,
-        discovery_lock=_discovery_lock(),
-        scrape_freshness_days=_scrape_freshness_days(),
-    )
+            events=events,
+            cancellation=cancellation,
+            discovery_lock=_discovery_lock(),
+            scrape_freshness_days=_scrape_freshness_days(),
+        )
         result = service.run(workflow_run_id=workflow_run_id)
         logger.info(
             "discovery_complete user=%s run=%s created=%d duplicates=%d skipped=%d",
