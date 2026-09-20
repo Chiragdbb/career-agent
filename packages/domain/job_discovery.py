@@ -127,6 +127,26 @@ class JobDiscoveryService:
             )
             if run is None:
                 raise NotFoundError("Workflow run not found")
+            if run.status in (
+                WorkflowRunStatus.cancelled,
+                WorkflowRunStatus.cancelling,
+            ) or (
+                self._cancellation is not None and self._cancellation.is_cancelled(run.id)
+            ):
+                run.status = WorkflowRunStatus.cancelled
+                metadata = dict(run.metadata_json or {})
+                metadata["current_step"] = "cancelled"
+                metadata["status_message"] = "Discovery cancelled"
+                metadata.setdefault(
+                    "cancelled_at", datetime.now(timezone.utc).isoformat()
+                )
+                run.metadata_json = metadata
+                self._session.commit()
+                if self._discovery_lock is not None:
+                    self._discovery_lock.release(self._user_id)
+                if self._cancellation is not None:
+                    self._cancellation.clear(run.id)
+                return DiscoveryResult(workflow_run_id=run.id)
             run.status = WorkflowRunStatus.running
             metadata = dict(run.metadata_json or {})
             metadata.setdefault("prompt_version", self._llm_tasks.prompt_version)
