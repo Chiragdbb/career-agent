@@ -145,11 +145,25 @@ def test_factory_selects_resend_when_api_key_set(monkeypatch: pytest.MonkeyPatch
 
 
 def test_factory_falls_back_to_mock_without_resend(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("APP_ENV", "test")
+    monkeypatch.setenv("ALLOW_MOCK_PROVIDERS", "1")
     monkeypatch.delenv("SMTP_HOST", raising=False)
     monkeypatch.delenv("SES_ENABLED", raising=False)
     settings = ProviderSettings(resend_api_key="", resend_from_email="")
     provider = create_email_sender_provider(settings)
     assert provider.metadata.vendor == "mock"
+
+
+def test_factory_requires_email_sender_without_mocks(monkeypatch: pytest.MonkeyPatch) -> None:
+    from packages.providers.exceptions import ProviderNotConfiguredError
+
+    monkeypatch.setenv("APP_ENV", "development")
+    monkeypatch.delenv("ALLOW_MOCK_PROVIDERS", raising=False)
+    monkeypatch.delenv("SMTP_HOST", raising=False)
+    monkeypatch.delenv("SES_ENABLED", raising=False)
+    settings = ProviderSettings(resend_api_key="", resend_from_email="")
+    with pytest.raises(ProviderNotConfiguredError):
+        create_email_sender_provider(settings)
 
 
 def test_optional_ses_requires_intervention() -> None:

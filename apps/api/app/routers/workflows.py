@@ -123,13 +123,22 @@ def cancel_workflow_run(
 
     events.publish(
         user_id,
+        UserEventType.workflow_cancelled,
+        {
+            "workflow_run_id": str(run_id),
+            "workflow_type": run.workflow_type,
+            "status": "cancelled",
+        },
+    )
+    events.publish(
+        user_id,
         UserEventType.workflow_progress,
         {
             "workflow_run_id": str(run_id),
             "workflow_type": run.workflow_type,
-            "step": "cancelling",
-            "message": "Cancellation requested",
-            "data": {"status": "cancelling"},
+            "step": "cancelled",
+            "message": "Discovery cancelled",
+            "data": {"status": "cancelled"},
         },
     )
     row = WorkflowObservabilityService(session, user_id).get_run(run_id)

@@ -39,21 +39,33 @@ def _run_discovery(user_id: uuid.UUID, workflow_run_id: uuid.UUID, max_results: 
     try:
         events = _event_publisher()
         cancellation = _workflow_cancellation()
-        service = JobDiscoveryService(
-            session,
-            user_id,
-            search=create_search_provider(settings),
-            scraper=create_scraper_provider(settings),
-            llm=create_llm_provider(settings),
-            extraction_llm=create_extraction_llm_provider(settings),
-            playwright_jobs=create_playwright_jobs_provider(settings),
-            max_results=max_results,
-        events=events,
-        cancellation=cancellation,
-        discovery_lock=_discovery_lock(),
-        scrape_freshness_days=_scrape_freshness_days(),
-    )
-        result = service.run(workflow_run_id=workflow_run_id)
+        discovery_lock = _discovery_lock()
+        try:
+            playwright_jobs = create_playwright_jobs_provider(settings)
+        except Exception:
+            logger.warning("playwright_jobs_create_failed", exc_info=True)
+            playwright_jobs = None
+        try:
+            service = JobDiscoveryService(
+                session,
+                user_id,
+                search=create_search_provider(settings),
+                scraper=create_scraper_provider(settings),
+                llm=create_llm_provider(settings),
+                extraction_llm=create_extraction_llm_provider(settings),
+                playwright_jobs=playwright_jobs,
+                max_results=max_results,
+                events=events,
+                cancellation=cancellation,
+                discovery_lock=discovery_lock,
+                scrape_freshness_days=_scrape_freshness_days(),
+            )
+            result = service.run(workflow_run_id=workflow_run_id)
+        except Exception as exc:
+            _mark_run_failed(session, user_id, workflow_run_id, exc)
+            if discovery_lock is not None:
+                discovery_lock.release(user_id)
+            raise
         logger.info(
             "discovery_complete user=%s run=%s created=%d duplicates=%d skipped=%d",
             user_id,
@@ -71,6 +83,41 @@ def _run_discovery(user_id: uuid.UUID, workflow_run_id: uuid.UUID, max_results: 
         }
     finally:
         session.close()
+
+
+def _mark_run_failed(
+    session: Session,
+    user_id: uuid.UUID,
+    workflow_run_id: uuid.UUID,
+    exc: Exception,
+) -> None:
+    try:
+        from database.models.enums import WorkflowRunStatus
+        from database.models.schema import WorkflowRun
+
+        run = (
+            session.query(WorkflowRun)
+            .filter(WorkflowRun.id == workflow_run_id, WorkflowRun.user_id == user_id)
+            .one_or_none()
+        )
+        if run is None:
+            return
+        if run.status in (
+            WorkflowRunStatus.completed,
+            WorkflowRunStatus.cancelled,
+            WorkflowRunStatus.failed,
+        ):
+            return
+        run.status = WorkflowRunStatus.failed
+        run.error = str(exc)
+        metadata = dict(run.metadata_json or {})
+        metadata["current_step"] = "failed"
+        metadata["status_message"] = f"Discovery failed: {exc}"
+        run.metadata_json = metadata
+        session.commit()
+    except Exception:
+        logger.warning("mark_run_failed_unsuccessful run=%s", workflow_run_id, exc_info=True)
+        session.rollback()
 
 
 def _event_publisher() -> UserEventPublisher | None:
