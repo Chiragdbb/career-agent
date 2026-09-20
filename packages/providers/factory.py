@@ -15,6 +15,7 @@ from packages.providers.hunter_email import (
     HunterEmailFinderProvider,
     HunterEmailVerifierProvider,
 )
+from packages.providers.exceptions import ProviderNotConfiguredError
 from packages.providers.llm import GeminiLLMProvider, LLMProvider, MockLLMProvider
 from packages.providers.llm.gemini_config import (
     GEMINI_DEFAULT_MODEL,
@@ -37,6 +38,23 @@ from packages.providers.tavily_search import TavilySearchProvider
 logger = logging.getLogger("career.providers")
 
 FIRECRAWL_CLOUD_URL = "https://api.firecrawl.dev"
+
+
+def mocks_allowed() -> bool:
+    """Mocks only when APP_ENV=test and ALLOW_MOCK_PROVIDERS is truthy."""
+    env = os.getenv("APP_ENV", "development").strip().lower()
+    allow = os.getenv("ALLOW_MOCK_PROVIDERS", "").strip().lower() in ("1", "true", "yes")
+    return env == "test" and allow
+
+
+def _require_live(capability: str, missing: list[str]) -> None:
+    raise ProviderNotConfiguredError(
+        f"{capability} provider is not configured; set {', '.join(missing)} "
+        f"(mocks only when APP_ENV=test and ALLOW_MOCK_PROVIDERS=1)",
+        provider=capability,
+        operation="create",
+        details={"missing_env": missing},
+    )
 
 
 @dataclass(frozen=True)
@@ -109,7 +127,9 @@ def create_search_provider(settings: ProviderSettings | None = None) -> SearchPr
     settings = settings or ProviderSettings.from_env()
     if settings.tavily_api_key:
         return TavilySearchProvider(api_key=settings.tavily_api_key)
-    return create_mock_providers().search
+    if mocks_allowed():
+        return create_mock_providers().search
+    _require_live("search", ["TAVILY_API_KEY"])
 
 
 def create_scraper_provider(settings: ProviderSettings | None = None) -> ScraperProvider:
@@ -137,14 +157,16 @@ def create_scraper_provider(settings: ProviderSettings | None = None) -> Scraper
         )
 
     if not scrapers:
-        return create_mock_providers().scraper
+        if mocks_allowed():
+            return create_mock_providers().scraper
+        _require_live("scraper", ["FIRECRAWL_BASE_URL", "FIRECRAWL_API_KEY"])
     if len(scrapers) == 1:
         return scrapers[0]
     return FallbackScraperProvider(scrapers)
 
 
 def create_playwright_jobs_provider(settings: ProviderSettings | None = None):
-    """Primary free job scraper for known boards. Falls back to mock in CI."""
+    """Primary free job scraper for known boards."""
     from packages.providers.playwright_jobs import (
         MockPlaywrightJobsProvider,
         PlaywrightJobsProvider,
@@ -153,9 +175,17 @@ def create_playwright_jobs_provider(settings: ProviderSettings | None = None):
     _ = settings or ProviderSettings.from_env()
     try:
         return PlaywrightJobsProvider()
-    except Exception:
-        logger.info("playwright_jobs_unavailable_using_mock")
-        return MockPlaywrightJobsProvider()
+    except Exception as exc:
+        if mocks_allowed():
+            logger.info("playwright_jobs_unavailable_using_mock")
+            return MockPlaywrightJobsProvider()
+        raise ProviderNotConfiguredError(
+            "playwright-jobs provider failed to initialize; install Playwright browsers "
+            "or set APP_ENV=test and ALLOW_MOCK_PROVIDERS=1 for tests",
+            provider="playwright-jobs",
+            operation="create",
+            details={"error": str(exc)},
+        ) from exc
 
 
 def create_playwright_contacts_provider(settings: ProviderSettings | None = None):
@@ -167,9 +197,17 @@ def create_playwright_contacts_provider(settings: ProviderSettings | None = None
     _ = settings or ProviderSettings.from_env()
     try:
         return PlaywrightContactsProvider()
-    except Exception:
-        logger.info("playwright_contacts_unavailable_using_mock")
-        return MockPlaywrightContactsProvider()
+    except Exception as exc:
+        if mocks_allowed():
+            logger.info("playwright_contacts_unavailable_using_mock")
+            return MockPlaywrightContactsProvider()
+        raise ProviderNotConfiguredError(
+            "playwright-contacts provider failed to initialize; install Playwright browsers "
+            "or set APP_ENV=test and ALLOW_MOCK_PROVIDERS=1 for tests",
+            provider="playwright-contacts",
+            operation="create",
+            details={"error": str(exc)},
+        ) from exc
 
 
 def _try_get_redis():
@@ -232,7 +270,18 @@ def create_llm_provider(settings: ProviderSettings | None = None) -> LLMProvider
             api_key=settings.openai_api_key,
             model=settings.openai_model,
         )
-    return MockLLMProvider()
+    if settings.gemini_api_key:
+        return _create_gemini_provider(settings)
+    if mocks_allowed():
+        return MockLLMProvider()
+    missing = ["GROQ_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY"]
+    if settings.llm_provider == "openai":
+        missing = ["OPENAI_API_KEY"]
+    elif settings.llm_provider == "gemini":
+        missing = ["GEMINI_API_KEY"]
+    elif settings.llm_provider == "groq":
+        missing = ["GROQ_API_KEY"]
+    _require_live("llm", missing)
 
 
 def create_extraction_llm_provider(settings: ProviderSettings | None = None) -> LLMProvider:
@@ -259,7 +308,9 @@ def create_people_provider(settings: ProviderSettings | None = None) -> PeoplePr
     settings = settings or ProviderSettings.from_env()
     if settings.apollo_api_key:
         return ApolloPeopleProvider(api_key=settings.apollo_api_key)
-    return create_mock_providers().people
+    if mocks_allowed():
+        return create_mock_providers().people
+    _require_live("people", ["APOLLO_API_KEY"])
 
 
 def create_email_finder_provider(
@@ -268,7 +319,9 @@ def create_email_finder_provider(
     settings = settings or ProviderSettings.from_env()
     if settings.hunter_api_key:
         return HunterEmailFinderProvider(api_key=settings.hunter_api_key)
-    return create_mock_providers().email_finder
+    if mocks_allowed():
+        return create_mock_providers().email_finder
+    _require_live("email_finder", ["HUNTER_API_KEY"])
 
 
 def create_email_verifier_provider(
@@ -277,11 +330,13 @@ def create_email_verifier_provider(
     settings = settings or ProviderSettings.from_env()
     if settings.hunter_api_key:
         return HunterEmailVerifierProvider(api_key=settings.hunter_api_key)
-    return create_mock_providers().email_verifier
+    if mocks_allowed():
+        return create_mock_providers().email_verifier
+    _require_live("email_verifier", ["HUNTER_API_KEY"])
 
 
 def create_embedding_provider(settings: ProviderSettings | None = None):
-    """OpenAI-compatible embeddings when keyed; else mock (CI-safe)."""
+    """OpenAI-compatible embeddings when keyed."""
     from packages.providers.embedding import OpenAICompatibleEmbeddingProvider
 
     settings = settings or ProviderSettings.from_env()
@@ -292,13 +347,15 @@ def create_embedding_provider(settings: ProviderSettings | None = None):
             base_url=settings.embedding_base_url,
             dimensions=settings.embedding_dimensions,
         )
-    return create_mock_providers().embedding
+    if mocks_allowed():
+        return create_mock_providers().embedding
+    _require_live("embedding", ["EMBEDDING_API_KEY", "OPENAI_API_KEY"])
 
 
 def create_email_sender_provider(
     settings: ProviderSettings | None = None,
 ):
-    """Resend when RESEND_API_KEY is set; else optional SMTP; else mock (CI-safe)."""
+    """Resend when RESEND_API_KEY is set; else optional SMTP/SES."""
     from packages.providers.email_sender import (
         MockEmailSenderProvider,
         OptionalSesEmailSenderProvider,
@@ -331,30 +388,43 @@ def create_email_sender_provider(
             from_email=(os.getenv("SES_FROM_EMAIL") or "").strip(),
             enabled=True,
         )
-    return MockEmailSenderProvider()
+    if mocks_allowed():
+        return MockEmailSenderProvider()
+    _require_live("email_sender", ["RESEND_API_KEY", "SMTP_HOST", "SES_ENABLED"])
 
 
 def log_active_providers(settings: ProviderSettings | None = None) -> dict[str, str]:
-    """Log which provider adapters are active (real vs mock)."""
+    """Log which provider adapters are active (skips capabilities that are not configured)."""
     settings = settings or ProviderSettings.from_env()
-    active = {
-        "search": create_search_provider(settings).metadata.name,
-        "scraper": create_scraper_provider(settings).metadata.name,
-        "llm": create_llm_provider(settings).metadata.name,
-        "extraction_llm": create_extraction_llm_provider(settings).metadata.name,
-        "people": create_people_provider(settings).metadata.name,
-        "email_finder": create_email_finder_provider(settings).metadata.name,
-        "email_verifier": create_email_verifier_provider(settings).metadata.name,
-        "email_sender": create_email_sender_provider(settings).metadata.name,
-        "embedding": create_embedding_provider(settings).metadata.name,
+    creators = {
+        "search": create_search_provider,
+        "scraper": create_scraper_provider,
+        "llm": create_llm_provider,
+        "extraction_llm": create_extraction_llm_provider,
+        "people": create_people_provider,
+        "email_finder": create_email_finder_provider,
+        "email_verifier": create_email_verifier_provider,
+        "email_sender": create_email_sender_provider,
+        "embedding": create_embedding_provider,
     }
-    for capability, name in active.items():
-        kind = "mock" if name.startswith("mock-") else "live"
-        logger.info("provider %s=%s (%s)", capability, name, kind)
-    mocks = [cap for cap, name in active.items() if name.startswith("mock-")]
-    if mocks and os.getenv("APP_ENV", "development") != "test":
+    active: dict[str, str] = {}
+    missing: list[str] = []
+    for capability, create in creators.items():
+        try:
+            name = create(settings).metadata.name
+            active[capability] = name
+            kind = "mock" if name.startswith("mock-") else "live"
+            logger.info("provider %s=%s (%s)", capability, name, kind)
+        except ProviderNotConfiguredError as exc:
+            missing.append(capability)
+            logger.info(
+                "provider %s=unconfigured missing=%s",
+                capability,
+                (exc.details or {}).get("missing_env"),
+            )
+    if missing:
         logger.warning(
-            "Using mock providers for: %s — set API keys in root .env for live data",
-            ", ".join(mocks),
+            "Providers not configured (will fail if used): %s — set API keys in root .env",
+            ", ".join(missing),
         )
     return active
