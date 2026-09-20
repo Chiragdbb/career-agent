@@ -166,48 +166,57 @@ def create_scraper_provider(settings: ProviderSettings | None = None) -> Scraper
 
 
 def create_playwright_jobs_provider(settings: ProviderSettings | None = None):
-    """Primary free job scraper for known boards."""
-    from packages.providers.playwright_jobs import (
-        MockPlaywrightJobsProvider,
-        PlaywrightJobsProvider,
-    )
+    """Primary free job scraper for known boards.
 
+    Returns None when Playwright cannot be initialized so discovery can continue
+    with Firecrawl-only scraping. Mocks are only used when ALLOW_MOCK_PROVIDERS
+    is set under APP_ENV=test.
+    """
     _ = settings or ProviderSettings.from_env()
     try:
+        from packages.providers.playwright_jobs import PlaywrightJobsProvider
+
         return PlaywrightJobsProvider()
     except Exception as exc:
         if mocks_allowed():
-            logger.info("playwright_jobs_unavailable_using_mock")
-            return MockPlaywrightJobsProvider()
-        raise ProviderNotConfiguredError(
-            "playwright-jobs provider failed to initialize; install Playwright browsers "
-            "or set APP_ENV=test and ALLOW_MOCK_PROVIDERS=1 for tests",
-            provider="playwright-jobs",
-            operation="create",
-            details={"error": str(exc)},
-        ) from exc
+            try:
+                from packages.providers.playwright_jobs import MockPlaywrightJobsProvider
+
+                logger.info("playwright_jobs_unavailable_using_mock error=%s", exc)
+                return MockPlaywrightJobsProvider()
+            except Exception:
+                logger.warning("playwright_jobs_mock_unavailable", exc_info=True)
+                return None
+        logger.warning(
+            "playwright_jobs_unavailable continuing without it error=%s",
+            exc,
+        )
+        return None
 
 
 def create_playwright_contacts_provider(settings: ProviderSettings | None = None):
-    from packages.providers.playwright_contacts import (
-        MockPlaywrightContactsProvider,
-        PlaywrightContactsProvider,
-    )
-
     _ = settings or ProviderSettings.from_env()
     try:
+        from packages.providers.playwright_contacts import PlaywrightContactsProvider
+
         return PlaywrightContactsProvider()
     except Exception as exc:
         if mocks_allowed():
-            logger.info("playwright_contacts_unavailable_using_mock")
-            return MockPlaywrightContactsProvider()
-        raise ProviderNotConfiguredError(
-            "playwright-contacts provider failed to initialize; install Playwright browsers "
-            "or set APP_ENV=test and ALLOW_MOCK_PROVIDERS=1 for tests",
-            provider="playwright-contacts",
-            operation="create",
-            details={"error": str(exc)},
-        ) from exc
+            try:
+                from packages.providers.playwright_contacts import (
+                    MockPlaywrightContactsProvider,
+                )
+
+                logger.info("playwright_contacts_unavailable_using_mock error=%s", exc)
+                return MockPlaywrightContactsProvider()
+            except Exception:
+                logger.warning("playwright_contacts_mock_unavailable", exc_info=True)
+                return None
+        logger.warning(
+            "playwright_contacts_unavailable continuing without it error=%s",
+            exc,
+        )
+        return None
 
 
 def _try_get_redis():
