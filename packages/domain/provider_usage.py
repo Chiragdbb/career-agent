@@ -232,6 +232,49 @@ class ProviderUsageService:
             )
         }
 
+    def summarize_workflow_run(
+        self,
+        *,
+        workflow_run_id: uuid.UUID,
+        user_id: uuid.UUID | None = None,
+    ) -> dict[str, Any]:
+        """Aggregate provider usage for one workflow run (for discovery summary.json)."""
+        rows = (
+            self._session.query(ProviderUsage)
+            .filter(ProviderUsage.workflow_run_id == workflow_run_id)
+            .all()
+        )
+        by_provider: dict[str, dict[str, float]] = {}
+        for row in rows:
+            bucket = by_provider.setdefault(row.provider_name, {})
+            if row.token_count:
+                bucket["tokens"] = bucket.get("tokens", 0.0) + float(row.token_count)
+            if row.tokens_input:
+                bucket["prompt_tokens"] = bucket.get("prompt_tokens", 0.0) + float(
+                    row.tokens_input
+                )
+            if row.tokens_output:
+                bucket["completion_tokens"] = bucket.get("completion_tokens", 0.0) + float(
+                    row.tokens_output
+                )
+            unit = (row.payload or {}).get("unit_type") if isinstance(row.payload, dict) else None
+            if unit == "searches" or row.operation == "search":
+                bucket["searches"] = bucket.get("searches", 0.0) + 1.0
+            elif unit in ("pages", "credits") or row.operation in ("scrape", "crawl"):
+                bucket["pages"] = bucket.get("pages", 0.0) + float(row.credit_count or 1)
+            bucket["requests"] = bucket.get("requests", 0.0) + float(row.requests_count or 1)
+
+        quota: dict[str, dict[str, float]] = {}
+        if user_id is not None:
+            today = self.summarize_today(user_id)
+            limits = self._limits
+            for key, used in today.items():
+                quota[key] = {
+                    "used": used,
+                    "limit": float(getattr(limits, key)),
+                }
+        return {"by_provider": by_provider, "quota": quota}
+
     def efficiency_report(
         self,
         *,

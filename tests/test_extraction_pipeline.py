@@ -135,9 +135,11 @@ def test_extract_job_retries_with_shrunk_content_on_schema_failure() -> None:
 
 
 def test_extract_job_logs_schema_failure_to_discovery_log(tmp_path, monkeypatch) -> None:
-    log_file = tmp_path / "discovery.log"
-    monkeypatch.setenv("DISCOVERY_LOG_FILE", str(log_file))
-    discovery_log = DiscoveryFileLogger(uuid.uuid4())
+    log_dir = tmp_path / "discovery"
+    monkeypatch.setenv("DISCOVERY_LOG_DIR", str(log_dir))
+    monkeypatch.setenv("APP_ENV", "development")
+    run_id = uuid.uuid4()
+    discovery_log = DiscoveryFileLogger(run_id)
     exc = ProviderStructuredOutputError(
         "bad",
         provider="groq-llm",
@@ -151,7 +153,8 @@ def test_extract_job_logs_schema_failure_to_discovery_log(tmp_path, monkeypatch)
     service = LLMTaskService(llm, discovery_log=discovery_log)
     with pytest.raises(DomainError):
         service.extract_job(url="https://example.com/job", scraped_markdown="# Job")
-    lines = log_file.read_text(encoding="utf-8").strip().splitlines()
+    events_path = log_dir / str(run_id) / "events.jsonl"
+    lines = events_path.read_text(encoding="utf-8").strip().splitlines()
     records = [json.loads(line) for line in lines]
     schema_events = [r for r in records if r["event"] == "extract_schema_failed"]
     assert len(schema_events) >= 1
