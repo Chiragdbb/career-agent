@@ -13,12 +13,24 @@ Legacy CRUD tools were moved to mcp/legacy_server.py and are not registered.
 from __future__ import annotations
 
 import json
+import sys
 import uuid
+from pathlib import Path
 from typing import Any
+
+# Repo root must be on sys.path for `packages.*` / `apps/api` imports, but must
+# not shadow the installed MCP SDK (`mcp` package). Append, do not insert.
+_MCP_DIR = Path(__file__).resolve().parent
+_ROOT = _MCP_DIR.parent
+for _path in (_MCP_DIR, _ROOT / "apps" / "api", _ROOT):
+    _s = str(_path)
+    if _s not in sys.path:
+        sys.path.append(_s)
 
 from mcp.server.fastmcp import FastMCP
 
-from mcp.context import mcp_session, resolve_mcp_user_id
+# Local helpers live beside this file; they are not part of the MCP SDK.
+from context import mcp_session, resolve_mcp_user_id
 
 mcp = FastMCP("career-agent")
 

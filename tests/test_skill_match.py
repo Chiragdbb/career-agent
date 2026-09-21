@@ -37,6 +37,22 @@ def test_possible_weight_scoring() -> None:
     assert matcher.skills_score(partial, possible_weight=0.5) == 0.75
 
 
-def test_cosine_identical_vectors() -> None:
-    v = [1.0, 0.0, 0.5]
-    assert math.isclose(cosine_similarity(v, v), 1.0)
+def test_fuzzy_match_python_experience_wording() -> None:
+    from packages.domain.skill_match import skills_match_fuzzy
+
+    assert skills_match_fuzzy("Python", "Python 3")
+    assert skills_match_fuzzy("React", "React.js")
+    assert skills_match_fuzzy("PostgreSQL", "Postgres")
+
+
+def test_find_known_skills_in_resume_text() -> None:
+    from packages.domain.skill_aliases import find_known_skills_in_text
+
+    found = find_known_skills_in_text(
+        "Built APIs with FastAPI and deployed to AWS using Docker and Kubernetes."
+    )
+    lowered = {s.lower() for s in found}
+    assert "fastapi" in lowered or any("fastapi" in s.lower() for s in found)
+    assert any("aws" in s.lower() or "amazon" in s.lower() for s in found)
+    assert any("docker" in s.lower() for s in found)
+    assert any("kubernetes" in s.lower() or "k8s" in s.lower() for s in found)

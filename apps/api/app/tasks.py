@@ -19,6 +19,14 @@ class DiscoveryTaskClient(Protocol):
         max_results: int,
     ) -> str: ...
 
+    def enqueue_rescrape_job(
+        self,
+        *,
+        user_id: uuid.UUID,
+        workflow_run_id: uuid.UUID,
+        match_id: uuid.UUID,
+    ) -> str: ...
+
 
 class CeleryDiscoveryTaskClient:
     def enqueue_discover_jobs(
@@ -37,9 +45,25 @@ class CeleryDiscoveryTaskClient:
         )
         return async_result.id
 
+    def enqueue_rescrape_job(
+        self,
+        *,
+        user_id: uuid.UUID,
+        workflow_run_id: uuid.UUID,
+        match_id: uuid.UUID,
+    ) -> str:
+        from workers.discovery.tasks import rescrape_job
+
+        async_result = rescrape_job.delay(
+            str(user_id),
+            str(workflow_run_id),
+            str(match_id),
+        )
+        return async_result.id
+
 
 class InlineDiscoveryTaskClient:
-    """Run discovery in a background thread (tests / local fallback without worker)."""
+    """Run discovery/rescrape in a background thread (tests / local fallback without worker)."""
 
     def enqueue_discover_jobs(
         self,
@@ -61,5 +85,31 @@ class InlineDiscoveryTaskClient:
                 )
 
         thread = threading.Thread(target=_run, daemon=True, name=f"discovery-{workflow_run_id}")
+        thread.start()
+        return task_id
+
+    def enqueue_rescrape_job(
+        self,
+        *,
+        user_id: uuid.UUID,
+        workflow_run_id: uuid.UUID,
+        match_id: uuid.UUID,
+    ) -> str:
+        from workers.discovery.tasks import _run_rescrape
+
+        task_id = f"inline-{workflow_run_id}"
+
+        def _run() -> None:
+            try:
+                _run_rescrape(user_id, workflow_run_id, match_id)
+            except Exception:
+                logger.exception(
+                    "inline rescrape failed user=%s run=%s match=%s",
+                    user_id,
+                    workflow_run_id,
+                    match_id,
+                )
+
+        thread = threading.Thread(target=_run, daemon=True, name=f"rescrape-{workflow_run_id}")
         thread.start()
         return task_id

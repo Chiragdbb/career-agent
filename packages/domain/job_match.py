@@ -28,6 +28,45 @@ from packages.providers.embedding import EmbeddingProvider
 SCORING_ALGORITHM_VERSION = "v2.0-hybrid-semantic"
 SEMANTIC_BLEND_WEIGHT = 0.15
 
+_NOTE_LABELS: dict[str, str] = {
+    "missing_skills": "Job listing had no skills listed",
+    "no_resume_skills": "No skills found on your resume",
+    "semantic_disabled": "Semantic matching unavailable",
+    "missing_job_embedding": "Job embedding not ready yet",
+    "missing_candidate_embedding": "Resume embedding not ready yet",
+    "missing_location": "Job location not specified",
+    "missing_company": "Company name not specified",
+    "salary_currency_mismatch": "Salary currency does not match your preference",
+    "currency_mismatch": "Salary currency does not match your preference",
+    "missing_salary": "Job salary not specified",
+}
+
+
+def format_score_pct(value: float) -> str:
+    return f"{int(round(max(0.0, min(1.0, value)) * 100))}%"
+
+
+def format_note(note: str) -> str:
+    return _NOTE_LABELS.get(note, note.replace("_", " ").capitalize())
+
+
+def format_fit_summary(breakdown: ScoreBreakdown) -> str:
+    """Human-readable match explanation with percentages (not raw 0–1 floats)."""
+    lines = [
+        f"Match score: {format_score_pct(breakdown.total)}",
+        (
+            f"Role {format_score_pct(breakdown.role)} · "
+            f"Location {format_score_pct(breakdown.location)} · "
+            f"Work style {format_score_pct(breakdown.work_arrangement)} · "
+            f"Salary {format_score_pct(breakdown.salary)} · "
+            f"Skills {format_score_pct(breakdown.skills)} · "
+            f"Seniority {format_score_pct(breakdown.seniority)}"
+        ),
+    ]
+    if breakdown.notes:
+        lines.append("Notes: " + "; ".join(format_note(n) for n in breakdown.notes))
+    return "\n".join(lines)
+
 
 @dataclass(frozen=True)
 class MatchWeights:
@@ -234,15 +273,7 @@ class JobMatchService:
             .filter(JobMatch.user_id == self._user_id, JobMatch.job_id == job_id)
             .one_or_none()
         )
-        summary = (
-            f"score={breakdown.total}; det={breakdown.deterministic_total}; "
-            f"sem={breakdown.semantic}; "
-            f"role={breakdown.role}; location={breakdown.location}; "
-            f"salary={breakdown.salary}; skills={breakdown.skills}; "
-            f"algo={breakdown.algorithm_version}"
-        )
-        if breakdown.notes:
-            summary += f"; notes={','.join(breakdown.notes)}"
+        summary = format_fit_summary(breakdown)
 
         if row is None:
             row = JobMatch(

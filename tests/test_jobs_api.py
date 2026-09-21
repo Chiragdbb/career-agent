@@ -122,6 +122,25 @@ def test_rescore_job_updates_score(auth_client, user_a_job_match) -> None:
     payload = response.json()
     assert payload["score"] is not None
     assert payload["explanation"]
+    assert "%" in payload["explanation"]
+    assert "notes=" not in payload["explanation"]
+    assert "Match score:" in payload["explanation"]
+    assert "seniority" in payload
+    assert "salary_min" in payload
+    assert "requirements" in payload
+
+
+def test_rescrape_job_enqueues_workflow(auth_client, user_a_job_match) -> None:
+    response = auth_client.post(
+        f"/api/v1/jobs/{user_a_job_match['match_id']}/rescrape",
+        headers={"Authorization": "Bearer token-user-a"},
+    )
+    assert response.status_code == 202
+    payload = response.json()
+    assert payload["workflow_run_id"]
+    assert payload["task_id"]
+    assert payload["match_id"] == str(user_a_job_match["match_id"])
+    assert payload["status"] in {"queued", "running", "completed", "failed"}
 
 
 def test_user_a_cannot_access_user_b_job_match(auth_client, user_b_resources) -> None:
