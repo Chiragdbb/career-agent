@@ -137,7 +137,7 @@ def cancel_workflow_run(
             "workflow_run_id": str(run_id),
             "workflow_type": run.workflow_type,
             "step": "cancelled",
-            "message": "Discovery cancelled",
+            "message": "Cancelled" if run.workflow_type != "job_discovery" else "Discovery cancelled",
             "data": {"status": "cancelled"},
         },
     )

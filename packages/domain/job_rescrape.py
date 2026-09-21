@@ -4,18 +4,24 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING
 
 from sqlalchemy.orm import Session
 
-from database.models.schema import AuditLog, Company, Job, JobMatch
+from database.models.enums import WorkflowRunStatus
+from database.models.schema import AuditLog, Company, Job, JobMatch, WorkflowRun
 from packages.domain.discovery_logger import DiscoveryRunLogger
 from packages.domain.exceptions import DomainError, NotFoundError
 from packages.domain.job_discovery import job_fingerprint, normalize_job_url
 from packages.domain.job_models import ExtractedJob
 from packages.domain.llm_tasks import LLMTaskService
 from packages.domain.provider_usage import ProviderUsageContext, ProviderUsageService
+from packages.domain.workflow_cancellation import WorkflowCancellation
 from packages.providers.base import UsageInfo
 from packages.providers.scraper import ScrapeRequest, ScraperProvider
+
+if TYPE_CHECKING:
+    from packages.domain.events import UserEventPublisher
 
 
 class JobRescrapeService:
@@ -27,12 +33,16 @@ class JobRescrapeService:
         scraper: ScraperProvider,
         llm_tasks: LLMTaskService,
         run_id: uuid.UUID | None = None,
+        events: UserEventPublisher | None = None,
+        cancellation: WorkflowCancellation | None = None,
     ) -> None:
         self._session = session
         self._user_id = user_id
         self._scraper = scraper
         self._llm_tasks = llm_tasks
         self._run_id = run_id or uuid.uuid4()
+        self._events = events
+        self._cancellation = cancellation
 
     def rescrape(self, match_id: uuid.UUID) -> Job:
         row = (
@@ -55,6 +65,11 @@ class JobRescrapeService:
             "details": job.details,
         }
 
+        run = self._load_run()
+        if run is not None:
+            run.status = WorkflowRunStatus.running
+            self._session.commit()
+
         run_log = DiscoveryRunLogger(self._run_id, workflow_type="job_rescrape")
         run_log.config = {
             "scraper_provider": self._scraper.metadata.name,
@@ -71,8 +86,18 @@ class JobRescrapeService:
         ]
         self._llm_tasks._discovery_log = run_log
         run_log.log("run_started", url=url, config=run_log.config)
+        self._checkpoint(run, "started", "Re-scrape started", phase="thinking", data={"url": url})
+        self._raise_if_cancelled(run)
+
         status = "completed"
         try:
+            self._checkpoint(
+                run,
+                "scrape",
+                f"Scraping {url}",
+                phase="working",
+                data={"url": url, "provider": self._scraper.metadata.name},
+            )
             run_log.log("scrape_request", url=url, provider=self._scraper.metadata.name)
             scraped = self._scraper.scrape_url(ScrapeRequest(url=url))
             markdown = scraped.markdown or scraped.title or ""
@@ -92,19 +117,55 @@ class JobRescrapeService:
                 )
             )
             run_log.log("scrape_result", **scrape_fields)
+            self._checkpoint(
+                run,
+                "scrape",
+                f"Scraped {len(markdown)} characters",
+                phase="result",
+                data={"url": url, "chars": len(markdown)},
+            )
+            self._raise_if_cancelled(run)
+
+            self._checkpoint(
+                run,
+                "extract",
+                "Extracting job details with LLM",
+                phase="thinking",
+                data={"url": url},
+            )
             extracted = self._llm_tasks.extract_job(url=url, scraped_markdown=markdown)
             run_log.bump("extracts")
+            self._checkpoint(
+                run,
+                "extract",
+                f"Extracted “{extracted.title}”",
+                phase="result",
+                data={
+                    "url": url,
+                    "title": extracted.title,
+                    "company": extracted.company_name,
+                    "skills": extracted.skills[:12],
+                },
+            )
+            self._raise_if_cancelled(run)
         except DomainError as exc:
+            if "cancelled" in str(exc).lower():
+                status = "cancelled"
+                run_log.log("run_cancelled", error=str(exc))
+                run_log.write_summary(status=status)
+                raise
             status = "failed"
             run_log.errors.append(str(exc))
             run_log.log("run_failed", error=str(exc))
             run_log.write_summary(status=status)
+            self._fail_run(run, str(exc))
             raise
         except Exception as exc:
             status = "failed"
             run_log.errors.append(str(exc))
             run_log.log("run_failed", error=str(exc))
             run_log.write_summary(status=status)
+            self._fail_run(run, str(exc))
             raise DomainError(f"Re-scrape failed: {exc}") from exc
 
         self._apply_extraction(job, extracted)
@@ -129,7 +190,147 @@ class JobRescrapeService:
                 user_id=self._user_id,
             ),
         )
+        self._complete_run(run, job)
         return job
+
+    def _load_run(self) -> WorkflowRun | None:
+        return (
+            self._session.query(WorkflowRun)
+            .filter(
+                WorkflowRun.id == self._run_id,
+                WorkflowRun.user_id == self._user_id,
+            )
+            .one_or_none()
+        )
+
+    def _raise_if_cancelled(self, run: WorkflowRun | None) -> None:
+        if self._cancellation is None:
+            return
+        if self._cancellation.is_cancelled(self._run_id):
+            if run is not None and run.status not in (
+                WorkflowRunStatus.cancelled,
+                WorkflowRunStatus.completed,
+                WorkflowRunStatus.failed,
+            ):
+                run.status = WorkflowRunStatus.cancelled
+                metadata = dict(run.metadata_json or {})
+                metadata["current_step"] = "cancelled"
+                metadata["status_message"] = "Re-scrape cancelled"
+                run.metadata_json = metadata
+                self._session.commit()
+            raise DomainError("Re-scrape cancelled")
+
+    def _checkpoint(
+        self,
+        run: WorkflowRun | None,
+        step: str,
+        message: str,
+        *,
+        phase: str,
+        data: dict | None = None,
+    ) -> None:
+        if run is not None:
+            metadata = dict(run.metadata_json or {})
+            metadata["current_step"] = step
+            metadata["status_message"] = message
+            if data:
+                metadata.update({k: v for k, v in data.items() if k in {"url", "title", "chars"}})
+            run.metadata_json = metadata
+            self._session.commit()
+        self._publish_progress(step=step, message=message, phase=phase, data=data)
+
+    def _complete_run(self, run: WorkflowRun | None, job: Job) -> None:
+        if run is None:
+            self._publish(
+                "workflow_completed",
+                {
+                    "workflow_run_id": str(self._run_id),
+                    "workflow_type": "job_rescrape",
+                    "status": "completed",
+                    "job_id": str(job.id),
+                    "title": job.title,
+                },
+            )
+            return
+        run.status = WorkflowRunStatus.completed
+        metadata = dict(run.metadata_json or {})
+        metadata["current_step"] = "completed"
+        metadata["status_message"] = f"Updated “{job.title}”"
+        metadata["title"] = job.title
+        run.metadata_json = metadata
+        run.error = None
+        self._session.commit()
+        self._publish_progress(
+            step="completed",
+            message=f"Updated “{job.title}”",
+            phase="result",
+            data={"title": job.title, "job_id": str(job.id)},
+        )
+        self._publish(
+            "workflow_completed",
+            {
+                "workflow_run_id": str(self._run_id),
+                "workflow_type": "job_rescrape",
+                "status": "completed",
+                "job_id": str(job.id),
+                "title": job.title,
+            },
+        )
+
+    def _fail_run(self, run: WorkflowRun | None, error: str) -> None:
+        if run is not None:
+            if run.status == WorkflowRunStatus.cancelled:
+                return
+            run.status = WorkflowRunStatus.failed
+            run.error = error
+            metadata = dict(run.metadata_json or {})
+            metadata["current_step"] = "failed"
+            metadata["status_message"] = f"Re-scrape failed: {error}"
+            run.metadata_json = metadata
+            self._session.commit()
+        self._publish_progress(
+            step="failed",
+            message=f"Re-scrape failed: {error}",
+            phase="error",
+            data={"error": error},
+        )
+        self._publish(
+            "workflow_failed",
+            {
+                "workflow_run_id": str(self._run_id),
+                "workflow_type": "job_rescrape",
+                "error": error,
+            },
+        )
+
+    def _publish_progress(
+        self,
+        *,
+        step: str,
+        message: str,
+        phase: str = "working",
+        data: dict | None = None,
+    ) -> None:
+        payload_data = dict(data or {})
+        payload_data.setdefault("phase", phase)
+        self._publish(
+            "workflow_progress",
+            {
+                "workflow_run_id": str(self._run_id),
+                "workflow_type": "job_rescrape",
+                "step": step,
+                "phase": phase,
+                "message": message,
+                "data": payload_data,
+            },
+        )
+
+    def _publish(self, event_type: str, payload: dict) -> None:
+        if self._events is None:
+            return
+        from packages.domain.events import UserEventType
+
+        self._events.publish(self._user_id, UserEventType(event_type), payload)
 
     def _apply_extraction(self, job: Job, extracted: ExtractedJob) -> None:
         now = datetime.now(timezone.utc)
@@ -139,6 +340,20 @@ class JobRescrapeService:
         job.title = extracted.title or job.title
         job.description = extracted.description or job.description
         job.details = details
+        if extracted.seniority:
+            job.seniority = extracted.seniority
+        if extracted.employment_type:
+            job.employment_type = extracted.employment_type
+        if extracted.work_arrangement:
+            job.remote_type = extracted.work_arrangement
+        if extracted.salary_min is not None:
+            job.salary_min = extracted.salary_min
+        if extracted.salary_max is not None:
+            job.salary_max = extracted.salary_max
+        if extracted.currency:
+            job.salary_currency = extracted.currency
+        if extracted.skills:
+            job.skills = extracted.skills
         job.last_scraped_at = now
 
     def _record_usage(self) -> None:

@@ -12,9 +12,11 @@ from database.models.enums import JobMatchStatus, ResumeVersionStatus, WorkflowR
 from database.models.schema import Company, Job, JobMatch, Resume, ResumeVersion, WorkflowRun
 from packages.domain.discovery_lock import DiscoveryLock
 from packages.domain.exceptions import ConflictError, DomainError, NotFoundError
-from packages.domain.job_match import JobMatchService, ScoreBreakdown
+from packages.domain.job_match import JobMatchService, ScoreBreakdown, format_fit_summary
 from packages.domain.preferences import PreferencesService
 from packages.domain.resume_models import StructuredResume
+from packages.domain.skill_aliases import find_known_skills_in_text
+from packages.domain.skill_match import SkillMatchService, skills_match_fuzzy
 from packages.domain.workflow_cancellation import WorkflowCancellation
 
 
@@ -51,6 +53,21 @@ class JobMatchDetail:
     score_breakdown: ScoreBreakdown | None
     explanation: str | None
     created_at: datetime | None
+    # Full listing fields (always present; null/empty when unknown)
+    company_domain: str | None = None
+    source: str | None = None
+    external_id: str | None = None
+    employment_type: str | None = None
+    remote_type: str | None = None
+    seniority: str | None = None
+    salary_min: float | None = None
+    salary_max: float | None = None
+    salary_currency: str | None = None
+    requirements: list[str] | None = None
+    posted_at: datetime | None = None
+    last_scraped_at: datetime | None = None
+    scraped_at: datetime | None = None
+    job_status: str | None = None
 
 
 @dataclass(frozen=True)
@@ -190,14 +207,10 @@ class JobListingService:
             resume_skills=resume_skills,
         )
         job_skills = _job_skills(job)
-        alignment = _skill_alignment_from_match(match)
-        if alignment is None:
-            matched, missing = align_skills(job_skills, resume_skills)
-            possible: list[str] = []
-        else:
-            matched = alignment.get("matched", [])
-            possible = alignment.get("possible", [])
-            missing = alignment.get("missing", [])
+        live = SkillMatchService().align(job_skills, resume_skills)
+        matched = live.matched
+        possible = live.possible
+        missing = live.missing
         return self._to_detail(
             match,
             job,
@@ -263,6 +276,26 @@ class JobListingService:
     ) -> JobMatchDetail:
         details = job.details if isinstance(job.details, dict) else {}
         job_skills = _job_skills(job)
+        location = _as_str(details.get("location")) or _as_str(getattr(job, "location", None))
+        work_arrangement = (
+            _as_str(details.get("work_arrangement"))
+            or _as_str(job.remote_type)
+        )
+        employment_type = _as_str(details.get("employment_type")) or _as_str(job.employment_type)
+        seniority = _as_str(details.get("seniority")) or _as_str(job.seniority)
+        salary_min = _as_float(details.get("salary_min"))
+        if salary_min is None and job.salary_min is not None:
+            salary_min = float(job.salary_min)
+        salary_max = _as_float(details.get("salary_max"))
+        if salary_max is None and job.salary_max is not None:
+            salary_max = float(job.salary_max)
+        salary_currency = (
+            _as_str(details.get("currency"))
+            or _as_str(details.get("salary_currency"))
+            or _as_str(job.salary_currency)
+        )
+        requirements = _string_list(details.get("requirements"))
+        explanation = format_fit_summary(breakdown) if breakdown is not None else match.fit_summary
         return JobMatchDetail(
             id=match.id,
             job_id=match.job_id,
@@ -270,8 +303,8 @@ class JobListingService:
             score=match.score if match.score is not None else (breakdown.total if breakdown else None),
             title=job.title,
             company_name=company.name if company else None,
-            location=_as_str(details.get("location")),
-            work_arrangement=_as_str(details.get("work_arrangement")),
+            location=location,
+            work_arrangement=work_arrangement,
             url=job.url,
             description=job.description,
             job_skills=job_skills,
@@ -279,8 +312,22 @@ class JobListingService:
             possible_matches=possible_matches,
             missing_skills=missing_skills,
             score_breakdown=breakdown,
-            explanation=match.fit_summary,
+            explanation=explanation,
             created_at=match.created_at,
+            company_domain=_as_str(job.company_domain) or _as_str(details.get("company_domain")),
+            source=_as_str(job.source) or _as_str(details.get("source")),
+            external_id=_as_str(job.external_id) or _as_str(details.get("external_id")),
+            employment_type=employment_type,
+            remote_type=_as_str(job.remote_type) or _as_str(details.get("remote_type")),
+            seniority=seniority,
+            salary_min=salary_min,
+            salary_max=salary_max,
+            salary_currency=salary_currency,
+            requirements=requirements,
+            posted_at=_as_datetime(details.get("posted_at")) or job.posted_at,
+            last_scraped_at=job.last_scraped_at,
+            scraped_at=job.scraped_at,
+            job_status=job.status.value if hasattr(job.status, "value") else str(job.status),
         )
 
 
@@ -403,7 +450,12 @@ class DiscoveryTriggerService:
         # stops at the next cooperative checkpoint.
         run.status = WorkflowRunStatus.cancelled
         metadata["current_step"] = "cancelled"
-        metadata["status_message"] = "Discovery cancelled"
+        label = (
+            "Discovery"
+            if run.workflow_type == "job_discovery"
+            else format_workflow_label(run.workflow_type)
+        )
+        metadata["status_message"] = f"{label} cancelled"
         metadata["cancelled_at"] = now
         run.metadata_json = metadata
         run.error = None
@@ -411,7 +463,7 @@ class DiscoveryTriggerService:
 
         if cancellation is not None:
             cancellation.request_cancel(run_id)
-        if self._discovery_lock is not None:
+        if self._discovery_lock is not None and run.workflow_type == "job_discovery":
             self._discovery_lock.release(self._user_id)
 
         self._session.refresh(run)
@@ -431,8 +483,84 @@ class DiscoveryTriggerService:
         return row
 
 
+class JobRescrapeTriggerService:
+    """Create queued workflow runs for async single-job re-scrape."""
+
+    ACTIVE_STATUSES = DiscoveryTriggerService.ACTIVE_STATUSES
+
+    def __init__(self, session: Session, user_id: uuid.UUID) -> None:
+        self._session = session
+        self._user_id = user_id
+
+    def enqueue(self, match_id: uuid.UUID) -> DiscoveryEnqueueResult:
+        match = (
+            self._session.query(JobMatch, Job)
+            .join(Job, Job.id == JobMatch.job_id)
+            .filter(JobMatch.id == match_id, JobMatch.user_id == self._user_id)
+            .one_or_none()
+        )
+        if match is None:
+            raise NotFoundError("Job not found")
+        _match, job = match
+        if not job.url:
+            raise DomainError("Job has no source URL to re-scrape")
+
+        active = (
+            self._session.query(WorkflowRun)
+            .filter(
+                WorkflowRun.user_id == self._user_id,
+                WorkflowRun.workflow_type == "job_rescrape",
+                WorkflowRun.status.in_(self.ACTIVE_STATUSES),
+            )
+            .order_by(WorkflowRun.created_at.desc())
+            .all()
+        )
+        for existing in active:
+            meta = existing.metadata_json if isinstance(existing.metadata_json, dict) else {}
+            if meta.get("match_id") == str(match_id):
+                return DiscoveryEnqueueResult(
+                    workflow_run_id=existing.id,
+                    status=existing.status.value,
+                    idempotency_key=None,
+                )
+
+        run = WorkflowRun(
+            id=uuid.uuid4(),
+            user_id=self._user_id,
+            status=WorkflowRunStatus.queued,
+            workflow_type="job_rescrape",
+            metadata_json={
+                "match_id": str(match_id),
+                "job_id": str(job.id),
+                "url": job.url,
+                "queued_at": datetime.now(timezone.utc).isoformat(),
+                "current_step": "queued",
+                "status_message": "Re-scrape queued",
+            },
+        )
+        self._session.add(run)
+        self._session.commit()
+        self._session.refresh(run)
+        return DiscoveryEnqueueResult(
+            workflow_run_id=run.id,
+            status=run.status.value,
+            idempotency_key=None,
+        )
+
+    def attach_task_id(self, run_id: uuid.UUID, task_id: str) -> None:
+        DiscoveryTriggerService(self._session, self._user_id).attach_task_id(run_id, task_id)
+
+
+def format_workflow_label(workflow_type: str) -> str:
+    return workflow_type.replace("_", " ").strip().capitalize() or "Workflow"
+
+
 def load_resume_skills(session: Session, user_id: uuid.UUID) -> list[str]:
-    """Load skills from the user's most recent finalized resume version."""
+    """Load skills from the user's most recent finalized resume version.
+
+    Harvests structured skills, project technologies, and known skill phrases
+    from summary / experience bullets / plain text so wording differences still match.
+    """
     version = (
         session.query(ResumeVersion)
         .join(Resume, Resume.id == ResumeVersion.resume_id)
@@ -444,13 +572,52 @@ def load_resume_skills(session: Session, user_id: uuid.UUID) -> list[str]:
         .order_by(ResumeVersion.created_at.desc())
         .first()
     )
-    if version is None or not isinstance(version.sections, dict):
+    if version is None:
         return []
-    try:
-        structured = StructuredResume.model_validate(version.sections)
-    except Exception:
-        return []
-    return [skill.strip() for skill in structured.skills if skill.strip()]
+
+    collected: list[str] = []
+    seen: set[str] = set()
+
+    def _add(skill: str) -> None:
+        cleaned = skill.strip()
+        if not cleaned:
+            return
+        key = cleaned.lower()
+        if key in seen:
+            return
+        seen.add(key)
+        collected.append(cleaned)
+
+    structured: StructuredResume | None = None
+    if isinstance(version.sections, dict):
+        try:
+            structured = StructuredResume.model_validate(version.sections)
+        except Exception:
+            structured = None
+
+    if structured is not None:
+        for skill in structured.skills:
+            _add(skill)
+        for project in structured.projects:
+            for tech in project.technologies:
+                _add(tech)
+        text_parts: list[str] = []
+        if structured.summary:
+            text_parts.append(structured.summary)
+        for exp in structured.experience:
+            if exp.title:
+                text_parts.append(exp.title)
+            if exp.company:
+                text_parts.append(exp.company)
+            text_parts.extend(exp.bullets)
+        for skill in find_known_skills_in_text("\n".join(text_parts)):
+            _add(skill)
+
+    if version.plain_text:
+        for skill in find_known_skills_in_text(version.plain_text):
+            _add(skill)
+
+    return collected
 
 
 def _skill_alignment_from_match(match: JobMatch) -> dict[str, list[str]] | None:
@@ -467,11 +634,10 @@ def _skill_alignment_from_match(match: JobMatch) -> dict[str, list[str]] | None:
 def align_skills(job_skills: list[str], resume_skills: list[str]) -> tuple[list[str], list[str]]:
     if not job_skills:
         return [], []
-    resume_lower = {skill.lower(): skill for skill in resume_skills}
     matched: list[str] = []
     missing: list[str] = []
     for skill in job_skills:
-        if skill.lower() in resume_lower:
+        if any(skills_match_fuzzy(skill, resume) for resume in resume_skills):
             matched.append(skill)
         else:
             missing.append(skill)
@@ -480,7 +646,7 @@ def align_skills(job_skills: list[str], resume_skills: list[str]) -> tuple[list[
 
 def _job_skills(job: Job) -> list[str]:
     details = job.details if isinstance(job.details, dict) else {}
-    raw = details.get("skills") or []
+    raw = details.get("skills") or job.skills or []
     return [str(skill).strip() for skill in raw if isinstance(skill, str) and str(skill).strip()]
 
 
@@ -489,6 +655,35 @@ def _as_str(value: object) -> str | None:
         return None
     text = str(value).strip()
     return text or None
+
+
+def _as_float(value: object) -> float | None:
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _as_datetime(value: object) -> datetime | None:
+    if value is None or value == "":
+        return None
+    if isinstance(value, datetime):
+        return value
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _string_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item).strip() for item in value if isinstance(item, str) and str(item).strip()]
 
 
 # Re-exports for the tiered scrape contract (spec §2.3).
@@ -504,8 +699,12 @@ __all__ = [
     "JobMatchSummary",
     "JobMatchDetail",
     "DiscoveryEnqueueResult",
+    "DiscoveryTriggerService",
+    "JobRescrapeTriggerService",
     "StructuredJobPosting",
     "normalize_job_posting",
     "persist_structured_job",
     "structured_to_extracted",
+    "load_resume_skills",
+    "align_skills",
 ]

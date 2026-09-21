@@ -40,6 +40,20 @@ class JobMatchDetailResponse(JobMatchSummaryResponse):
     score_breakdown: ScoreBreakdownResponse | None = None
     explanation: str | None = None
     created_at: datetime | None = None
+    company_domain: str | None = None
+    source: str | None = None
+    external_id: str | None = None
+    employment_type: str | None = None
+    remote_type: str | None = None
+    seniority: str | None = None
+    salary_min: float | None = None
+    salary_max: float | None = None
+    salary_currency: str | None = None
+    requirements: list[str] = Field(default_factory=list)
+    posted_at: datetime | None = None
+    last_scraped_at: datetime | None = None
+    scraped_at: datetime | None = None
+    job_status: str | None = None
 
 
 class DiscoverJobsRequest(BaseModel):
@@ -52,6 +66,13 @@ class DiscoverJobsResponse(BaseModel):
     task_id: str
     status: str
     idempotency_key: str | None = None
+
+
+class RescrapeJobResponse(BaseModel):
+    workflow_run_id: UUID
+    task_id: str
+    status: str
+    match_id: UUID
 
 
 class WorkflowRunResponse(BaseModel):

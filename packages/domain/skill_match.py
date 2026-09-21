@@ -1,8 +1,9 @@
-"""Tiered skill matching: alias fast-path then embedding similarity."""
+"""Tiered skill matching: alias fast-path, fuzzy containment, then embedding similarity."""
 
 from __future__ import annotations
 
 import math
+import re
 from dataclasses import dataclass
 
 from packages.domain.skill_aliases import normalize_skill, resolve_alias, skills_match_via_alias
@@ -27,6 +28,37 @@ def cosine_similarity(a: list[float], b: list[float]) -> float:
     return dot / (norm_a * norm_b)
 
 
+def skills_match_fuzzy(job_skill: str, resume_skill: str) -> bool:
+    """Match when wording differs but one skill contains the other as a token/phrase."""
+    if skills_match_via_alias(job_skill, resume_skill):
+        return True
+    a = normalize_skill(job_skill)
+    b = normalize_skill(resume_skill)
+    if not a or not b:
+        return False
+    if a == b:
+        return True
+    shorter, longer = (a, b) if len(a) <= len(b) else (b, a)
+    if len(shorter) >= 3 and (
+        longer == shorter
+        or longer.startswith(shorter + " ")
+        or longer.endswith(" " + shorter)
+        or f" {shorter} " in f" {longer} "
+        or longer.startswith(shorter + ".")
+        or longer.endswith("." + shorter)
+    ):
+        return True
+    a_tokens = {t for t in re.split(r"[\s/.]+", a) if len(t) >= 2}
+    b_tokens = {t for t in re.split(r"[\s/.]+", b) if len(t) >= 2}
+    if not a_tokens or not b_tokens:
+        return False
+    if a_tokens <= b_tokens or b_tokens <= a_tokens:
+        return True
+    ca = resolve_alias(a) or a
+    cb = resolve_alias(b) or b
+    return ca == cb
+
+
 class SkillMatchService:
     def __init__(
         self,
@@ -43,59 +75,36 @@ class SkillMatchService:
         if not job_skills:
             return SkillMatchResult(matched=[], possible=[], missing=[])
 
-        resume_norm = {normalize_skill(s): s for s in resume_skills if s.strip()}
-        resume_canonical = {
-            resolve_alias(n) or n: s for n, s in resume_norm.items()
-        }
-
+        resume_clean = [s for s in resume_skills if s and str(s).strip()]
         matched: list[str] = []
         possible: list[str] = []
         missing: list[str] = []
         unresolved_job: list[str] = []
-        unresolved_resume: list[str] = []
 
         for skill in job_skills:
-            norm = normalize_skill(skill)
-            if not norm:
+            if not str(skill).strip():
                 continue
-            canonical = resolve_alias(norm) or norm
-            hit = False
-            for r_norm, r_display in resume_norm.items():
-                if skills_match_via_alias(skill, r_display):
-                    matched.append(skill)
-                    hit = True
-                    break
+            hit = any(skills_match_fuzzy(skill, r) for r in resume_clean)
             if hit:
-                continue
-            if canonical in resume_canonical:
                 matched.append(skill)
-                continue
-            unresolved_job.append(skill)
+            else:
+                unresolved_job.append(skill)
 
         if not unresolved_job:
             return SkillMatchResult(matched=matched, possible=possible, missing=missing)
 
-        if self._embedding is None:
+        if self._embedding is None or not resume_clean:
             missing.extend(unresolved_job)
             return SkillMatchResult(matched=matched, possible=possible, missing=missing)
 
-        for r_display in resume_skills:
-            norm = normalize_skill(r_display)
-            if norm and resolve_alias(norm) is None and norm not in resume_canonical:
-                unresolved_resume.append(r_display)
-
-        if not unresolved_resume:
-            missing.extend(unresolved_job)
-            return SkillMatchResult(matched=matched, possible=possible, missing=missing)
-
-        texts = unresolved_job + unresolved_resume
+        texts = unresolved_job + resume_clean
         response = self._embedding.embed(EmbeddingRequest(texts=texts, dimensions=64))
         job_vecs = response.embeddings[: len(unresolved_job)]
         resume_vecs = response.embeddings[len(unresolved_job) :]
 
         for idx, skill in enumerate(unresolved_job):
             best = 0.0
-            for r_idx, _ in enumerate(unresolved_resume):
+            for r_idx, _ in enumerate(resume_clean):
                 sim = cosine_similarity(job_vecs[idx], resume_vecs[r_idx])
                 best = max(best, sim)
             if best >= self._high:
