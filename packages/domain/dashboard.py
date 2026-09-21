@@ -520,4 +520,20 @@ class DashboardService:
             "score_breakdown": breakdown,
             "explanation": detail.explanation,
             "created_at": detail.created_at.isoformat() if detail.created_at else None,
+            "company_domain": detail.company_domain,
+            "source": detail.source,
+            "external_id": detail.external_id,
+            "employment_type": detail.employment_type,
+            "remote_type": detail.remote_type,
+            "seniority": detail.seniority,
+            "salary_min": detail.salary_min,
+            "salary_max": detail.salary_max,
+            "salary_currency": detail.salary_currency,
+            "requirements": detail.requirements or [],
+            "posted_at": detail.posted_at.isoformat() if detail.posted_at else None,
+            "last_scraped_at": (
+                detail.last_scraped_at.isoformat() if detail.last_scraped_at else None
+            ),
+            "scraped_at": detail.scraped_at.isoformat() if detail.scraped_at else None,
+            "job_status": detail.job_status,
         }

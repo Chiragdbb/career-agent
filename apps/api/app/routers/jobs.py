@@ -18,12 +18,13 @@ from app.schemas.jobs import (
     JobMatchDetailResponse,
     JobMatchSummaryResponse,
     JobMatchUpdateRequest,
+    RescrapeJobResponse,
     ScoreBreakdownResponse,
     WorkflowRunResponse,
 )
 from packages.domain.discovery_lock import DiscoveryLock
 from packages.domain.career_workflow import CareerWorkflowService, CareerWorkflowStart
-from packages.domain.jobs import DiscoveryTriggerService, JobListingService
+from packages.domain.jobs import DiscoveryTriggerService, JobListingService, JobRescrapeTriggerService
 from packages.domain.dashboard import DashboardService
 from packages.domain.events import UserEventType
 from packages.domain.exceptions import DomainError
@@ -83,6 +84,20 @@ def _to_detail(row) -> JobMatchDetailResponse:
         score_breakdown=breakdown,
         explanation=row.explanation,
         created_at=row.created_at,
+        company_domain=row.company_domain,
+        source=row.source,
+        external_id=row.external_id,
+        employment_type=row.employment_type,
+        remote_type=row.remote_type,
+        seniority=row.seniority,
+        salary_min=row.salary_min,
+        salary_max=row.salary_max,
+        salary_currency=row.salary_currency,
+        requirements=row.requirements or [],
+        posted_at=row.posted_at,
+        last_scraped_at=row.last_scraped_at,
+        scraped_at=row.scraped_at,
+        job_status=row.job_status,
     )
 
 
@@ -201,29 +216,43 @@ def get_job_workspace(
     return workspace.model_dump(mode="json")
 
 
-@router.post("/{match_id}/rescrape", response_model=JobMatchDetailResponse)
+@router.post("/{match_id}/rescrape", response_model=RescrapeJobResponse, status_code=202)
 def rescrape_job(
     match_id: UUID,
     session: DbSessionDep,
     user_id: CurrentUserIdDep,
-) -> JobMatchDetailResponse:
-    from packages.domain.job_rescrape import JobRescrapeService
-    from packages.domain.llm_tasks import LLMTaskService
-    from packages.providers.factory import create_extraction_llm_provider, create_llm_provider, create_scraper_provider
-
-    llm = create_llm_provider()
-    extraction_llm = create_extraction_llm_provider()
-    service = JobRescrapeService(
-        session,
-        user_id,
-        scraper=create_scraper_provider(),
-        llm_tasks=LLMTaskService(llm, extraction_llm=extraction_llm),
+    task_client: DiscoveryTaskClientDep,
+    events: EventPublisherDep,
+) -> RescrapeJobResponse:
+    trigger = JobRescrapeTriggerService(session, user_id)
+    queued = trigger.enqueue(match_id)
+    task_id = task_client.enqueue_rescrape_job(
+        user_id=user_id,
+        workflow_run_id=queued.workflow_run_id,
+        match_id=match_id,
     )
-    service.rescrape(match_id)
-    listing = _listing(session, user_id)
-    listing.rescore_match(match_id)
-    row = listing.get_match_detail(match_id)
-    return _to_detail(row)
+    trigger.attach_task_id(queued.workflow_run_id, task_id)
+    events.publish(
+        user_id,
+        UserEventType.workflow_progress,
+        {
+            "workflow_run_id": str(queued.workflow_run_id),
+            "workflow_type": "job_rescrape",
+            "step": "queued",
+            "message": "Re-scrape queued",
+            "data": {
+                "task_id": task_id,
+                "status": "queued",
+                "match_id": str(match_id),
+            },
+        },
+    )
+    return RescrapeJobResponse(
+        workflow_run_id=queued.workflow_run_id,
+        task_id=task_id,
+        status=queued.status,
+        match_id=match_id,
+    )
 
 
 @router.post("/{match_id}/score", response_model=JobMatchDetailResponse)

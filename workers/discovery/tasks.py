@@ -112,7 +112,7 @@ def _mark_run_failed(
         run.error = str(exc)
         metadata = dict(run.metadata_json or {})
         metadata["current_step"] = "failed"
-        metadata["status_message"] = f"Discovery failed: {exc}"
+        metadata["status_message"] = f"Workflow failed: {exc}"
         run.metadata_json = metadata
         session.commit()
     except Exception:
@@ -120,7 +120,7 @@ def _mark_run_failed(
         session.rollback()
 
 
-def _event_publisher() -> UserEventPublisher | None:
+def _event_publisher():
     try:
         from app.redis import get_redis
         from packages.domain.events import RedisEventBus, UserEventPublisher
@@ -142,7 +142,7 @@ def _workflow_cancellation() -> WorkflowCancellation | None:
         return None
 
 
-def _discovery_lock() -> DiscoveryLock | None:
+def _discovery_lock():
     try:
         from app.redis import get_redis
         from packages.domain.discovery_lock import DiscoveryLock
@@ -188,3 +188,78 @@ def discover_jobs(
         self.request.retries + 1,
     )
     return _run_discovery(uid, run_id, max_results)
+
+
+def _run_rescrape(
+    user_id: uuid.UUID,
+    workflow_run_id: uuid.UUID,
+    match_id: uuid.UUID,
+) -> dict:
+    from packages.domain.job_match import JobMatchService
+    from packages.domain.job_rescrape import JobRescrapeService
+    from packages.domain.jobs import load_resume_skills
+    from packages.domain.llm_tasks import LLMTaskService
+    from packages.shared.env import load_project_env
+
+    load_project_env()
+    settings = ProviderSettings.from_env()
+    session = _session()
+    try:
+        events = _event_publisher()
+        cancellation = _workflow_cancellation()
+        service = JobRescrapeService(
+            session,
+            user_id,
+            scraper=create_scraper_provider(settings),
+            llm_tasks=LLMTaskService(
+                create_llm_provider(settings),
+                extraction_llm=create_extraction_llm_provider(settings),
+            ),
+            run_id=workflow_run_id,
+            events=events,
+            cancellation=cancellation,
+        )
+        job = service.rescrape(match_id)
+        resume_skills = load_resume_skills(session, user_id)
+        JobMatchService(session, user_id).upsert_match(job.id, resume_skills=resume_skills)
+        return {
+            "workflow_run_id": str(workflow_run_id),
+            "match_id": str(match_id),
+            "job_id": str(job.id),
+            "title": job.title,
+        }
+    except Exception as exc:
+        _mark_run_failed(session, user_id, workflow_run_id, exc)
+        raise
+    finally:
+        session.close()
+
+
+@celery_app.task(
+    bind=True,
+    name="rescrape_job",
+    autoretry_for=(ProviderRateLimitDeferError,),
+    retry_backoff=True,
+    retry_backoff_max=300,
+    retry_jitter=True,
+    max_retries=2,
+)
+def rescrape_job(
+    self,
+    user_id: str,
+    workflow_run_id: str,
+    match_id: str,
+) -> dict:
+    """Re-scrape a single job listing for a queued workflow run."""
+    uid = uuid.UUID(user_id)
+    run_id = uuid.UUID(workflow_run_id)
+    mid = uuid.UUID(match_id)
+    logger.info(
+        "rescrape_job_start task=%s user=%s run=%s match=%s attempt=%s",
+        self.request.id,
+        uid,
+        run_id,
+        mid,
+        self.request.retries + 1,
+    )
+    return _run_rescrape(uid, run_id, mid)
