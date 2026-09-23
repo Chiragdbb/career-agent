@@ -44,6 +44,8 @@ from packages.domain.provider_usage import (
     ProviderUsageService,
 )
 from packages.domain.preferences import PreferenceSettings, PreferencesService
+from packages.domain.workflow_progress import WorkflowProgressService
+from packages.domain.notifications import NotificationService
 from packages.providers.llm import LLMProvider
 from packages.providers.playwright_jobs import (
     MockPlaywrightJobsProvider,
@@ -89,6 +91,8 @@ class JobDiscoveryService:
         cancellation: WorkflowCancellation | None = None,
         discovery_lock: DiscoveryLock | None = None,
         scrape_freshness_days: int = DEFAULT_SCRAPE_FRESHNESS_DAYS,
+        notifications: NotificationService | None = None,
+        progress: WorkflowProgressService | None = None,
     ) -> None:
         self._session = session
         self._user_id = user_id
@@ -108,6 +112,12 @@ class JobDiscoveryService:
         self._current_run_id: uuid.UUID | None = None
         self._usage = ProviderUsageService(session)
         self._run_status: str = "running"
+        self._progress = progress or WorkflowProgressService(
+            session,
+            user_id,
+            events=events,
+            notifications=notifications,
+        )
 
     def run(
         self,
@@ -204,6 +214,14 @@ class JobDiscoveryService:
                 queries=queries,
                 derivation="roles[:3] x locations[:2] → '{role} jobs {location}'",
             )
+            planned_units = len(queries) + max(1, len(queries) * self._max_results)
+            self._progress.seed_eta(run, planned_units=planned_units)
+            role_hint = (prefs.target_roles or ["your roles"])[0]
+            loc_hint = (prefs.locations or ["any location"])[0]
+            title_meta = dict(run.metadata_json or {})
+            title_meta["human_title"] = f"Finding jobs for {role_hint} · {loc_hint}"
+            run.metadata_json = title_meta
+            self._session.flush()
             self._update_run_metadata(
                 run,
                 current_step="search",
@@ -253,6 +271,16 @@ class JobDiscoveryService:
                     "duplicate_count": len(result.duplicate_jobs),
                 },
             )
+            self._progress.notify_terminal(
+                run,
+                status="completed",
+                title="Job discovery finished",
+                body=(
+                    f"Found {len(result.created_jobs)} new job"
+                    f"{'' if len(result.created_jobs) == 1 else 's'}. "
+                    "Open Activity for details."
+                ),
+            )
             self._run_status = "completed"
             self._file_log.counts["created"] = len(result.created_jobs)
             self._file_log.counts["duplicates"] = len(result.duplicate_jobs)
@@ -286,6 +314,15 @@ class JobDiscoveryService:
                     "duplicate_count": len(result.duplicate_jobs),
                 },
             )
+            self._progress.notify_terminal(
+                run,
+                status="cancelled",
+                title="Job discovery cancelled",
+                body=(
+                    f"Discovery stopped. {len(result.created_jobs)} job"
+                    f"{'' if len(result.created_jobs) == 1 else 's'} saved so far."
+                ),
+            )
             logger.info("discovery_cancelled run_id=%s", run.id)
             self._run_status = "cancelled"
             self._file_log.errors = list(result.errors)
@@ -306,6 +343,12 @@ class JobDiscoveryService:
                     "workflow_type": "job_discovery",
                     "error": str(exc),
                 },
+            )
+            self._progress.notify_terminal(
+                run,
+                status="failed",
+                title="Job discovery failed",
+                body="Something went wrong while finding jobs. Open Activity for details.",
             )
             logger.error("ERROR discovery run_id=%s error=%s", run.id, exc, exc_info=True)
             self._run_status = "failed"
@@ -1138,18 +1181,27 @@ class JobDiscoveryService:
         message: str,
         **extra: object,
     ) -> None:
+        display = {
+            k: v
+            for k, v in extra.items()
+            if k in {"company", "title", "query_label", "count", "urls_found"}
+        }
+        completed = None
+        if "completed_units" in extra and isinstance(extra["completed_units"], int):
+            completed = extra["completed_units"]
+        # Merge non-display extras into metadata without duplicating progress write
         metadata = dict(run.metadata_json or {})
-        metadata["current_step"] = current_step
-        metadata["status_message"] = message
-        metadata.update(extra)
+        for key, value in extra.items():
+            if key not in {"company", "title", "query_label", "count"}:
+                metadata[key] = value
         run.metadata_json = metadata
-        self._session.flush()
-        self._publish_progress(
-            run_id=run.id,
+        self._progress.record_progress(
+            run,
             step=current_step,
-            phase="thinking",
             message=message,
-            data=dict(extra),
+            phase="thinking",
+            display=display or None,
+            completed_units=completed,
         )
 
     def _publish(self, event_type: UserEventType, payload: dict) -> None:
@@ -1166,6 +1218,31 @@ class JobDiscoveryService:
         phase: str = "working",
         data: dict | None = None,
     ) -> None:
+        run = (
+            self._session.query(WorkflowRun)
+            .filter(WorkflowRun.id == run_id, WorkflowRun.user_id == self._user_id)
+            .one_or_none()
+        )
+        display = None
+        if data:
+            display = {
+                k: v
+                for k, v in data.items()
+                if k in {"company", "title", "query_label", "count", "url"}
+                and not (k == "url" and isinstance(v, str) and len(v) > 120)
+            }
+            # Prefer company/title over raw url in human log
+            if "url" in (display or {}) and ("company" in display or "title" in display):
+                display.pop("url", None)
+        if run is not None:
+            self._progress.record_progress(
+                run,
+                step=step,
+                message=message,
+                phase=phase,
+                display=display,
+            )
+            return
         payload_data = dict(data or {})
         payload_data.setdefault("phase", phase)
         self._publish(

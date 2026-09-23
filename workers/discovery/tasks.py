@@ -46,6 +46,15 @@ def _run_discovery(user_id: uuid.UUID, workflow_run_id: uuid.UUID, max_results: 
             logger.warning("playwright_jobs_create_failed", exc_info=True)
             playwright_jobs = None
         try:
+            from packages.domain.notifications import NotificationService
+            from packages.providers.email_sender import MockEmailSenderProvider
+            from packages.providers.factory import create_email_sender_provider
+
+            try:
+                sender = create_email_sender_provider()
+            except Exception:
+                sender = MockEmailSenderProvider()
+            notifications = NotificationService(session, user_id, email_sender=sender)
             service = JobDiscoveryService(
                 session,
                 user_id,
@@ -59,6 +68,7 @@ def _run_discovery(user_id: uuid.UUID, workflow_run_id: uuid.UUID, max_results: 
                 cancellation=cancellation,
                 discovery_lock=discovery_lock,
                 scrape_freshness_days=_scrape_freshness_days(),
+                notifications=notifications,
             )
             result = service.run(workflow_run_id=workflow_run_id)
         except Exception as exc:
@@ -207,6 +217,15 @@ def _run_rescrape(
     try:
         events = _event_publisher()
         cancellation = _workflow_cancellation()
+        from packages.domain.notifications import NotificationService
+        from packages.providers.email_sender import MockEmailSenderProvider
+        from packages.providers.factory import create_email_sender_provider
+
+        try:
+            sender = create_email_sender_provider()
+        except Exception:
+            sender = MockEmailSenderProvider()
+        notifications = NotificationService(session, user_id, email_sender=sender)
         service = JobRescrapeService(
             session,
             user_id,
@@ -218,6 +237,7 @@ def _run_rescrape(
             run_id=workflow_run_id,
             events=events,
             cancellation=cancellation,
+            notifications=notifications,
         )
         job = service.rescrape(match_id)
         resume_skills = load_resume_skills(session, user_id)
