@@ -101,6 +101,21 @@ class WorkflowTaskResponse(BaseModel):
     updated_at: datetime | None = None
 
 
+class WorkflowProgressEventResponse(BaseModel):
+    id: UUID
+    step: str
+    phase: str
+    message: str
+    display: dict | None = None
+    created_at: datetime | None = None
+
+
+class WorkflowProgressResponse(BaseModel):
+    run: WorkflowRunResponse
+    events: list[WorkflowProgressEventResponse] = Field(default_factory=list)
+    eta_label: str
+
+
 class JobMatchUpdateRequest(BaseModel):
     status: Literal["new", "reviewed", "saved", "dismissed", "applied"]
 

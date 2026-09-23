@@ -6,12 +6,18 @@ from fastapi import APIRouter, Query
 
 from app.dependencies import CurrentUserIdDep, DbSessionDep, EventPublisherDep, RedisDep
 from app.schemas.human_tasks import CareerWorkflowResponse, CareerWorkflowStartRequest
-from app.schemas.jobs import WorkflowRunResponse, WorkflowTaskResponse
+from app.schemas.jobs import (
+    WorkflowProgressEventResponse,
+    WorkflowProgressResponse,
+    WorkflowRunResponse,
+    WorkflowTaskResponse,
+)
 from packages.domain.career_workflow import CareerWorkflowService, CareerWorkflowStart
 from packages.domain.events import UserEventType
 from packages.domain.discovery_lock import DiscoveryLock
 from packages.domain.jobs import DiscoveryTriggerService
 from packages.domain.workflow_cancellation import WorkflowCancellation
+from packages.domain.workflow_progress import WorkflowProgressService, format_eta_remaining
 from packages.domain.workflows import WorkflowObservabilityService
 from packages.providers.notification import MockNotificationProvider
 
@@ -97,6 +103,36 @@ def list_workflow_tasks(
 ) -> list[WorkflowTaskResponse]:
     rows = WorkflowObservabilityService(session, user_id).list_tasks(run_id)
     return [_to_task_response(row) for row in rows]
+
+
+@router.get("/{run_id}/progress", response_model=WorkflowProgressResponse)
+def get_workflow_progress(
+    run_id: UUID,
+    session: DbSessionDep,
+    user_id: CurrentUserIdDep,
+) -> WorkflowProgressResponse:
+    row = WorkflowObservabilityService(session, user_id).get_run(run_id)
+    events = WorkflowProgressService(session, user_id).list_for_run(run_id)
+    meta = row.metadata if isinstance(row.metadata, dict) else {}
+    remaining = meta.get("eta_remaining_ms")
+    eta = format_eta_remaining(
+        int(remaining) if isinstance(remaining, (int, float)) else None
+    )
+    return WorkflowProgressResponse(
+        run=_to_run_response(row),
+        events=[
+            WorkflowProgressEventResponse(
+                id=ev.id,
+                step=ev.step,
+                phase=ev.phase,
+                message=ev.message,
+                display=ev.display if isinstance(ev.display, dict) else None,
+                created_at=ev.created_at,
+            )
+            for ev in events
+        ],
+        eta_label=eta,
+    )
 
 
 @router.post("/{run_id}/cancel", response_model=WorkflowRunResponse)
