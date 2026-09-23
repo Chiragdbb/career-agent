@@ -26,6 +26,36 @@ export type WorkflowTask = {
   updated_at: string | null;
 };
 
+export type WorkflowProgressEvent = {
+  id: string;
+  step: string;
+  phase: string;
+  message: string;
+  display: Record<string, unknown> | null;
+  created_at: string | null;
+};
+
+export type ActivityRun = {
+  id: string;
+  workflow_type: string;
+  status: string;
+  message: string;
+  human_title: string | null;
+  metadata: Record<string, unknown> | null;
+  created_at: string | null;
+  updated_at: string | null;
+  error: string | null;
+  eta_label: string | null;
+  steps: Array<{
+    id: string;
+    timestamp: string;
+    step: string;
+    phase: string;
+    message: string;
+    display: Record<string, unknown> | null;
+  }>;
+};
+
 export type ActivityEvent = {
   id: string;
   type: string;
@@ -74,7 +104,16 @@ export function workflowStatusVariant(
 }
 
 export function formatWorkflowType(type: string): string {
+  if (type === "job_discovery") return "Discovery";
+  if (type === "job_rescrape") return "Rescrape";
   return type.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+export function formatEtaRemaining(remainingMs: number | null | undefined): string {
+  if (remainingMs == null) return "Calculating time left…";
+  if (remainingMs < 90_000) return "Less than a minute left";
+  const minutes = Math.max(1, Math.round(remainingMs / 60_000));
+  return `About ${minutes} minute${minutes === 1 ? "" : "s"} left`;
 }
 
 export function formatEventMessage(
@@ -164,4 +203,30 @@ export async function fetchWorkflowTasks(runId: string): Promise<WorkflowTask[]>
     throw new Error(body?.error?.message || `API ${response.status}`);
   }
   return (await response.json()) as WorkflowTask[];
+}
+
+export async function fetchWorkflowProgress(runId: string): Promise<{
+  run: WorkflowRun;
+  events: WorkflowProgressEvent[];
+  eta_label: string;
+}> {
+  const response = await apiFetch(`/api/v1/workflows/${runId}/progress`);
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new Error(body?.error?.message || `API ${response.status}`);
+  }
+  return (await response.json()) as {
+    run: WorkflowRun;
+    events: WorkflowProgressEvent[];
+    eta_label: string;
+  };
+}
+
+export async function fetchActivityRuns(limit = 50): Promise<ActivityRun[]> {
+  const response = await apiFetch(`/api/v1/activity?limit=${limit}`);
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new Error(body?.error?.message || `API ${response.status}`);
+  }
+  return (await response.json()) as ActivityRun[];
 }

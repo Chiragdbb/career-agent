@@ -15,8 +15,10 @@ from packages.domain.exceptions import DomainError, NotFoundError
 from packages.domain.job_discovery import job_fingerprint, normalize_job_url
 from packages.domain.job_models import ExtractedJob
 from packages.domain.llm_tasks import LLMTaskService
+from packages.domain.notifications import NotificationService
 from packages.domain.provider_usage import ProviderUsageContext, ProviderUsageService
 from packages.domain.workflow_cancellation import WorkflowCancellation
+from packages.domain.workflow_progress import WorkflowProgressService
 from packages.providers.base import UsageInfo
 from packages.providers.scraper import ScrapeRequest, ScraperProvider
 
@@ -35,6 +37,8 @@ class JobRescrapeService:
         run_id: uuid.UUID | None = None,
         events: UserEventPublisher | None = None,
         cancellation: WorkflowCancellation | None = None,
+        notifications: NotificationService | None = None,
+        progress: WorkflowProgressService | None = None,
     ) -> None:
         self._session = session
         self._user_id = user_id
@@ -43,6 +47,12 @@ class JobRescrapeService:
         self._run_id = run_id or uuid.uuid4()
         self._events = events
         self._cancellation = cancellation
+        self._progress = progress or WorkflowProgressService(
+            session,
+            user_id,
+            events=events,
+            notifications=notifications,
+        )
 
     def rescrape(self, match_id: uuid.UUID) -> Job:
         row = (
@@ -68,7 +78,11 @@ class JobRescrapeService:
         run = self._load_run()
         if run is not None:
             run.status = WorkflowRunStatus.running
+            meta = dict(run.metadata_json or {})
+            meta["human_title"] = f"Updating {job.title or 'job listing'}"
+            run.metadata_json = meta
             self._session.commit()
+            self._progress.seed_eta(run, planned_units=1)
 
         run_log = DiscoveryRunLogger(self._run_id, workflow_type="job_rescrape")
         run_log.config = {
@@ -229,14 +243,24 @@ class JobRescrapeService:
         phase: str,
         data: dict | None = None,
     ) -> None:
+        display = None
+        if data:
+            display = {
+                k: v
+                for k, v in data.items()
+                if k in {"company", "title", "count", "chars"}
+            }
         if run is not None:
-            metadata = dict(run.metadata_json or {})
-            metadata["current_step"] = step
-            metadata["status_message"] = message
-            if data:
-                metadata.update({k: v for k, v in data.items() if k in {"url", "title", "chars"}})
-            run.metadata_json = metadata
+            self._progress.record_progress(
+                run,
+                step=step,
+                message=message,
+                phase=phase,
+                display=display,
+                completed_units=1 if phase == "result" and step in {"extract", "completed"} else None,
+            )
             self._session.commit()
+            return
         self._publish_progress(step=step, message=message, phase=phase, data=data)
 
     def _complete_run(self, run: WorkflowRun | None, job: Job) -> None:
@@ -260,11 +284,14 @@ class JobRescrapeService:
         run.metadata_json = metadata
         run.error = None
         self._session.commit()
-        self._publish_progress(
+        self._progress.record_progress(
+            run,
             step="completed",
             message=f"Updated “{job.title}”",
             phase="result",
-            data={"title": job.title, "job_id": str(job.id)},
+            display={"title": job.title},
+            completed_units=1,
+            planned_units=1,
         )
         self._publish(
             "workflow_completed",
@@ -275,6 +302,12 @@ class JobRescrapeService:
                 "job_id": str(job.id),
                 "title": job.title,
             },
+        )
+        self._progress.notify_terminal(
+            run,
+            status="completed",
+            title="Job update finished",
+            body=f"Updated “{job.title}”. Open Activity for details.",
         )
 
     def _fail_run(self, run: WorkflowRun | None, error: str) -> None:
@@ -288,6 +321,19 @@ class JobRescrapeService:
             metadata["status_message"] = f"Re-scrape failed: {error}"
             run.metadata_json = metadata
             self._session.commit()
+            self._progress.record_progress(
+                run,
+                step="failed",
+                message="Couldn’t update this job listing",
+                phase="error",
+            )
+            self._progress.notify_terminal(
+                run,
+                status="failed",
+                title="Job update failed",
+                body="Something went wrong while refreshing the listing. Open Activity for details.",
+            )
+            return
         self._publish_progress(
             step="failed",
             message=f"Re-scrape failed: {error}",

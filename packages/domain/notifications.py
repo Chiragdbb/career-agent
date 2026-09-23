@@ -32,6 +32,7 @@ class NotificationType(StrEnum):
     interview_scheduled = "interview_scheduled"
     followup_due = "followup_due"
     high_priority_job = "high_priority_job"
+    workflow_completed = "workflow_completed"
     workflow_failure = "workflow_failure"
 
 

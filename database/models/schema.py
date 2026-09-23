@@ -831,6 +831,28 @@ class WorkflowTask(UUIDMixin, TimestampMixin, Base):
     attempt = sa.Column(sa.Integer)
 
 
+class WorkflowProgressEvent(UUIDMixin, TimestampMixin, Base):
+    __tablename__ = "workflow_progress_events"
+
+    user_id = sa.Column(
+        PG_UUID(as_uuid=True),
+        sa.ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    workflow_run_id = sa.Column(
+        PG_UUID(as_uuid=True),
+        sa.ForeignKey("workflow_runs.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    workflow_type = sa.Column(sa.Text, nullable=False)
+    step = sa.Column(sa.Text, nullable=False)
+    phase = sa.Column(sa.Text, nullable=False, default="working")
+    message = sa.Column(sa.Text, nullable=False)
+    display = sa.Column(sa.dialects.postgresql.JSONB)
+
+
 class ProviderUsage(UUIDMixin, TimestampMixin, Base):
     __tablename__ = "provider_usage"
 
