@@ -43,6 +43,12 @@ class Settings(BaseSettings):
     supabase_storage_bucket: str = Field(default="", alias="SUPABASE_STORAGE_BUCKET")
     supabase_storage_public_url: str = Field(default="", alias="SUPABASE_STORAGE_PUBLIC_URL")
 
+    task_backend: str = Field(default="", alias="TASK_BACKEND")  # qstash|celery|inline|""
+    qstash_token: str = Field(default="", alias="QSTASH_TOKEN")
+    qstash_current_signing_key: str = Field(default="", alias="QSTASH_CURRENT_SIGNING_KEY")
+    qstash_next_signing_key: str = Field(default="", alias="QSTASH_NEXT_SIGNING_KEY")
+    qstash_callback_base_url: str = Field(default="", alias="QSTASH_CALLBACK_BASE_URL")
+
     @field_validator("database_url")
     @classmethod
     def normalize_database_url(cls, value: str) -> str:
@@ -70,10 +76,21 @@ class Settings(BaseSettings):
         "supabase_storage_bucket",
         "supabase_storage_public_url",
         "cors_allow_origins",
+        "task_backend",
+        "qstash_token",
+        "qstash_current_signing_key",
+        "qstash_next_signing_key",
+        "qstash_callback_base_url",
     )
     @classmethod
     def strip_optional_strings(cls, value: str) -> str:
         return (value or "").strip()
+
+    def resolved_task_backend(self) -> str:
+        raw = (self.task_backend or "").strip().lower()
+        if raw in {"qstash", "celery", "inline"}:
+            return raw
+        return "inline" if self.app_env == "development" else "qstash"
 
     def cors_origins_list(self) -> list[str]:
         origins = [
