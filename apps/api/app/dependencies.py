@@ -21,7 +21,12 @@ from packages.providers.factory import create_llm_provider
 from packages.providers.storage import MockStorageProvider, StorageProvider
 from packages.providers.supabase_storage import SupabaseStorageProvider
 
-from app.tasks import CeleryDiscoveryTaskClient, DiscoveryTaskClient, InlineDiscoveryTaskClient
+from app.tasks import (
+    CeleryDiscoveryTaskClient,
+    DiscoveryTaskClient,
+    InlineDiscoveryTaskClient,
+    QStashDiscoveryTaskClient,
+)
 
 _bearer = HTTPBearer(auto_error=False)
 
@@ -97,16 +102,27 @@ def get_discovery_task_client(
 ) -> DiscoveryTaskClient:
     """Return task client (overridable in tests via app.state).
 
-    In development, discovery runs inline so a Celery worker is not required.
-    Production uses Celery for async execution.
+    Backend is chosen via TASK_BACKEND or defaults (inline in dev, qstash otherwise).
     """
     existing = getattr(request.app.state, "discovery_task_client", None)
     if existing is not None:
         return existing
-    if settings.app_env == "development":
+    backend = settings.resolved_task_backend()
+    if backend == "inline":
         client: DiscoveryTaskClient = InlineDiscoveryTaskClient()
-    else:
+    elif backend == "celery":
         client = CeleryDiscoveryTaskClient()
+    elif backend == "qstash":
+        if not settings.qstash_token or not settings.qstash_callback_base_url:
+            raise RuntimeError(
+                "QStash TASK_BACKEND requires QSTASH_TOKEN and QSTASH_CALLBACK_BASE_URL"
+            )
+        client = QStashDiscoveryTaskClient(
+            token=settings.qstash_token,
+            callback_base_url=settings.qstash_callback_base_url,
+        )
+    else:
+        raise RuntimeError(f"Unknown TASK_BACKEND={backend}")
     request.app.state.discovery_task_client = client
     return client
 

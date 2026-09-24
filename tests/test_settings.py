@@ -43,3 +43,24 @@ def test_settings_include_optional_supabase_url(monkeypatch: pytest.MonkeyPatch)
 
     settings = get_settings()
     assert settings.supabase_url == "https://example.supabase.co"
+
+
+def test_resolved_task_backend_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@localhost:5433/career_agent")
+    monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/0")
+    monkeypatch.delenv("TASK_BACKEND", raising=False)
+
+    dev = Settings(app_env="development", _env_file=None)
+    assert dev.resolved_task_backend() == "inline"
+
+    prod = Settings(app_env="production", _env_file=None)
+    assert prod.resolved_task_backend() == "qstash"
+
+
+def test_resolved_task_backend_explicit_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@localhost:5433/career_agent")
+    monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/0")
+    monkeypatch.setenv("TASK_BACKEND", " celery ")
+
+    settings = Settings(_env_file=None)
+    assert settings.resolved_task_backend() == "celery"

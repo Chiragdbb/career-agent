@@ -27,6 +27,7 @@ from app.routers import (
     follow_ups_router,
     health_router,
     human_tasks_router,
+    internal_qstash_router,
     interviews_router,
     jobs_router,
     mailbox_router,
@@ -98,6 +99,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(offers_router, prefix=prefix)
     app.include_router(documents_router, prefix=prefix)
     app.include_router(analytics_router, prefix=prefix)
+    # QStash callbacks — not under /api/v1; auth is Upstash-Signature only.
+    app.include_router(internal_qstash_router)
 
     return app
 

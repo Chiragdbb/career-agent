@@ -113,3 +113,47 @@ class InlineDiscoveryTaskClient:
         thread = threading.Thread(target=_run, daemon=True, name=f"rescrape-{workflow_run_id}")
         thread.start()
         return task_id
+
+
+class QStashDiscoveryTaskClient:
+    def __init__(self, *, token: str, callback_base_url: str) -> None:
+        self._token = token
+        self._base = callback_base_url.rstrip("/")
+
+    def enqueue_discover_jobs(
+        self,
+        *,
+        user_id: uuid.UUID,
+        workflow_run_id: uuid.UUID,
+        max_results: int,
+    ) -> str:
+        from packages.providers.qstash import publish_json
+
+        return publish_json(
+            token=self._token,
+            destination_url=f"{self._base}/internal/qstash/discover-jobs",
+            body={
+                "user_id": str(user_id),
+                "workflow_run_id": str(workflow_run_id),
+                "max_results": max_results,
+            },
+        )
+
+    def enqueue_rescrape_job(
+        self,
+        *,
+        user_id: uuid.UUID,
+        workflow_run_id: uuid.UUID,
+        match_id: uuid.UUID,
+    ) -> str:
+        from packages.providers.qstash import publish_json
+
+        return publish_json(
+            token=self._token,
+            destination_url=f"{self._base}/internal/qstash/rescrape-job",
+            body={
+                "user_id": str(user_id),
+                "workflow_run_id": str(workflow_run_id),
+                "match_id": str(match_id),
+            },
+        )

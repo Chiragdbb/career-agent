@@ -2,22 +2,14 @@
 
 from __future__ import annotations
 
-import logging
-from datetime import datetime, timezone
-
 from sqlalchemy.orm import Session
 
-from database.models.enums import UserStatus
-from database.models.schema import User, UserPreference
-from packages.domain.jobs import DiscoveryTriggerService
 from packages.domain.notifications import (
     NotificationCreate,
     NotificationService,
     NotificationType,
 )
 from workers.celery_app import celery_app
-
-logger = logging.getLogger(__name__)
 
 
 def _session() -> Session:
@@ -35,67 +27,13 @@ def discover_jobs_for_active_users(max_users: int = 50) -> dict:
     discovery_schedule.enabled == false.
     """
     from app.tasks import CeleryDiscoveryTaskClient
-    from packages.domain.provider_usage import (
-        ProviderQuotaLimits,
-        ProviderUsageService,
-        QuotaExceededError,
-    )
+    from packages.domain.scheduled_discovery import run_scheduled_discover_for_active_users
 
     session = _session()
-    enqueued: list[str] = []
-    skipped: list[dict] = []
     try:
-        users = (
-            session.query(User)
-            .filter(User.status == UserStatus.active)
-            .order_by(User.created_at.asc())
-            .limit(max_users)
-            .all()
+        return run_scheduled_discover_for_active_users(
+            session, CeleryDiscoveryTaskClient(), max_users=max_users
         )
-        usage = ProviderUsageService(session, limits=ProviderQuotaLimits())
-        client = CeleryDiscoveryTaskClient()
-        for user in users:
-            prefs_row = (
-                session.query(UserPreference)
-                .filter(UserPreference.user_id == user.id)
-                .one_or_none()
-            )
-            payload = (
-                prefs_row.settings if prefs_row and isinstance(prefs_row.settings, dict) else {}
-            )
-            schedule = payload.get("discovery_schedule") or {}
-            if schedule.get("enabled") is False:
-                skipped.append({"user_id": str(user.id), "reason": "disabled"})
-                continue
-            try:
-                usage.check_quota(user.id, "search", units=1.0)
-            except QuotaExceededError as exc:
-                skipped.append(
-                    {
-                        "user_id": str(user.id),
-                        "reason": "quota",
-                        "action": exc.action,
-                    }
-                )
-                continue
-            try:
-                trigger = DiscoveryTriggerService(session, user.id)
-                result = trigger.enqueue(max_results=20)
-                task_id = client.enqueue_discover_jobs(
-                    user_id=user.id,
-                    workflow_run_id=result.workflow_run_id,
-                    max_results=20,
-                )
-                trigger.attach_task_id(result.workflow_run_id, task_id)
-                enqueued.append(str(result.workflow_run_id))
-            except Exception as exc:
-                logger.warning("scheduled_discovery_skip user=%s err=%s", user.id, exc)
-                skipped.append({"user_id": str(user.id), "reason": str(exc)[:200]})
-        return {
-            "enqueued": enqueued,
-            "skipped": skipped,
-            "at": datetime.now(timezone.utc).isoformat(),
-        }
     finally:
         session.close()
 

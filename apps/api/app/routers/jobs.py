@@ -110,16 +110,24 @@ def discover_jobs(
     events: EventPublisherDep,
     redis_client: RedisDep,
 ) -> DiscoverJobsResponse:
-    trigger = DiscoveryTriggerService(session, user_id, discovery_lock=DiscoveryLock(redis_client))
+    discovery_lock = DiscoveryLock(redis_client)
+    trigger = DiscoveryTriggerService(session, user_id, discovery_lock=discovery_lock)
     queued = trigger.enqueue(
         idempotency_key=body.idempotency_key,
         max_results=body.max_results,
     )
-    task_id = task_client.enqueue_discover_jobs(
-        user_id=user_id,
-        workflow_run_id=queued.workflow_run_id,
-        max_results=body.max_results,
-    )
+    try:
+        task_id = task_client.enqueue_discover_jobs(
+            user_id=user_id,
+            workflow_run_id=queued.workflow_run_id,
+            max_results=body.max_results,
+        )
+    except Exception as exc:
+        from workers.discovery.tasks import _mark_run_failed
+
+        _mark_run_failed(session, user_id, queued.workflow_run_id, exc)
+        discovery_lock.release(user_id)
+        raise
     trigger.attach_task_id(queued.workflow_run_id, task_id)
     events.publish(
         user_id,
