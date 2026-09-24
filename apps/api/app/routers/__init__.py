@@ -7,6 +7,7 @@ from app.routers.events import router as events_router
 from app.routers.follow_ups import router as follow_ups_router
 from app.routers.health import router as health_router
 from app.routers.human_tasks import router as human_tasks_router
+from app.routers.internal_qstash import router as internal_qstash_router
 from app.routers.jobs import router as jobs_router
 from app.routers.mailbox import router as mailbox_router
 from app.routers.me import router as me_router
@@ -29,6 +30,7 @@ __all__ = [
     "follow_ups_router",
     "health_router",
     "human_tasks_router",
+    "internal_qstash_router",
     "interviews_router",
     "jobs_router",
     "mailbox_router",
