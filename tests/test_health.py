@@ -6,6 +6,34 @@ from app.config import get_settings
 from app.main import create_app
 
 
+def test_liveness_endpoint_ok() -> None:
+    settings = get_settings()
+    app = create_app(settings)
+
+    with TestClient(app) as client:
+        response = client.get("/health")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "ok"
+    assert body["service"] == settings.app_name
+    assert "checks" not in body
+
+
+def test_root_liveness_for_render_probe() -> None:
+    settings = get_settings()
+    app = create_app(settings)
+
+    with TestClient(app) as client:
+        head = client.head("/")
+        get = client.get("/")
+
+    assert head.status_code == 200
+    assert get.status_code == 200
+    assert get.json()["status"] == "ok"
+    assert get.json()["service"] == settings.app_name
+
+
 def test_health_endpoint_ok() -> None:
     settings = get_settings()
     app = create_app(settings)
