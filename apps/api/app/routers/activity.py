@@ -47,12 +47,11 @@ class ActivityEntryResponse(BaseModel):
     metadata: dict | None = None
 
 
-@router.get("", response_model=list[ActivityRunResponse])
-def list_activity(
+def _run_responses(
     session: DbSessionDep,
     user_id: CurrentUserIdDep,
-    before: datetime | None = Query(default=None),
-    limit: int = Query(default=50, ge=1, le=100),
+    before: datetime | None,
+    limit: int,
 ) -> list[ActivityRunResponse]:
     rows = ActivityLogService(session, user_id).list_runs(before=before, limit=limit)
     return [
@@ -83,12 +82,11 @@ def list_activity(
     ]
 
 
-@router.get("/flat", response_model=list[ActivityEntryResponse])
-def list_activity_flat(
+def _entry_responses(
     session: DbSessionDep,
     user_id: CurrentUserIdDep,
-    before: datetime | None = Query(default=None),
-    limit: int = Query(default=50, ge=1, le=100),
+    before: datetime | None,
+    limit: int,
 ) -> list[ActivityEntryResponse]:
     rows = ActivityLogService(session, user_id).list_entries(before=before, limit=limit)
     return [
@@ -103,3 +101,35 @@ def list_activity_flat(
         )
         for row in rows
     ]
+
+
+@router.get("", response_model=list[ActivityEntryResponse])
+def list_activity(
+    session: DbSessionDep,
+    user_id: CurrentUserIdDep,
+    before: datetime | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=100),
+) -> list[ActivityEntryResponse]:
+    """Flat history for older clients still expecting ``entry_type``."""
+    return _entry_responses(session, user_id, before, limit)
+
+
+@router.get("/runs", response_model=list[ActivityRunResponse])
+def list_activity_runs(
+    session: DbSessionDep,
+    user_id: CurrentUserIdDep,
+    before: datetime | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=100),
+) -> list[ActivityRunResponse]:
+    """Run-centric activity with live steps (current web UI)."""
+    return _run_responses(session, user_id, before, limit)
+
+
+@router.get("/flat", response_model=list[ActivityEntryResponse])
+def list_activity_flat(
+    session: DbSessionDep,
+    user_id: CurrentUserIdDep,
+    before: datetime | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=100),
+) -> list[ActivityEntryResponse]:
+    return _entry_responses(session, user_id, before, limit)
