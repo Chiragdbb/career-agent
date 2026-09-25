@@ -40,9 +40,8 @@ from database.models.enums import (
 # Default embedding dimensionality for OpenAI-compatible / mock providers.
 EMBEDDING_DIMENSIONS = 1536
 
-# Models are derived from database/schema-notes.md.
-# schema-notes.md focuses on entities/relationships/statuses rather than full
-# column-level detail; fields below include only what schema-notes.md names.
+# Models are the system of record for the PostgreSQL schema.
+# Prefer Alembic migrations when changing columns or tables.
 
 
 class User(UUIDMixin, TimestampMixin, Base):

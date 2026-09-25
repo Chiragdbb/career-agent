@@ -28,6 +28,7 @@ from packages.domain.jobs import DiscoveryTriggerService, JobListingService, Job
 from packages.domain.dashboard import DashboardService
 from packages.domain.events import UserEventType
 from packages.domain.exceptions import DomainError
+from packages.domain.workflow_progress import WorkflowProgressService
 from database.models.enums import JobMatchStatus
 from packages.providers.notification import MockNotificationProvider
 
@@ -167,6 +168,7 @@ def batch_job_actions(
     body: JobBatchActionRequest,
     session: DbSessionDep,
     user_id: CurrentUserIdDep,
+    events: EventPublisherDep,
 ) -> dict:
     service = _listing(session, user_id)
     if body.action == "save":
@@ -177,7 +179,10 @@ def batch_job_actions(
         return {"action": body.action, "updated": len(updated), "matches": [_to_summary(r) for r in updated]}
     if body.action == "start_pipeline":
         workflow = CareerWorkflowService(
-            session, user_id, notifications=MockNotificationProvider()
+            session,
+            user_id,
+            notifications=MockNotificationProvider(),
+            progress=WorkflowProgressService(session, user_id, events=events),
         )
         results = []
         for match_id in body.match_ids:

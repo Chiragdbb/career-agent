@@ -116,3 +116,38 @@ def test_cancel_before_run_results_in_cancelled(cancel_user) -> None:
     assert run.status == WorkflowRunStatus.cancelled
     assert lock.get_holder(user.id) is None
     assert scrape_calls["count"] == 0
+
+
+def test_cancelled_status_honored_without_redis(cancel_user) -> None:
+    """DB cancelled status must stop discovery even when Redis cancel store is missing."""
+    session, user, redis = cancel_user
+    lock = DiscoveryLock(redis)
+    trigger = DiscoveryTriggerService(session, user.id, discovery_lock=lock)
+    queued = trigger.enqueue(max_results=1)
+    run = session.query(WorkflowRun).filter(WorkflowRun.id == queued.workflow_run_id).one()
+    run.status = WorkflowRunStatus.cancelled
+    session.commit()
+
+    url = f"https://jobs.example.com/cancel-db-{uuid.uuid4()}"
+    scrape_calls = {"count": 0}
+
+    class CountingScraper(MockScraperProvider):
+        def scrape_url(self, request):
+            scrape_calls["count"] += 1
+            return super().scrape_url(request)
+
+    service = JobDiscoveryService(
+        session,
+        user.id,
+        search=MockSearchProvider(results=[SearchHit(title="A", url=url, snippet="")]),
+        scraper=CountingScraper(pages=[ScrapedPage(url=url, markdown="# Job A")]),
+        llm=MockLLMProvider(
+            content='{"title":"Eng","company_name":"Co","url":"' + url + '","description":"d","skills":["Python"]}'
+        ),
+        cancellation=None,
+        discovery_lock=lock,
+    )
+    service.run(workflow_run_id=queued.workflow_run_id, preferences=PreferenceSettings(target_roles=["Eng"]))
+    run = session.query(WorkflowRun).filter(WorkflowRun.id == queued.workflow_run_id).one()
+    assert run.status == WorkflowRunStatus.cancelled
+    assert scrape_calls["count"] == 0

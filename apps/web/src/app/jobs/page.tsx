@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { FormEvent, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowRight,
   Bookmark,
@@ -48,8 +48,9 @@ const exploreHints = [
   "Product-led teams",
 ];
 
-export default function JobsPage() {
+function JobsPageInner() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [loading, setLoading] = useState(true);
   const [discovering, setDiscovering] = useState(false);
   const [acting, setActing] = useState(false);
@@ -60,9 +61,10 @@ export default function JobsPage() {
   const [activeTab, setActiveTab] = useState<(typeof tabs)[number]>("All");
   const [exploreQuery, setExploreQuery] = useState("");
   const [activeDiscoveryRunId, setActiveDiscoveryRunId] = useState<string | null>(null);
+  const autoDiscoverAttempted = useRef(false);
   const { activeRuns } = useProcessActivity();
   const activeDiscovery = activeRuns.find((run) => run.workflow_type === "job_discovery");
-  const discoveryBlocked = Boolean(activeDiscoveryRunId || activeDiscovery);
+  const discoveryBlocked = Boolean(activeDiscovery || activeDiscoveryRunId);
 
   const loadJobs = useCallback(async (includeDismissed = false) => {
     const qs = includeDismissed ? "?include_dismissed=true" : "";
@@ -91,8 +93,16 @@ export default function JobsPage() {
         event.type === "jobs_discovered" ||
         event.type === "workflow_completed" ||
         event.type === "workflow_cancelled" ||
+        event.type === "workflow_failed" ||
         event.type === "workflow_progress"
       ) {
+        if (
+          event.type === "workflow_completed" ||
+          event.type === "workflow_cancelled" ||
+          event.type === "workflow_failed"
+        ) {
+          setActiveDiscoveryRunId(null);
+        }
         void refreshJobs().then((rows) => {
           if (event.type === "workflow_completed") {
             if (rows.length === 0) {
@@ -103,7 +113,7 @@ export default function JobsPage() {
             } else {
               setError(null);
               setMessage(
-                `Discovery finished. ${rows.length} job${rows.length === 1 ? "" : "s"} ready to review.`,
+                `Discovery finished. ${rows.length} job${rows.length === 1 ? "" : "s"} ready to review — save top fits or start the pipeline.`,
               );
             }
           }
@@ -141,6 +151,16 @@ export default function JobsPage() {
       cancelled = true;
     };
   }, [router, loadJobs, activeTab]);
+
+  useEffect(() => {
+    if (autoDiscoverAttempted.current) return;
+    if (searchParams.get("discover") !== "1") return;
+    if (loading || discoveryBlocked || discovering) return;
+    autoDiscoverAttempted.current = true;
+    router.replace("/jobs");
+    void onDiscover();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot handoff from preferences
+  }, [searchParams, loading, discoveryBlocked, discovering, router]);
 
   async function onDiscover(event?: FormEvent) {
     event?.preventDefault();
@@ -240,7 +260,8 @@ export default function JobsPage() {
       if (activeTab === "All") return job.status !== "dismissed";
       if (activeTab === "Dismissed") return job.status === "dismissed";
       if (activeTab === "High Match") return job.score != null && job.score >= 0.8;
-      if (activeTab === "Applied") return job.status.toLowerCase().includes("applied");
+      if (activeTab === "Applied")
+        return job.status === "applied" || job.status === "saved";
       if (activeTab === "New") return job.status === "new";
       if (activeTab === "Saved") return job.status === "saved";
       return true;
@@ -483,5 +504,13 @@ export default function JobsPage() {
         </ul>
       )}
     </AppShell>
+  );
+}
+
+export default function JobsPage() {
+  return (
+    <Suspense fallback={<AppShell active="jobs" wide><p className="text-sm text-text-muted">Loading…</p></AppShell>}>
+      <JobsPageInner />
+    </Suspense>
   );
 }

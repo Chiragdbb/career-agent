@@ -13,6 +13,7 @@ import {
   X,
   LogOut,
   CircleUser,
+  Loader2,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 
@@ -147,10 +148,18 @@ export function AppTopNav({ active, approvalCount }: AppTopNavProps) {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  const [signingOut, setSigningOut] = useState(false);
+
   async function signOut() {
-    const supabase = createClient();
-    await supabase.auth.signOut();
-    router.replace("/login");
+    if (signingOut) return;
+    setSigningOut(true);
+    try {
+      const supabase = createClient();
+      await supabase.auth.signOut();
+      router.replace("/login");
+    } finally {
+      setSigningOut(false);
+    }
   }
 
   return (
@@ -245,11 +254,16 @@ export function AppTopNav({ active, approvalCount }: AppTopNavProps) {
                   })}
                   <button
                     type="button"
+                    disabled={signingOut}
                     onClick={() => void signOut()}
-                    className="flex w-full items-center gap-2 border-t border-line px-3 py-2.5 text-sm text-coral-deep hover:bg-coral-bg"
+                    className="flex w-full items-center gap-2 border-t border-line px-3 py-2.5 text-sm text-coral-deep hover:bg-coral-bg disabled:opacity-60"
                   >
-                    <LogOut className="h-4 w-4" />
-                    Sign out
+                    {signingOut ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <LogOut className="h-4 w-4" />
+                    )}
+                    {signingOut ? "Signing out…" : "Sign out"}
                   </button>
                 </div>
               ) : null}

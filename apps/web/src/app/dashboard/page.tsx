@@ -334,8 +334,20 @@ export default function DashboardPage() {
           {
             id: "discovery",
             label: "Run your first job discovery",
-            href: "/jobs",
+            href: "/jobs?discover=1",
             complete: onboarding.jobsComplete,
+          },
+          {
+            id: "review",
+            label: "Review matches and start a pipeline",
+            href: "/jobs",
+            complete: (summary?.applications_count ?? 0) > 0 || (summary?.jobs_count ?? 0) > 3,
+          },
+          {
+            id: "approvals",
+            label: "Approve application drafts",
+            href: "/approvals",
+            complete: (summary?.open_human_tasks ?? 0) === 0 && (summary?.applications_count ?? 0) > 0,
           },
         ]}
       />

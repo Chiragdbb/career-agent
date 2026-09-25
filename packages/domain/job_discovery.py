@@ -241,6 +241,13 @@ class JobDiscoveryService:
             self._ensure_not_cancelled(run)
             self._update_run_metadata(run, current_step="scoring", message="Scoring matches against your profile…")
             self._score_discovered_jobs(result, prefs)
+            self._ensure_not_cancelled(run)
+            self._session.refresh(run)
+            if run.status in (
+                WorkflowRunStatus.cancelled,
+                WorkflowRunStatus.cancelling,
+            ):
+                raise DiscoveryCancelledError("Discovery cancelled by user")
             run.status = WorkflowRunStatus.completed
             metadata = dict(run.metadata_json or {})
             metadata["current_step"] = "completed"

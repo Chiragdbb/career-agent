@@ -21,10 +21,12 @@ from packages.domain.notifications import (
 _BASELINE_MS = {
     "job_discovery": 180_000,
     "job_rescrape": 90_000,
+    "career_job_pipeline": 120_000,
 }
 _PER_UNIT_MS = {
     "job_discovery": 25_000,
     "job_rescrape": 60_000,
+    "career_job_pipeline": 8_000,
 }
 
 
