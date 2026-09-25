@@ -15,11 +15,16 @@ from packages.domain.tenant_resources import TenantResourceService
 router = APIRouter(prefix="/outreach", tags=["outreach"])
 
 
-def _outreach_service(session, user_id) -> OutreachService:
+def _outreach_service(
+    session,
+    user_id,
+    *,
+    email_sender=None,
+) -> OutreachService:
     return OutreachService(
         session,
         user_id,
-        email_sender=create_email_sender_provider(),
+        email_sender=email_sender,
         notifications=MockNotificationProvider(),
     )
 
@@ -80,7 +85,11 @@ def send_outreach(
     session: DbSessionDep,
     user_id: CurrentUserIdDep,
 ) -> OutreachDetailResponse:
-    view = _outreach_service(session, user_id).send(outreach_id)
+    view = _outreach_service(
+        session,
+        user_id,
+        email_sender=create_email_sender_provider(),
+    ).send(outreach_id)
     return OutreachDetailResponse(**view.model_dump())
 
 
