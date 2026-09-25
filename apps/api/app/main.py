@@ -26,6 +26,7 @@ from app.routers import (
     events_router,
     follow_ups_router,
     health_router,
+    liveness_router,
     human_tasks_router,
     internal_qstash_router,
     interviews_router,
@@ -78,6 +79,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     register_exception_handlers(app)
 
     prefix = settings.api_v1_prefix
+    # Root /health is a cheap liveness probe (Render / load balancers).
+    app.include_router(liveness_router)
     app.include_router(health_router, prefix=prefix)
     app.include_router(me_router, prefix=prefix)
     app.include_router(profile_router, prefix=prefix)

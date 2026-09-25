@@ -40,6 +40,12 @@ export PYTHONPATH=".:apps/api"
 uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --app-dir apps/api
 ```
 
+### Render (API web service)
+
+- **Start command** (typical): `alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT --app-dir apps/api` with `PYTHONPATH=.:apps/api`.
+- **Health check**: leave the default path as `/` (the API answers `GET`/`HEAD /` with 200) or set **Health Check Path** to `/health`. Do not point Render at `/api/v1/health` unless you prefer the full DB/Redis check during deploys.
+- **Startup time**: migrations plus Python imports can take 30–60s before the port opens; if deploys still time out, increase the service health-check grace period in the Render dashboard.
+
 Worker:
 
 ```bash
