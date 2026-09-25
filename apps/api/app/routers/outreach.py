@@ -8,7 +8,7 @@ from app.dependencies import CurrentUserIdDep, DbSessionDep
 from app.schemas import OutreachResponse
 from app.schemas.human_tasks import OutreachDetailResponse, OutreachDraftRequest
 from packages.domain.outreach import OutreachDraftInput, OutreachService, OutreachType
-from packages.providers.email_sender import MockEmailSenderProvider
+from packages.providers.factory import create_email_sender_provider
 from packages.providers.notification import MockNotificationProvider
 from packages.domain.tenant_resources import TenantResourceService
 
@@ -19,7 +19,7 @@ def _outreach_service(session, user_id) -> OutreachService:
     return OutreachService(
         session,
         user_id,
-        email_sender=MockEmailSenderProvider(),
+        email_sender=create_email_sender_provider(),
         notifications=MockNotificationProvider(),
     )
 

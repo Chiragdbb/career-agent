@@ -42,6 +42,8 @@ class ApplicationDetailResponse(BaseModel):
     job_title: str | None = None
     company_name: str | None = None
     job_description: str | None = None
+    job_url: str | None = None
+    job_match_id: UUID | None = None
     contacts: list[dict[str, Any]] = Field(default_factory=list)
     events: list[dict[str, Any]] = Field(default_factory=list)
     documents: list[dict[str, Any]] = Field(default_factory=list)

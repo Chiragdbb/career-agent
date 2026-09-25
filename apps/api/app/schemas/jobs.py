@@ -59,6 +59,8 @@ class JobMatchDetailResponse(JobMatchSummaryResponse):
 class DiscoverJobsRequest(BaseModel):
     max_results: int = Field(default=5, ge=1, le=20)
     idempotency_key: str | None = Field(default=None, max_length=128)
+    mode: str = Field(default="profile", pattern="^(profile|explore)$")
+    query_hint: str | None = Field(default=None, max_length=200)
 
 
 class DiscoverJobsResponse(BaseModel):

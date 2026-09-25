@@ -11,6 +11,7 @@ import { DiffPane } from "@/components/ui/DiffPane";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { GhostButton, GoldButton } from "@/components/ui/Button";
 import { HeroBand } from "@/components/ui/HeroBand";
+import { ScoreRing } from "@/components/ui/ScoreRing";
 import { SoftBadge } from "@/components/ui/SoftBadge";
 import { ListSkeleton } from "@/components/ui/Skeleton";
 import { apiFetch } from "@/lib/api";
@@ -47,6 +48,8 @@ type ApplicationDetail = {
   job_title: string | null;
   company_name: string | null;
   job_description?: string | null;
+  job_url?: string | null;
+  job_match_id?: string | null;
   submission_evidence?: Record<string, unknown> | null;
   contacts?: {
     id: string;
@@ -231,6 +234,54 @@ function ApprovalsPageInner() {
     if (expandedId) void loadDetail(expandedId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [expandedId]);
+
+  async function softDiscard(
+    appId: string,
+    action: "return-to-pile" | "dismiss",
+  ) {
+    setBusyId(`${action === "dismiss" ? "dismiss" : "pile"}-${appId}`);
+    setError(null);
+    try {
+      const response = await apiFetch(
+        `/api/v1/applications/${appId}/${action}`,
+        { method: "POST" },
+      );
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(body?.error?.message || `API ${response.status}`);
+      }
+      setExpandedId(null);
+      await load();
+      setMessage(
+        action === "dismiss"
+          ? "Package dismissed."
+          : "Returned to the job pile.",
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to discard package");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function rescrapeContacts(appId: string, matchId: string) {
+    setBusyId(`rescrape-${appId}`);
+    setError(null);
+    try {
+      const response = await apiFetch(`/api/v1/jobs/${matchId}/rescrape`, {
+        method: "POST",
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(body?.error?.message || `API ${response.status}`);
+      }
+      setMessage("Re-scrape queued — check Activity for progress.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to re-scrape");
+    } finally {
+      setBusyId(null);
+    }
+  }
 
   async function finalizeTask(taskId: string) {
     setBusyId(taskId);
@@ -437,52 +488,128 @@ function ApprovalsPageInner() {
                         <p className="text-sm text-text-muted">Loading draft…</p>
                       ) : (
                         <>
-                          {detail.job_description ? (
-                            <div>
+                          <div className="grid gap-4 lg:grid-cols-12">
+                            <div className="lg:col-span-5">
                               <p className="text-xs font-semibold uppercase text-text-faint">
-                                Role
+                                Job description
                               </p>
-                              <p className="mt-1 text-sm text-ink">
-                                {detail.job_description}
-                              </p>
+                              <div className="mt-1 max-h-56 overflow-y-auto whitespace-pre-wrap rounded-2xl border border-line bg-paper p-3 text-sm text-ink">
+                                {detail.job_description ||
+                                  "No job description captured yet."}
+                              </div>
+                              {detail.job_url ? (
+                                <a
+                                  href={detail.job_url}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="mt-2 inline-block text-xs font-semibold text-coral"
+                                >
+                                  Open original posting →
+                                </a>
+                              ) : null}
                             </div>
-                          ) : null}
-                          {strategy ? (
-                            <div>
-                              <p className="text-xs font-semibold uppercase text-text-faint">
-                                Strategy
-                              </p>
-                              <p className="mt-1 text-sm text-ink">{strategy}</p>
+                            <div className="space-y-4 lg:col-span-7">
+                              <div className="flex flex-wrap items-center gap-4">
+                                {typeof materials.ats_score === "number" ? (
+                                  <div className="flex items-center gap-3">
+                                    <ScoreRing value={Number(materials.ats_score)} />
+                                    <div>
+                                      <p className="text-xs font-semibold uppercase text-text-faint">
+                                        ATS score
+                                      </p>
+                                      <p className="text-sm text-text-muted">
+                                        Keyword coverage vs this JD
+                                      </p>
+                                    </div>
+                                  </div>
+                                ) : null}
+                              </div>
+                              {typeof materials.hook_subject === "string" ||
+                              typeof materials.hook_body === "string" ? (
+                                <div>
+                                  <p className="text-xs font-semibold uppercase text-text-faint">
+                                    Hook email
+                                  </p>
+                                  {typeof materials.hook_subject === "string" ? (
+                                    <p className="mt-1 text-sm font-semibold text-ink">
+                                      {materials.hook_subject}
+                                    </p>
+                                  ) : null}
+                                  <p className="mt-1 whitespace-pre-wrap text-sm text-ink">
+                                    {(typeof materials.hook_body === "string" &&
+                                      materials.hook_body) ||
+                                      "—"}
+                                  </p>
+                                </div>
+                              ) : null}
+                              {strategy ? (
+                                <div>
+                                  <p className="text-xs font-semibold uppercase text-text-faint">
+                                    Strategy
+                                  </p>
+                                  <p className="mt-1 text-sm text-ink">{strategy}</p>
+                                </div>
+                              ) : null}
+                              <div>
+                                <p className="text-xs font-semibold uppercase text-text-faint">
+                                  Cover letter / note
+                                </p>
+                                <p className="mt-1 whitespace-pre-wrap text-sm text-ink">
+                                  {cover ||
+                                    "Draft text is still thin — Edit to restyle, or Finalize to continue."}
+                                </p>
+                              </div>
+                              <div>
+                                <p className="text-xs font-semibold uppercase text-text-faint">
+                                  Contacts
+                                </p>
+                                {contacts.length === 0 ? (
+                                  <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                                    <GhostButton
+                                      className="justify-center"
+                                      onClick={() => {
+                                        if (detail.job_url) {
+                                          window.open(detail.job_url, "_blank");
+                                        }
+                                      }}
+                                      disabled={!detail.job_url}
+                                    >
+                                      Apply via job link
+                                    </GhostButton>
+                                    <GhostButton
+                                      className="justify-center"
+                                      disabled={
+                                        !detail.job_match_id ||
+                                        busyId === `rescrape-${appId}`
+                                      }
+                                      onClick={() =>
+                                        void rescrapeContacts(
+                                          appId,
+                                          detail.job_match_id!,
+                                        )
+                                      }
+                                    >
+                                      {busyId === `rescrape-${appId}`
+                                        ? "Re-scraping…"
+                                        : "Scrape thoroughly again"}
+                                    </GhostButton>
+                                    <p className="sm:col-span-2 text-xs text-text-muted">
+                                      No contacts yet — apply on the posting, or dig
+                                      deeper for people. We never invent emails.
+                                    </p>
+                                  </div>
+                                ) : (
+                                  <ul className="mt-2 space-y-1 text-sm">
+                                    {contacts.map((c) => (
+                                      <li key={c.id || c.name} className="text-ink">
+                                        {c.name}
+                                        {c.title ? ` · ${c.title}` : ""}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                )}
+                              </div>
                             </div>
-                          ) : null}
-                          <div>
-                            <p className="text-xs font-semibold uppercase text-text-faint">
-                              Draft materials
-                            </p>
-                            <p className="mt-1 whitespace-pre-wrap text-sm text-ink">
-                              {cover ||
-                                "Draft text is still thin — you can Edit to restyle, or Finalize to continue."}
-                            </p>
-                          </div>
-                          <div>
-                            <p className="text-xs font-semibold uppercase text-text-faint">
-                              Contacts found
-                            </p>
-                            {contacts.length === 0 ? (
-                              <p className="mt-1 text-sm text-text-muted">
-                                No contacts found yet — you can still Finalize
-                                the application.
-                              </p>
-                            ) : (
-                              <ul className="mt-2 space-y-1 text-sm">
-                                {contacts.map((c) => (
-                                  <li key={c.id || c.name} className="text-ink">
-                                    {c.name}
-                                    {c.title ? ` · ${c.title}` : ""}
-                                  </li>
-                                ))}
-                              </ul>
-                            )}
                           </div>
                         </>
                       )}
@@ -501,6 +628,18 @@ function ApprovalsPageInner() {
                           }
                         >
                           Edit
+                        </GhostButton>
+                        <GhostButton
+                          disabled={busyId === `pile-${appId}`}
+                          onClick={() => void softDiscard(appId, "return-to-pile")}
+                        >
+                          Back to pile
+                        </GhostButton>
+                        <GhostButton
+                          disabled={busyId === `dismiss-${appId}`}
+                          onClick={() => void softDiscard(appId, "dismiss")}
+                        >
+                          Dismiss
                         </GhostButton>
                       </div>
                     </div>

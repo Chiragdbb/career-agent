@@ -12,7 +12,8 @@ from app.schemas.jobs import (
     WorkflowRunResponse,
     WorkflowTaskResponse,
 )
-from packages.domain.career_workflow import CareerWorkflowService, CareerWorkflowStart
+from packages.domain.career_workflow import CareerWorkflowStart
+from packages.domain.career_workflow_factory import build_career_workflow_service
 from packages.domain.events import UserEventType
 from packages.domain.discovery_lock import DiscoveryLock
 from packages.domain.jobs import DiscoveryTriggerService
@@ -72,7 +73,7 @@ def start_career_workflow(
     session: DbSessionDep,
     user_id: CurrentUserIdDep,
 ) -> CareerWorkflowResponse:
-    result = CareerWorkflowService(
+    result = build_career_workflow_service(
         session, user_id, notifications=MockNotificationProvider()
     ).start_or_resume(
         CareerWorkflowStart(

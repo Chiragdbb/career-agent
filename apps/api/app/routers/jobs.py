@@ -23,12 +23,12 @@ from app.schemas.jobs import (
     WorkflowRunResponse,
 )
 from packages.domain.discovery_lock import DiscoveryLock
-from packages.domain.career_workflow import CareerWorkflowService, CareerWorkflowStart
+from packages.domain.career_workflow import CareerWorkflowStart
+from packages.domain.career_workflow_factory import build_career_workflow_service
 from packages.domain.jobs import DiscoveryTriggerService, JobListingService, JobRescrapeTriggerService
 from packages.domain.dashboard import DashboardService
 from packages.domain.events import UserEventType
 from packages.domain.exceptions import DomainError
-from packages.domain.workflow_progress import WorkflowProgressService
 from database.models.enums import JobMatchStatus
 from packages.providers.notification import MockNotificationProvider
 
@@ -116,6 +116,8 @@ def discover_jobs(
     queued = trigger.enqueue(
         idempotency_key=body.idempotency_key,
         max_results=body.max_results,
+        discovery_mode=body.mode,
+        query_hint=body.query_hint,
     )
     try:
         task_id = task_client.enqueue_discover_jobs(
@@ -142,6 +144,7 @@ def discover_jobs(
                 "task_id": task_id,
                 "status": "queued",
                 "max_results": body.max_results,
+                "mode": body.mode,
             },
         },
     )
@@ -178,11 +181,11 @@ def batch_job_actions(
         updated = service.bulk_update_status(body.match_ids, JobMatchStatus.dismissed)
         return {"action": body.action, "updated": len(updated), "matches": [_to_summary(r) for r in updated]}
     if body.action == "start_pipeline":
-        workflow = CareerWorkflowService(
+        workflow = build_career_workflow_service(
             session,
             user_id,
+            events=events,
             notifications=MockNotificationProvider(),
-            progress=WorkflowProgressService(session, user_id, events=events),
         )
         results = []
         already_running: list[dict] = []
