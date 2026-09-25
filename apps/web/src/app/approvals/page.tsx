@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
-import { CheckCircle2, Lock, Shield } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { CheckCircle2, ChevronDown, Lock, Shield } from "lucide-react";
 
 import { AppShell } from "@/components/AppShell";
 import { ActionCard } from "@/components/ui/ActionCard";
@@ -41,11 +41,19 @@ type Outreach = {
   reason?: string | null;
 };
 
-type Application = {
+type ApplicationDetail = {
   id: string;
   status: string;
   job_title: string | null;
   company_name: string | null;
+  job_description?: string | null;
+  submission_evidence?: Record<string, unknown> | null;
+  contacts?: {
+    id: string;
+    name: string;
+    title?: string | null;
+    status?: string;
+  }[];
 };
 
 function Toggle({
@@ -95,10 +103,25 @@ function Toggle({
 }
 
 export default function ApprovalsPage() {
+  return (
+    <Suspense
+      fallback={
+        <AppShell active="approvals" wide>
+          <ListSkeleton rows={3} />
+        </AppShell>
+      }
+    >
+      <ApprovalsPageInner />
+    </Suspense>
+  );
+}
+
+function ApprovalsPageInner() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const focusAppId = searchParams.get("application");
   const [tasks, setTasks] = useState<HumanTask[]>([]);
   const [outreach, setOutreach] = useState<Outreach[]>([]);
-  const [applications, setApplications] = useState<Application[]>([]);
   const [settings, setSettings] = useState<PreferenceSettings>(
     DEFAULT_PREFERENCE_SETTINGS,
   );
@@ -107,17 +130,19 @@ export default function ApprovalsPage() {
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [savingPrefs, setSavingPrefs] = useState(false);
+  const [expandedId, setExpandedId] = useState<string | null>(focusAppId);
+  const [detailCache, setDetailCache] = useState<
+    Record<string, ApplicationDetail>
+  >({});
 
   const load = useCallback(async () => {
-    const [tasksRes, outreachRes, appsRes, prefsRes] = await Promise.all([
+    const [tasksRes, outreachRes, prefsRes] = await Promise.all([
       apiFetch("/api/v1/human-tasks?status=open"),
       apiFetch("/api/v1/outreach"),
-      apiFetch("/api/v1/applications"),
       apiFetch("/api/v1/preferences"),
     ]);
     if (tasksRes.ok) setTasks((await tasksRes.json()) as HumanTask[]);
     if (outreachRes.ok) setOutreach((await outreachRes.json()) as Outreach[]);
-    if (appsRes.ok) setApplications((await appsRes.json()) as Application[]);
     if (prefsRes.ok) {
       const body = (await prefsRes.json()) as { settings?: PreferenceSettings };
       if (body.settings) {
@@ -153,28 +178,61 @@ export default function ApprovalsPage() {
     };
   }, [router, load]);
 
+  useEffect(() => {
+    if (focusAppId) setExpandedId(focusAppId);
+  }, [focusAppId]);
+
   const draftOutreach = useMemo(
     () => outreach.filter((o) => isDraftedOutreachStatus(o.status)),
     [outreach],
   );
 
-  const signOffApps = useMemo(
+  const applicationTasks = useMemo(
     () =>
-      applications.filter((a) => {
-        const s = a.status.toLowerCase();
-        return (
-          s.includes("draft") ||
-          s.includes("ready") ||
-          s.includes("pending") ||
-          s === "saved"
-        );
-      }),
-    [applications],
+      tasks.filter(
+        (t) =>
+          t.task_type === "approval_required_application" && t.application_id,
+      ),
+    [tasks],
   );
 
-  const pendingCount = tasks.length + draftOutreach.length;
+  const otherTasks = useMemo(
+    () =>
+      tasks.filter(
+        (t) =>
+          !(
+            t.task_type === "approval_required_application" && t.application_id
+          ),
+      ),
+    [tasks],
+  );
 
-  async function resolveTask(taskId: string) {
+  const pendingCount =
+    applicationTasks.length + draftOutreach.length + otherTasks.length;
+
+  async function loadDetail(appId: string) {
+    setDetailCache((prev) => {
+      if (prev[appId]) return prev;
+      return prev;
+    });
+    const res = await apiFetch(`/api/v1/applications/${appId}`);
+    if (!res.ok) return;
+    const detail = (await res.json()) as ApplicationDetail;
+    setDetailCache((prev) => ({ ...prev, [appId]: detail }));
+  }
+
+  async function toggleExpand(appId: string) {
+    const next = expandedId === appId ? null : appId;
+    setExpandedId(next);
+    if (next) void loadDetail(next);
+  }
+
+  useEffect(() => {
+    if (expandedId) void loadDetail(expandedId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expandedId]);
+
+  async function finalizeTask(taskId: string) {
     setBusyId(taskId);
     setError(null);
     try {
@@ -184,7 +242,7 @@ export default function ApprovalsPage() {
         body: JSON.stringify({
           resolution: { approved: true },
           resume_workflow: true,
-          notes: "Resolved from Approvals",
+          notes: "Finalized from Approvals",
         }),
       });
       if (!response.ok) {
@@ -192,9 +250,9 @@ export default function ApprovalsPage() {
         throw new Error(body?.error?.message || `API ${response.status}`);
       }
       await load();
-      setMessage("Task resolved.");
+      setMessage("Finalized — continuing prepare, submit, and outreach.");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Resolve failed");
+      setError(err instanceof Error ? err.message : "Failed to finalize");
     } finally {
       setBusyId(null);
     }
@@ -212,20 +270,19 @@ export default function ApprovalsPage() {
         throw new Error(body?.error?.message || `API ${response.status}`);
       }
       await load();
-      setMessage("Outreach approved. Send still requires an explicit action.");
+      setMessage("Outreach approved.");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Approve failed");
+      setError(err instanceof Error ? err.message : "Failed to approve");
     } finally {
       setBusyId(null);
     }
   }
 
-  async function patchSettings(patch: Partial<PreferenceSettings>) {
-    const next = { ...settings, ...patch };
-    setSettings(next);
+  async function patchSettings(partial: Partial<PreferenceSettings>) {
     setSavingPrefs(true);
     setError(null);
     try {
+      const next = { ...settings, ...partial };
       const response = await apiFetch("/api/v1/preferences", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -235,10 +292,9 @@ export default function ApprovalsPage() {
         const body = await response.json().catch(() => null);
         throw new Error(body?.error?.message || `API ${response.status}`);
       }
-      setMessage("Boundary safeguards updated.");
+      setSettings(next);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save preferences");
-      await load();
     } finally {
       setSavingPrefs(false);
     }
@@ -257,8 +313,8 @@ export default function ApprovalsPage() {
               <span className="text-coral">Always.</span>
             </h1>
             <p className="mt-4 max-w-xl text-sm leading-relaxed text-text-muted sm:text-[15px]">
-              Waypoint researches and drafts materials for you — but nothing is
-              sent or submitted without your explicit approval.
+              Open a job below, check the draft, then Finalize. Want changes?
+              Edit first.
             </p>
             <div className="mt-4 flex flex-wrap gap-2">
               <SoftBadge tone="lavender">
@@ -280,10 +336,12 @@ export default function ApprovalsPage() {
       <div className="mb-8 grid gap-3 sm:grid-cols-3">
         <ActionCard>
           <p className="text-xs font-semibold uppercase tracking-wide text-text-faint">
-            Pending seals
+            Applications to seal
           </p>
-          <p className="mt-1 text-3xl font-bold text-ink">{pendingCount}</p>
-          <p className="text-xs text-text-muted">Drafts and paused workflows</p>
+          <p className="mt-1 text-3xl font-bold text-ink">
+            {applicationTasks.length}
+          </p>
+          <p className="text-xs text-text-muted">Open a row → Finalize</p>
         </ActionCard>
         <ActionCard>
           <p className="text-xs font-semibold uppercase tracking-wide text-text-faint">
@@ -294,10 +352,10 @@ export default function ApprovalsPage() {
         </ActionCard>
         <ActionCard>
           <p className="text-xs font-semibold uppercase tracking-wide text-text-faint">
-            Pipeline sign-off
+            Other tasks
           </p>
-          <p className="mt-1 text-3xl font-bold text-ink">{signOffApps.length}</p>
-          <p className="text-xs text-text-muted">Applications to inspect</p>
+          <p className="mt-1 text-3xl font-bold text-ink">{otherTasks.length}</p>
+          <p className="text-xs text-text-muted">Captcha / misc</p>
         </ActionCard>
       </div>
 
@@ -307,23 +365,150 @@ export default function ApprovalsPage() {
       <section className="mb-10">
         <div className="mb-4 flex items-center justify-between gap-3">
           <h2 className="text-xl font-bold tracking-tight text-ink">
-            Pending Your Express Seal
+            Applications ready for your seal
           </h2>
-          <Link href="/activity" className="text-sm font-semibold text-coral">
-            Activity log →
+          <Link href="/jobs" className="text-sm font-semibold text-coral">
+            Find more jobs →
           </Link>
         </div>
 
         {loading ? (
           <ListSkeleton rows={3} />
-        ) : pendingCount === 0 && signOffApps.length === 0 ? (
+        ) : pendingCount === 0 ? (
           <EmptyState
             icon={CheckCircle2}
             title="Nothing needs your seal"
-            description="When drafts or paused workflows need you, they will appear here."
+            description="Start applications from Jobs — they’ll show up here when ready."
+            primaryActionLabel="Go to Jobs"
+            actionHref="/jobs"
           />
         ) : (
           <div className="space-y-4">
+            {applicationTasks.map((task) => {
+              const appId = task.application_id!;
+              const open = expandedId === appId;
+              const detail = detailCache[appId];
+              const materials =
+                (detail?.submission_evidence?.draft_materials as
+                  | Record<string, unknown>
+                  | undefined) || {};
+              const cover =
+                (typeof materials.cover_letter === "string" &&
+                  materials.cover_letter) ||
+                (typeof materials.content === "string" && materials.content) ||
+                null;
+              const strategy =
+                typeof materials.strategy_summary === "string"
+                  ? materials.strategy_summary
+                  : null;
+              const contacts = detail?.contacts || [];
+
+              return (
+                <ActionCard key={task.id} highlight={open}>
+                  <button
+                    type="button"
+                    className="flex w-full items-start justify-between gap-3 text-left"
+                    onClick={() => void toggleExpand(appId)}
+                  >
+                    <div>
+                      <h3 className="text-lg font-bold text-ink">
+                        {task.title ||
+                          detail?.job_title ||
+                          "Application draft"}
+                      </h3>
+                      <p className="mt-1 text-sm text-text-muted">
+                        {detail?.company_name
+                          ? `${detail.company_name} · `
+                          : ""}
+                        Open to review, then Finalize
+                      </p>
+                    </div>
+                    <ChevronDown
+                      className={cn(
+                        "mt-1 h-5 w-5 shrink-0 text-text-muted transition-transform",
+                        open && "rotate-180",
+                      )}
+                    />
+                  </button>
+
+                  {open ? (
+                    <div className="mt-4 space-y-4 border-t border-line pt-4">
+                      {!detail ? (
+                        <p className="text-sm text-text-muted">Loading draft…</p>
+                      ) : (
+                        <>
+                          {detail.job_description ? (
+                            <div>
+                              <p className="text-xs font-semibold uppercase text-text-faint">
+                                Role
+                              </p>
+                              <p className="mt-1 text-sm text-ink">
+                                {detail.job_description}
+                              </p>
+                            </div>
+                          ) : null}
+                          {strategy ? (
+                            <div>
+                              <p className="text-xs font-semibold uppercase text-text-faint">
+                                Strategy
+                              </p>
+                              <p className="mt-1 text-sm text-ink">{strategy}</p>
+                            </div>
+                          ) : null}
+                          <div>
+                            <p className="text-xs font-semibold uppercase text-text-faint">
+                              Draft materials
+                            </p>
+                            <p className="mt-1 whitespace-pre-wrap text-sm text-ink">
+                              {cover ||
+                                "Draft text is still thin — you can Edit to restyle, or Finalize to continue."}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-xs font-semibold uppercase text-text-faint">
+                              Contacts found
+                            </p>
+                            {contacts.length === 0 ? (
+                              <p className="mt-1 text-sm text-text-muted">
+                                No contacts found yet — you can still Finalize
+                                the application.
+                              </p>
+                            ) : (
+                              <ul className="mt-2 space-y-1 text-sm">
+                                {contacts.map((c) => (
+                                  <li key={c.id || c.name} className="text-ink">
+                                    {c.name}
+                                    {c.title ? ` · ${c.title}` : ""}
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                          </div>
+                        </>
+                      )}
+                      <div className="flex flex-wrap gap-2">
+                        <GoldButton
+                          disabled={busyId === task.id}
+                          onClick={() => void finalizeTask(task.id)}
+                        >
+                          {busyId === task.id
+                            ? "Finalizing…"
+                            : "Finalize this application"}
+                        </GoldButton>
+                        <GhostButton
+                          onClick={() =>
+                            router.push(`/applications/${appId}/edit`)
+                          }
+                        >
+                          Edit
+                        </GhostButton>
+                      </div>
+                    </div>
+                  ) : null}
+                </ActionCard>
+              );
+            })}
+
             {draftOutreach.map((row) => (
               <ActionCard key={row.id} highlight>
                 <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
@@ -362,7 +547,7 @@ export default function ApprovalsPage() {
               </ActionCard>
             ))}
 
-            {tasks.map((task) => (
+            {otherTasks.map((task) => (
               <ActionCard key={task.id}>
                 <h3 className="text-lg font-bold text-ink">
                   {task.title || task.task_type}
@@ -371,48 +556,9 @@ export default function ApprovalsPage() {
                 <div className="mt-4 flex flex-wrap gap-2">
                   <GoldButton
                     disabled={busyId === task.id}
-                    onClick={() => void resolveTask(task.id)}
+                    onClick={() => void finalizeTask(task.id)}
                   >
-                    {busyId === task.id ? "Resolving…" : "Resolve & resume"}
-                  </GoldButton>
-                  {task.outreach_id ? (
-                    <GhostButton
-                      onClick={() =>
-                        router.push(`/outreach/${task.outreach_id}`)
-                      }
-                    >
-                      Open outreach
-                    </GhostButton>
-                  ) : null}
-                  {task.application_id ? (
-                    <GhostButton
-                      onClick={() =>
-                        router.push(`/applications/${task.application_id}`)
-                      }
-                    >
-                      Open application
-                    </GhostButton>
-                  ) : null}
-                </div>
-              </ActionCard>
-            ))}
-
-            {signOffApps.slice(0, 4).map((app) => (
-              <ActionCard key={app.id}>
-                <SoftBadge tone="coral" className="mb-2">
-                  Inspect before submit
-                </SoftBadge>
-                <h3 className="text-lg font-bold text-ink">
-                  {app.job_title || "Untitled role"}
-                </h3>
-                <p className="text-sm text-text-muted">
-                  {app.company_name} · {app.status}
-                </p>
-                <div className="mt-4">
-                  <GoldButton
-                    onClick={() => router.push(`/applications/${app.id}`)}
-                  >
-                    Inspect &amp; approve
+                    {busyId === task.id ? "Resolving…" : "Mark done & continue"}
                   </GoldButton>
                 </div>
               </ActionCard>

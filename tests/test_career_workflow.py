@@ -127,6 +127,25 @@ def test_career_workflow_pauses_for_approval_then_resumes(wf_ctx) -> None:
     assert result.human_task_id is not None
     assert "approval_pause" in result.completed_steps
     assert result.application_id is not None
+    session.refresh(match)
+    assert match.status == JobMatchStatus.applied
+
+    # Second start without force is already_running — no duplicate task.
+    again = svc.start_or_resume(
+        CareerWorkflowStart(
+            job_match_id=match.id,
+            resume_version_id=version.id,
+            permit_submit=False,
+        )
+    )
+    assert again.already_running is True
+    assert again.workflow_run_id == result.workflow_run_id
+    open_before = (
+        session.query(HumanTask)
+        .filter(HumanTask.user_id == user.id, HumanTask.status == HumanTaskStatus.open)
+        .count()
+    )
+    assert open_before == 1
 
     # Resolve human task and resume.
     ht = HumanTaskService(session, user.id, notifications=notif)

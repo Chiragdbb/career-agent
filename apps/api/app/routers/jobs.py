@@ -185,12 +185,31 @@ def batch_job_actions(
             progress=WorkflowProgressService(session, user_id, events=events),
         )
         results = []
+        already_running: list[dict] = []
+        errors: list[dict] = []
         for match_id in body.match_ids:
-            result = workflow.start_or_resume(
-                CareerWorkflowStart(job_match_id=match_id, permit_submit=False)
-            )
-            results.append(result.model_dump(mode="json"))
-        return {"action": body.action, "started": len(results), "workflows": results}
+            try:
+                result = workflow.start_or_resume(
+                    CareerWorkflowStart(job_match_id=match_id, permit_submit=False)
+                )
+                dumped = result.model_dump(mode="json")
+                if result.already_running:
+                    already_running.append(dumped)
+                else:
+                    results.append(dumped)
+            except DomainError as exc:
+                errors.append({"match_id": str(match_id), "error": str(exc)})
+            except Exception as exc:  # noqa: BLE001
+                session.rollback()
+                errors.append({"match_id": str(match_id), "error": str(exc)})
+        return {
+            "action": body.action,
+            "started": len(results),
+            "already_running": len(already_running),
+            "workflows": results,
+            "existing": already_running,
+            "errors": errors,
+        }
     raise DomainError(f"Unknown action: {body.action}")
 
 

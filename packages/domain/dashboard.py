@@ -81,6 +81,8 @@ class ApplicationDetail(BaseModel):
     submission_evidence: dict[str, Any] | None = None
     job_title: str | None = None
     company_name: str | None = None
+    job_description: str | None = None
+    contacts: list[dict[str, Any]] = Field(default_factory=list)
     events: list[TimelineEvent] = Field(default_factory=list)
     documents: list[dict[str, Any]] = Field(default_factory=list)
     outreach: list[dict[str, Any]] = Field(default_factory=list)
@@ -317,6 +319,55 @@ class DashboardService:
             .all()
         )
 
+        contacts = (
+            self._session.query(Contact, Person)
+            .outerjoin(Person, Person.id == Contact.people_id)
+            .filter(
+                Contact.user_id == self._user_id,
+                Contact.company_id == company.id,
+            )
+            .order_by(Contact.created_at.desc())
+            .limit(20)
+            .all()
+        )
+        contact_payload: list[dict[str, Any]] = []
+        for contact, person in contacts:
+            contact_payload.append(
+                {
+                    "id": str(contact.id),
+                    "name": contact.name or (person.name if person else None) or "Contact",
+                    "title": contact.title,
+                    "email": None,
+                    "status": contact.status.value
+                    if hasattr(contact.status, "value")
+                    else str(contact.status),
+                }
+            )
+        evidence = (
+            application.submission_evidence
+            if isinstance(application.submission_evidence, dict)
+            else {}
+        )
+        snapshot = evidence.get("contacts_snapshot")
+        if not contact_payload and isinstance(snapshot, list):
+            for row in snapshot[:20]:
+                if isinstance(row, dict):
+                    contact_payload.append(
+                        {
+                            "id": str(row.get("contact_id") or row.get("people_id") or ""),
+                            "name": row.get("name") or "Contact",
+                            "title": row.get("title"),
+                            "email": row.get("email"),
+                            "status": row.get("email_verification_status") or "found",
+                        }
+                    )
+
+        desc = getattr(job, "description", None)
+        if isinstance(desc, str) and len(desc) > 600:
+            desc = desc[:600] + "…"
+        elif not isinstance(desc, str):
+            desc = None
+
         return ApplicationDetail(
             id=application.id,
             job_id=application.job_id,
@@ -326,11 +377,11 @@ class DashboardService:
             applied_at=application.applied_at,
             resume_version_id=application.resume_version_id,
             cover_letter_document_id=application.cover_letter_document_id,
-            submission_evidence=application.submission_evidence
-            if isinstance(application.submission_evidence, dict)
-            else None,
+            submission_evidence=evidence or None,
             job_title=job.title,
             company_name=company.name,
+            job_description=desc,
+            contacts=contact_payload,
             events=self._timeline_for_application(application_id),
             documents=self._documents_for_application(application_id),
             outreach=self._outreach_for_application(application_id),

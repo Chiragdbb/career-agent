@@ -1,13 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { Check, Circle, Loader2 } from "lucide-react";
 
 import { AppShell } from "@/components/AppShell";
 import { Badge } from "@/components/ui/Badge";
 import { Card, CardTitle } from "@/components/ui/Card";
+import { ListSkeleton } from "@/components/ui/Skeleton";
 import { apiFetch } from "@/lib/api";
+import { cn } from "@/lib/cn";
 import { createClient } from "@/lib/supabase/client";
 
 type ApplicationDetail = {
@@ -30,6 +33,124 @@ type ApplicationDetail = {
   }[];
   offers: { id: string; status: string; details: Record<string, unknown> }[];
 };
+
+const ENGINE_LABELS: Record<string, string> = {
+  PREPARED: "Draft prepared",
+  AWAITING_APPROVAL: "Waiting for your approval",
+  IN_PROGRESS: "In progress",
+  REQUIRES_HUMAN: "Needs your attention",
+  SUBMITTED: "Submitted",
+  FAILED: "Failed",
+  BLOCKED: "Blocked",
+};
+
+const STATUS_LABELS: Record<string, string> = {
+  draft: "Draft",
+  in_progress: "In progress",
+  submitted: "Submitted",
+  interviewing: "Interviewing",
+  offered: "Offer",
+  rejected: "Rejected",
+  withdrawn: "Withdrawn",
+};
+
+const PIPELINE_STEPS = [
+  { key: "PREPARED", label: "Prepare draft" },
+  { key: "AWAITING_APPROVAL", label: "Your approval" },
+  { key: "IN_PROGRESS", label: "Working" },
+  { key: "SUBMITTED", label: "Submitted" },
+] as const;
+
+function humanizeToken(value: string): string {
+  return value
+    .replace(/_/g, " ")
+    .toLowerCase()
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function formatStatus(status: string): string {
+  return STATUS_LABELS[status] || humanizeToken(status);
+}
+
+function formatEngineState(raw: unknown): string {
+  const key = String(raw || "");
+  return ENGINE_LABELS[key] || humanizeToken(key);
+}
+
+function formatWhen(iso?: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function formatTimelineEvent(
+  event: ApplicationDetail["events"][number],
+): { title: string; detail?: string } {
+  const type = event.event_type || "";
+  const payload = event.payload || {};
+
+  if (type.startsWith("engine_transition:")) {
+    const transition = type.slice("engine_transition:".length);
+    const [from, to] = transition.split("->");
+    if (to && from) {
+      return {
+        title: formatEngineState(to),
+        detail: from
+          ? `Moved from ${formatEngineState(from).toLowerCase()}`
+          : undefined,
+      };
+    }
+    if (to || transition.startsWith("->")) {
+      const target = to || transition.replace(/^->/, "");
+      return { title: formatEngineState(target), detail: "Pipeline started" };
+    }
+  }
+
+  if (type === "status_changed") {
+    return {
+      title: `Status updated to ${formatStatus(String(payload.to || payload.status || ""))}`,
+    };
+  }
+
+  if (type === "document_attached") {
+    return { title: "Document attached", detail: String(payload.filename || "") };
+  }
+
+  return {
+    title: humanizeToken(type.replace(/:/g, " ")),
+    detail:
+      typeof payload.message === "string"
+        ? payload.message
+        : Object.keys(payload).length
+          ? undefined
+          : undefined,
+  };
+}
+
+function engineStepIndex(engine: string): number {
+  const idx = PIPELINE_STEPS.findIndex((s) => s.key === engine);
+  if (idx >= 0) return idx;
+  if (engine === "REQUIRES_HUMAN" || engine === "FAILED" || engine === "BLOCKED") {
+    return 2;
+  }
+  return 0;
+}
+
+function badgeVariant(
+  status: string,
+): "default" | "success" | "warning" | "error" | "primary" {
+  const s = status.toLowerCase();
+  if (s === "submitted" || s === "offered") return "success";
+  if (s === "in_progress" || s === "interviewing" || s === "draft") return "primary";
+  if (s === "withdrawn" || s === "rejected" || s === "failed") return "error";
+  return "default";
+}
 
 export default function ApplicationDetailPage() {
   const router = useRouter();
@@ -67,88 +188,237 @@ export default function ApplicationDetailPage() {
     };
   }, [params.id, router]);
 
+  const engineStatus = String(detail?.submission_evidence?.engine_status || "");
+  const activeStep = engineStepIndex(engineStatus);
+  const openTasks = useMemo(
+    () => (detail?.human_tasks || []).filter((t) => t.status === "open"),
+    [detail],
+  );
+
   return (
     <AppShell active="applications" wide>
-      <Link href="/applications" className="mb-4 inline-block text-sm text-muted-foreground hover:text-foreground">
+      <Link
+        href="/applications"
+        className="mb-4 inline-block text-sm text-muted-foreground hover:text-foreground"
+      >
         ← Back to applications
       </Link>
       {error ? <p className="mb-4 text-sm text-destructive">{error}</p> : null}
-      {!detail && !error ? <p className="text-sm text-muted-foreground">Loading…</p> : null}
+      {!detail && !error ? <ListSkeleton rows={4} /> : null}
       {detail ? (
         <article className="space-y-6">
           <header>
             <h1 className="font-serif text-2xl text-foreground">
               {detail.job_title || "Application"}
             </h1>
-            <div className="mt-2 flex items-center gap-2">
+            <div className="mt-2 flex flex-wrap items-center gap-2">
               <p className="text-sm text-muted-foreground">{detail.company_name}</p>
-              <Badge variant="primary">{detail.status}</Badge>
+              <Badge variant={badgeVariant(detail.status)}>
+                {formatStatus(detail.status)}
+              </Badge>
+              {engineStatus ? (
+                <span className="text-xs text-text-muted">
+                  {formatEngineState(engineStatus)}
+                </span>
+              ) : null}
             </div>
           </header>
 
-          <Section title="Submission evidence">
-            {detail.submission_evidence ? (
-              <pre className="overflow-x-auto text-xs text-muted-foreground">
-                {JSON.stringify(detail.submission_evidence, null, 2)}
-              </pre>
-            ) : (
-              <p className="text-sm text-muted-foreground">No evidence recorded</p>
-            )}
+          <Section title="Progress">
+            <ol className="space-y-3">
+              {PIPELINE_STEPS.map((step, index) => {
+                const done = index < activeStep || engineStatus === "SUBMITTED";
+                const current =
+                  index === activeStep && engineStatus !== "SUBMITTED";
+                return (
+                  <li key={step.key} className="flex items-start gap-3">
+                    <span
+                      className={cn(
+                        "mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border",
+                        done
+                          ? "border-coral bg-coral text-white"
+                          : current
+                            ? "border-coral text-coral"
+                            : "border-line text-text-faint",
+                      )}
+                    >
+                      {done ? (
+                        <Check className="h-3.5 w-3.5" strokeWidth={3} />
+                      ) : current ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Circle className="h-3 w-3" />
+                      )}
+                    </span>
+                    <div>
+                      <p
+                        className={cn(
+                          "text-sm font-medium",
+                          done || current ? "text-ink" : "text-text-muted",
+                        )}
+                      >
+                        {step.label}
+                      </p>
+                      {current ? (
+                        <p className="text-xs text-text-muted">
+                          {formatEngineState(engineStatus)}
+                        </p>
+                      ) : null}
+                    </div>
+                  </li>
+                );
+              })}
+            </ol>
+            {openTasks.length > 0 ? (
+              <div className="mt-4 rounded-2xl border border-coral/30 bg-coral-bg/40 px-4 py-3">
+                <p className="text-sm font-semibold text-ink">Needs your seal</p>
+                <ul className="mt-2 space-y-1">
+                  {openTasks.map((t) => (
+                    <li key={t.id}>
+                      <Link
+                        href="/approvals"
+                        className="text-sm text-coral hover:underline"
+                      >
+                        {t.title || humanizeToken(t.task_type)} →
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+          </Section>
+
+          <Section title="Status">
+            <dl className="grid gap-3 text-sm sm:grid-cols-2">
+              <div>
+                <dt className="text-text-faint">Application</dt>
+                <dd className="font-medium text-ink">{formatStatus(detail.status)}</dd>
+              </div>
+              <div>
+                <dt className="text-text-faint">Pipeline</dt>
+                <dd className="font-medium text-ink">
+                  {engineStatus ? formatEngineState(engineStatus) : "Not started"}
+                </dd>
+              </div>
+              {detail.submission_evidence?.reason ? (
+                <div className="sm:col-span-2">
+                  <dt className="text-text-faint">Note</dt>
+                  <dd className="text-ink">{String(detail.submission_evidence.reason)}</dd>
+                </div>
+              ) : null}
+            </dl>
+            <p className="mt-3 text-xs text-text-muted">
+              Submission is only marked complete when there is clear evidence it
+              was sent — never from a stub alone.
+            </p>
           </Section>
 
           <Section title="Timeline">
-            <EventList
-              items={detail.events.map((e) => `${e.event_type} · ${e.created_at || ""}`)}
-            />
+            {detail.events.length === 0 ? (
+              <Empty>No activity recorded yet.</Empty>
+            ) : (
+              <ul className="space-y-3">
+                {[...detail.events].reverse().map((event, idx) => {
+                  const item = formatTimelineEvent(event);
+                  return (
+                    <li key={`${event.event_type}-${event.created_at}-${idx}`} className="flex gap-3">
+                      <time className="w-24 shrink-0 text-[11px] tabular-nums text-text-faint">
+                        {formatWhen(event.created_at)}
+                      </time>
+                      <div className="min-w-0">
+                        <p className="text-sm text-ink">{item.title}</p>
+                        {item.detail ? (
+                          <p className="text-xs text-text-muted">{item.detail}</p>
+                        ) : null}
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
           </Section>
 
           <Section title="Documents">
-            <EventList
-              items={detail.documents.map(
-                (d) => `${d.filename || d.id} (${d.status})`,
-              )}
-            />
+            {detail.documents.length === 0 ? (
+              <Empty>No documents attached yet.</Empty>
+            ) : (
+              <ul className="space-y-2 text-sm">
+                {detail.documents.map((d) => (
+                  <li key={d.id} className="flex justify-between gap-3">
+                    <span className="text-ink">{d.filename || "Untitled document"}</span>
+                    <span className="text-text-muted">{formatStatus(d.status)}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
           </Section>
 
           <Section title="Outreach">
-            <EventList
-              items={detail.outreach.map(
-                (o) => `${o.subject || o.id} (${o.status})`,
-              )}
-            />
+            {detail.outreach.length === 0 ? (
+              <Empty>No outreach drafts yet.</Empty>
+            ) : (
+              <ul className="space-y-2 text-sm">
+                {detail.outreach.map((o) => (
+                  <li key={o.id} className="flex justify-between gap-3">
+                    <span className="text-ink">{o.subject || "Untitled message"}</span>
+                    <span className="text-text-muted">{formatStatus(o.status)}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
           </Section>
 
           <Section title="Follow-ups">
-            <EventList
-              items={detail.follow_ups.map(
-                (f) => `${f.subject || f.id} · ${f.status} · ${f.next_action_at || ""}`,
-              )}
-            />
-          </Section>
-
-          <Section title="Human tasks">
-            <EventList
-              items={detail.human_tasks.map(
-                (t) => `${t.title || t.task_type} (${t.status})`,
-              )}
-            />
+            {detail.follow_ups.length === 0 ? (
+              <Empty>No follow-ups scheduled.</Empty>
+            ) : (
+              <ul className="space-y-2 text-sm">
+                {detail.follow_ups.map((f) => (
+                  <li key={f.id}>
+                    <p className="text-ink">{f.subject || "Follow-up"}</p>
+                    <p className="text-xs text-text-muted">
+                      {formatStatus(f.status)}
+                      {f.next_action_at ? ` · ${formatWhen(f.next_action_at)}` : ""}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            )}
           </Section>
 
           <Section title="Interviews">
-            <EventList
-              items={detail.interviews.map(
-                (i) =>
-                  `${i.title || "Interview"} · round ${i.round ?? "—"} · ${i.status}`,
-              )}
-            />
+            {detail.interviews.length === 0 ? (
+              <Empty>No interviews scheduled.</Empty>
+            ) : (
+              <ul className="space-y-2 text-sm">
+                {detail.interviews.map((i) => (
+                  <li key={i.id}>
+                    <p className="text-ink">
+                      {i.title || "Interview"}
+                      {i.round != null ? ` · Round ${i.round}` : ""}
+                    </p>
+                    <p className="text-xs text-text-muted">
+                      {formatStatus(i.status)}
+                      {i.scheduled_at ? ` · ${formatWhen(i.scheduled_at)}` : ""}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            )}
           </Section>
 
           <Section title="Offers">
-            <EventList
-              items={detail.offers.map(
-                (o) => `${o.status} · ${JSON.stringify(o.details || {})}`,
-              )}
-            />
+            {detail.offers.length === 0 ? (
+              <Empty>No offers yet.</Empty>
+            ) : (
+              <ul className="space-y-2 text-sm">
+                {detail.offers.map((o) => (
+                  <li key={o.id} className="text-ink">
+                    {formatStatus(o.status)}
+                  </li>
+                ))}
+              </ul>
+            )}
           </Section>
         </article>
       ) : null}
@@ -166,20 +436,11 @@ function Section({
   return (
     <Card>
       <CardTitle>{title}</CardTitle>
-      <div className="mt-2">{children}</div>
+      <div className="mt-3">{children}</div>
     </Card>
   );
 }
 
-function EventList({ items }: { items: string[] }) {
-  if (!items.length) {
-    return <p className="text-sm text-muted-foreground">None</p>;
-  }
-  return (
-    <ul className="space-y-1 text-sm text-muted-foreground">
-      {items.map((item, idx) => (
-        <li key={`${item}-${idx}`}>{item}</li>
-      ))}
-    </ul>
-  );
+function Empty({ children }: { children: React.ReactNode }) {
+  return <p className="text-sm text-muted-foreground">{children}</p>;
 }

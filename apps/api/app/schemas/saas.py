@@ -41,6 +41,8 @@ class ApplicationDetailResponse(BaseModel):
     submission_evidence: dict[str, Any] | None = None
     job_title: str | None = None
     company_name: str | None = None
+    job_description: str | None = None
+    contacts: list[dict[str, Any]] = Field(default_factory=list)
     events: list[dict[str, Any]] = Field(default_factory=list)
     documents: list[dict[str, Any]] = Field(default_factory=list)
     outreach: list[dict[str, Any]] = Field(default_factory=list)
@@ -48,6 +50,17 @@ class ApplicationDetailResponse(BaseModel):
     human_tasks: list[dict[str, Any]] = Field(default_factory=list)
     interviews: list[dict[str, Any]] = Field(default_factory=list)
     offers: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class ApplicationRefineRequest(BaseModel):
+    prompt: str = Field(min_length=1, max_length=4000)
+
+
+class ApplicationRefineResponse(BaseModel):
+    application_id: UUID
+    cover_letter: str | None = None
+    content: str | None = None
+    prompt: str
 
 
 class DocumentResponse(BaseModel):

@@ -3,8 +3,8 @@
 import { Suspense } from "react";
 
 import { AppTopNav, type NavKey } from "@/components/AppTopNav";
+import { ProcessBanner } from "@/components/ProcessBanner";
 import { SiteFooter } from "@/components/SiteFooter";
-import { ActivityBar } from "@/components/ActivityBar";
 import { cn } from "@/lib/cn";
 
 export type { NavKey };
@@ -14,7 +14,7 @@ type AppShellProps = {
   active?: NavKey;
   className?: string;
   wide?: boolean;
-  /** Hide global ActivityBar (e.g. dashboard renders its own inline) */
+  /** Hide global ProcessBanner (e.g. Activity page renders its own) */
   hideActivityBar?: boolean;
 };
 
@@ -39,11 +39,7 @@ function AppShellInner({
           className,
         )}
       >
-        {!hideActivityBar ? (
-          <div className="mb-4 flex justify-end">
-            <ActivityBar className="mb-0" />
-          </div>
-        ) : null}
+        {!hideActivityBar ? <ProcessBanner /> : null}
         {children}
       </main>
       <SiteFooter />

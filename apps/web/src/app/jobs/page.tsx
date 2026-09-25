@@ -217,15 +217,42 @@ function JobsPageInner() {
         const body = await response.json().catch(() => null);
         throw new Error(body?.error?.message || `API ${response.status}`);
       }
-      const payload = (await response.json()) as { updated?: number; started?: number };
+      const payload = (await response.json()) as {
+        updated?: number;
+        started?: number;
+        already_running?: number;
+        errors?: { match_id?: string; error?: string }[];
+      };
       setSelected(new Set());
       await refreshJobs();
+      const failCount = payload.errors?.length ?? 0;
+      const already = payload.already_running ?? 0;
       if (action === "save") {
         setMessage(`Saved ${payload.updated ?? selected.size} job(s).`);
       } else if (action === "dismiss") {
         setMessage(`Removed ${payload.updated ?? selected.size} job(s) from your list.`);
-      } else {
-        setMessage(`Started pipeline for ${payload.started ?? selected.size} job(s).`);
+      } else if (failCount > 0 && (payload.started ?? 0) === 0 && already === 0) {
+        throw new Error(
+          payload.errors?.[0]?.error ||
+            `Could not start pipeline for ${failCount} job(s).`,
+        );
+      } else if (action === "start_pipeline") {
+        const started = payload.started ?? 0;
+        const parts: string[] = [];
+        if (started > 0) {
+          parts.push(
+            `We’re preparing ${started} application${started === 1 ? "" : "s"} — watch progress above. You’ll approve when ready.`,
+          );
+        }
+        if (already > 0) {
+          parts.push(
+            `${already} already in progress — open Approvals when ready.`,
+          );
+        }
+        if (failCount > 0) {
+          parts.push(`${failCount} need attention.`);
+        }
+        setMessage(parts.join(" ") || "Moved to Applications — watch progress above.");
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Action failed");
@@ -247,7 +274,11 @@ function JobsPageInner() {
         throw new Error(body?.error?.message || `API ${response.status}`);
       }
       await refreshJobs();
-      setMessage(action === "save" ? "Saved." : "Pipeline started.");
+      setMessage(
+        action === "save"
+          ? "Saved."
+          : "We’re preparing this application — watch progress above. You’ll approve when ready.",
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Action failed");
     } finally {
@@ -257,11 +288,17 @@ function JobsPageInner() {
 
   const filteredJobs = useMemo(() => {
     return jobs.filter((job) => {
-      if (activeTab === "All") return job.status !== "dismissed";
+      if (activeTab === "All")
+        return job.status !== "dismissed" && job.status !== "applied";
       if (activeTab === "Dismissed") return job.status === "dismissed";
-      if (activeTab === "High Match") return job.score != null && job.score >= 0.8;
-      if (activeTab === "Applied")
-        return job.status === "applied" || job.status === "saved";
+      if (activeTab === "High Match")
+        return (
+          job.score != null &&
+          job.score >= 0.8 &&
+          job.status !== "dismissed" &&
+          job.status !== "applied"
+        );
+      if (activeTab === "Applied") return job.status === "applied";
       if (activeTab === "New") return job.status === "new";
       if (activeTab === "Saved") return job.status === "saved";
       return true;
@@ -361,7 +398,17 @@ function JobsPageInner() {
       </div>
 
       {error ? <p className="mb-4 text-sm text-destructive">{error}</p> : null}
-      {message ? <p className="mb-4 text-sm text-coral">{message}</p> : null}
+      {message ? (
+        <div className="mb-4 flex flex-wrap items-center gap-3 text-sm text-coral">
+          <p>{message}</p>
+          {message.toLowerCase().includes("preparing") ||
+          message.toLowerCase().includes("approvals") ? (
+            <Link href="/approvals" className="font-semibold underline">
+              Go to Approvals
+            </Link>
+          ) : null}
+        </div>
+      ) : null}
 
       {selected.size > 0 ? (
         <div className="mb-4 flex flex-wrap items-center gap-2 rounded-2xl border border-line bg-white px-4 py-3 shadow-soft">
