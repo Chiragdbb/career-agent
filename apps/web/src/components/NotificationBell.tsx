@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Bell } from "lucide-react";
 
 import { apiFetch } from "@/lib/api";
@@ -14,9 +15,27 @@ type Notification = {
   body: string | null;
   status: string;
   created_at: string;
+  data?: Record<string, unknown> | null;
+  notification_type?: string | null;
 };
 
+function hrefFromNotification(item: Notification): string {
+  const data = item.data || {};
+  if (typeof data.href === "string" && data.href.startsWith("/")) {
+    return data.href;
+  }
+  if (typeof data.application_id === "string" && data.application_id) {
+    return `/approvals?application=${data.application_id}`;
+  }
+  if (typeof data.outreach_id === "string" && data.outreach_id) {
+    return `/outreach/${data.outreach_id}`;
+  }
+  if (item.notification_type === "human_task") return "/approvals";
+  return "/settings?tab=notifications";
+}
+
 export function NotificationBell() {
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(false);
@@ -46,6 +65,15 @@ export function NotificationBell() {
   async function markAllRead() {
     await apiFetch("/api/v1/notifications/read-all", { method: "POST" });
     await refresh();
+  }
+
+  async function openItem(item: Notification) {
+    const href = hrefFromNotification(item);
+    setOpen(false);
+    await apiFetch(`/api/v1/notifications/${item.id}/read`, {
+      method: "POST",
+    }).catch(() => null);
+    router.push(href);
   }
 
   const unreadCount = items.length;
@@ -82,24 +110,37 @@ export function NotificationBell() {
             {loading ? (
               <li className="px-3 py-4 text-sm text-text-muted">Loading…</li>
             ) : items.length === 0 ? (
-              <li className="px-3 py-4 text-sm text-text-muted">No unread notifications</li>
+              <li className="px-3 py-4 text-sm text-text-muted">
+                No unread notifications
+              </li>
             ) : (
               items.map((item) => (
-                <li
-                  key={item.id}
-                  className={cn(
-                    "border-b border-line/60 px-3 py-2.5 text-sm",
-                    item.status === "unread" && "bg-gold/5",
-                  )}
-                >
-                  <p className="font-medium text-ink">{item.title}</p>
-                  {item.body ? <p className="mt-0.5 text-text-muted">{item.body}</p> : null}
+                <li key={item.id} className="border-b border-line/60">
+                  <button
+                    type="button"
+                    className={cn(
+                      "w-full px-3 py-2.5 text-left text-sm hover:bg-paper",
+                      item.status === "unread" && "bg-gold/5",
+                    )}
+                    onClick={() => void openItem(item)}
+                  >
+                    <p className="font-medium text-ink">{item.title}</p>
+                    {item.body ? (
+                      <p className="mt-0.5 text-text-muted">{item.body}</p>
+                    ) : null}
+                    <p className="mt-1 text-[11px] font-semibold text-coral">
+                      Open →
+                    </p>
+                  </button>
                 </li>
               ))
             )}
           </ul>
           <div className="border-t border-line px-3 py-2">
-            <Link href="/settings?tab=notifications" className="text-xs text-gold hover:underline">
+            <Link
+              href="/settings?tab=notifications"
+              className="text-xs text-gold hover:underline"
+            >
               View all →
             </Link>
           </div>

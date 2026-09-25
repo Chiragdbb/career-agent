@@ -99,15 +99,30 @@ class HumanTaskService:
         self._session.flush()
 
         if payload.notify and self._notifications is not None:
+            href = None
+            if isinstance(payload.details, dict):
+                href = payload.details.get("href")
+            if not href and payload.application_id:
+                href = f"/approvals?application={payload.application_id}"
+            elif not href and payload.outreach_id:
+                href = f"/outreach/{payload.outreach_id}"
+            elif not href:
+                href = "/approvals"
+            title = f"Your approval is needed"
+            body = payload.title or f"Open Approvals to continue ({payload.task_type.value})"
             notif_resp = self._notifications.send(
                 NotificationSendRequest(
                     user_id=self._user_id,
                     channel=NotificationChannel.in_app,
-                    title=f"Action required: {payload.title}",
-                    body=f"Human task ({payload.task_type.value}) needs your attention.",
+                    title=title,
+                    body=body,
                     payload={
                         "human_task_id": str(task.id),
                         "task_type": payload.task_type.value,
+                        "href": href,
+                        "application_id": str(payload.application_id)
+                        if payload.application_id
+                        else None,
                     },
                 )
             )
@@ -116,11 +131,15 @@ class HumanTaskService:
                 user_id=self._user_id,
                 status=NotificationStatus.unread,
                 notification_type="human_task",
-                title=f"Action required: {payload.title}",
-                body=f"Human task ({payload.task_type.value}) needs your attention.",
+                title=title,
+                body=body,
                 data={
                     "human_task_id": str(task.id),
                     "provider_notification_id": notif_resp.notification_id,
+                    "href": href,
+                    "application_id": str(payload.application_id)
+                    if payload.application_id
+                    else None,
                 },
             )
             self._session.add(row)
