@@ -17,7 +17,8 @@ import {
   isActiveWorkflow,
 } from "@/lib/workflows";
 
-function statusLabel(status: string): string {
+function statusLabel(status: string | null | undefined): string {
+  if (!status) return "Unknown";
   const s = status.toLowerCase();
   if (s === "completed") return "Completed";
   if (s === "failed") return "Failed";
