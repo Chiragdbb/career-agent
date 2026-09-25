@@ -57,7 +57,7 @@ An AI-assisted system for discovering jobs, researching companies, tailoring res
 
 **Key principles:**
 
-- **PostgreSQL** stores all durable state (see `database/schema-notes.md`).
+- **PostgreSQL** stores all durable state (see `database/models/schema.py` + Alembic migrations).
 - **Redis** backs job queues and caching.
 - **Workers** handle long-running or scheduled tasks (discovery, research, outreach, etc.).
 - **Provider adapters** isolate third-party SDKs behind interfaces — vendors above are defaults, not hard-wired architecture.
@@ -87,13 +87,14 @@ career-agent/
 ├── mcp/                  # MCP server exposing tools to AI assistants
 ├── database/
 │   ├── migrations/       # Schema migrations
-│   ├── seeds/            # Seed data
-│   ├── schema/           # Generated or reference schema artifacts
-│   └── schema-notes.md   # Entity design documentation
+│   └── models/           # SQLAlchemy models
 ├── tests/                # Test suite
 ├── docker/               # Docker Compose and container config
-├── docs/                 # Additional documentation
-└── infrastructure/       # Deployment and infra config
+├── docs/
+│   ├── local-development.md
+│   └── deployment.md
+├── AGENTS.md             # Mandatory development rules
+└── README.md
 ```
 
 ## Getting Started
@@ -104,11 +105,13 @@ career-agent/
    cp .env.example .env
    ```
 
-2. Fill in required keys (`DATABASE_URL`, `REDIS_URL`, and provider vars from `.env.example` — Supabase Auth + Supabase Storage, Groq/Gemini, Firecrawl base URL, Tavily, Resend for outbound email). Leave `RESEND_API_KEY` blank to use the mock email sender in CI/local. For a private Supabase Storage bucket, object access uses signed URLs generated server-side; no `SUPABASE_JWT_SECRET` is required for that assumption. `SUPABASE_STORAGE_PUBLIC_URL` is optional and only relevant for public buckets.
+2. Follow [docs/local-development.md](./docs/local-development.md) for Docker Postgres/Redis and running the API + web app.
 
-3. Read [AGENTS.md](./AGENTS.md) before making changes — it defines mandatory development rules for humans and AI agents.
+3. Fill in required keys from `.env.example` (Supabase Auth + Storage, LLM, Firecrawl, Tavily, Resend as needed).
 
-4. Review [database/schema-notes.md](./database/schema-notes.md) for the data model before writing migrations or domain code.
+4. Read [AGENTS.md](./AGENTS.md) before making changes — it defines mandatory development rules for humans and AI agents.
+
+5. Production deploy: [docs/deployment.md](./docs/deployment.md).
 
 ## Development Rules
 

@@ -29,8 +29,8 @@ export default function SignupPage() {
       password,
     });
 
-    setLoading(false);
     if (signUpError) {
+      setLoading(false);
       setError(signUpError.message);
       return;
     }
@@ -41,6 +41,7 @@ export default function SignupPage() {
       return;
     }
 
+    setLoading(false);
     setMessage("Check your email to confirm your account, then sign in.");
   }
 
@@ -102,7 +103,7 @@ export default function SignupPage() {
             />
             {error ? <p className="text-sm text-destructive">{error}</p> : null}
             {message ? <p className="text-sm text-coral">{message}</p> : null}
-            <Button type="submit" disabled={loading} className="w-full">
+            <Button type="submit" loading={loading} className="w-full">
               {loading ? "Creating…" : "Sign up"}
             </Button>
           </form>

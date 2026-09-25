@@ -30,8 +30,8 @@ function LoginForm() {
       password,
     });
 
-    setLoading(false);
     if (signInError) {
+      setLoading(false);
       setError(signInError.message);
       return;
     }
@@ -60,7 +60,7 @@ function LoginForm() {
           autoComplete="current-password"
         />
         {error ? <p className="text-sm text-destructive">{error}</p> : null}
-        <Button type="submit" disabled={loading} className="w-full">
+        <Button type="submit" loading={loading} className="w-full">
           {loading ? "Signing in…" : "Sign in"}
         </Button>
       </form>

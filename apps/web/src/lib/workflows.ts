@@ -108,6 +108,7 @@ export function formatWorkflowType(type: string | null | undefined): string {
   if (!type) return "Workflow";
   if (type === "job_discovery") return "Discovery";
   if (type === "job_rescrape") return "Rescrape";
+  if (type === "career_job_pipeline") return "Pipeline";
   return type.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 

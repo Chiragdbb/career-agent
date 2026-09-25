@@ -46,6 +46,7 @@ from packages.domain.preferences import (
     ApplicationAutomationMode,
     PreferencesService,
 )
+from packages.domain.workflow_progress import WorkflowProgressService
 from packages.providers.notification import (
     NotificationChannel,
     NotificationProvider,
@@ -69,6 +70,21 @@ class CareerWorkflowStep(StrEnum):
 
 
 STEP_ORDER: list[CareerWorkflowStep] = list(CareerWorkflowStep)
+
+STEP_LABELS: dict[str, str] = {
+    "match": "Confirming job match",
+    "research": "Researching the company",
+    "people": "Finding contacts",
+    "strategy": "Building application strategy",
+    "resume": "Selecting resume version",
+    "content": "Preparing application materials",
+    "approval_pause": "Waiting for your approval",
+    "prepare_application": "Preparing application draft",
+    "submit_application": "Submitting application",
+    "outreach_draft": "Drafting outreach",
+    "follow_up_schedule": "Scheduling follow-up",
+    "notify": "Sending notification",
+}
 
 
 class CareerWorkflowStart(BaseModel):
@@ -111,6 +127,7 @@ class CareerWorkflowService:
         human_tasks: HumanTaskService | None = None,
         notifications: NotificationProvider | None = None,
         strategy_service: ApplicationStrategyService | None = None,
+        progress: WorkflowProgressService | None = None,
         research_fn: ResearchFn | None = None,
         people_fn: PeopleFn | None = None,
         resume_fn: ResumeFn | None = None,
@@ -124,11 +141,33 @@ class CareerWorkflowService:
             session, user_id, notifications=notifications
         )
         self._strategy = strategy_service or ApplicationStrategyService()
+        self._progress = progress or WorkflowProgressService(session, user_id)
         self._research_fn = research_fn
         self._people_fn = people_fn
         self._resume_fn = resume_fn
         self._content_fn = content_fn
         self._outreach_fn = outreach_fn
+
+    def _emit_step(
+        self,
+        run: WorkflowRun,
+        step: CareerWorkflowStep,
+        *,
+        phase: str = "working",
+        completed_units: int | None = None,
+        message: str | None = None,
+    ) -> None:
+        label = message or STEP_LABELS.get(step.value, step.value.replace("_", " "))
+        self._progress.record_progress(
+            run,
+            step=step.value,
+            message=label,
+            phase=phase,
+            display={"step": step.value},
+            completed_units=completed_units,
+            planned_units=len(STEP_ORDER),
+        )
+        self._session.commit()
 
     def start_or_resume(self, payload: CareerWorkflowStart) -> CareerWorkflowResult:
         match = self._get_match(payload.job_match_id)
@@ -151,9 +190,20 @@ class CareerWorkflowService:
         run.status = WorkflowRunStatus.running
         meta["paused"] = False
         meta["permit_submit"] = payload.permit_submit
+        meta["human_title"] = meta.get("human_title") or "Application pipeline"
         if payload.resume_version_id:
             meta["resume_version_id"] = str(payload.resume_version_id)
         run.metadata_json = meta
+        self._session.commit()
+        self._progress.seed_eta(run, planned_units=len(STEP_ORDER))
+        self._progress.record_progress(
+            run,
+            step="starting",
+            message="Starting application pipeline",
+            phase="thinking",
+            planned_units=len(STEP_ORDER),
+            completed_units=len(meta.get("completed_steps") or []),
+        )
         self._session.commit()
 
         completed = list(meta.get("completed_steps") or [])
@@ -167,9 +217,17 @@ class CareerWorkflowService:
                 meta["current_step"] = step.value
                 run.metadata_json = meta
                 self._session.commit()
+                self._emit_step(run, step, phase="working", completed_units=len(completed))
 
                 if self._task_already_completed(run.id, step.value):
                     completed.append(step.value)
+                    self._emit_step(
+                        run,
+                        step,
+                        phase="result",
+                        completed_units=len(completed),
+                        message=f"{STEP_LABELS.get(step.value, step.value)} — done",
+                    )
                     continue
 
                 task = self._begin_task(run.id, step.value, input_payload={"match_id": str(match.id)})
@@ -185,9 +243,19 @@ class CareerWorkflowService:
                     meta["paused"] = True
                     meta["pause_human_task_id"] = str(pause.human_task_id)
                     meta["current_step"] = step.value
+                    meta["status_message"] = STEP_LABELS.get(
+                        step.value, "Waiting for your approval"
+                    )
                     run.metadata_json = meta
                     run.status = WorkflowRunStatus.running
                     self._session.commit()
+                    self._emit_step(
+                        run,
+                        step,
+                        phase="result",
+                        completed_units=len(completed),
+                        message="Paused — your approval is needed",
+                    )
                     return CareerWorkflowResult(
                         workflow_run_id=run.id,
                         status=run.status.value,
@@ -209,6 +277,13 @@ class CareerWorkflowService:
                     run.status = WorkflowRunStatus.failed
                     run.error = str(exc)
                     self._session.commit()
+                    self._emit_step(
+                        run,
+                        step,
+                        phase="error",
+                        completed_units=len(completed),
+                        message=f"Failed at {STEP_LABELS.get(step.value, step.value)}",
+                    )
                     return CareerWorkflowResult(
                         workflow_run_id=run.id,
                         status=run.status.value,
@@ -227,11 +302,28 @@ class CareerWorkflowService:
                 meta["outputs"] = outputs
                 run.metadata_json = meta
                 self._session.commit()
+                self._emit_step(
+                    run,
+                    step,
+                    phase="result",
+                    completed_units=len(completed),
+                    message=f"{STEP_LABELS.get(step.value, step.value)} — done",
+                )
 
             run.status = WorkflowRunStatus.completed
             meta["current_step"] = None
+            meta["status_message"] = "Pipeline finished"
             meta["finished_at"] = datetime.now(timezone.utc).isoformat()
             run.metadata_json = meta
+            self._session.commit()
+            self._progress.record_progress(
+                run,
+                step="completed",
+                message="Application pipeline finished",
+                phase="result",
+                completed_units=len(STEP_ORDER),
+                planned_units=len(STEP_ORDER),
+            )
             self._session.commit()
             return CareerWorkflowResult(
                 workflow_run_id=run.id,
@@ -507,6 +599,8 @@ class CareerWorkflowService:
                 "outputs": {},
                 "errors": [],
                 "permit_submit": payload.permit_submit,
+                "human_title": "Application pipeline",
+                "status_message": "Pipeline queued",
             },
         )
         run.metadata_json["workflow_run_id"] = str(run.id)
