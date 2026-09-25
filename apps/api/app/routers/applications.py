@@ -12,6 +12,7 @@ from app.schemas.saas import (
     ApplicationRefineResponse,
     ApplicationSummaryResponse,
 )
+from packages.domain.application_package import ApplicationPackageService
 from packages.domain.application_refine import ApplicationRefineInput, ApplicationRefineService
 from packages.domain.dashboard import DashboardService
 from packages.domain.tenant_resources import TenantResourceService
@@ -47,6 +48,8 @@ def get_application(
         job_title=detail.job_title,
         company_name=detail.company_name,
         job_description=detail.job_description,
+        job_url=detail.job_url,
+        job_match_id=detail.job_match_id,
         contacts=detail.contacts,
         events=[e.model_dump(mode="json") for e in detail.events],
         documents=detail.documents,
@@ -56,6 +59,26 @@ def get_application(
         interviews=detail.interviews,
         offers=detail.offers,
     )
+
+
+@router.post("/{application_id}/return-to-pile")
+def return_application_to_pile(
+    application_id: UUID,
+    session: DbSessionDep,
+    user_id: CurrentUserIdDep,
+) -> dict:
+    result = ApplicationPackageService(session, user_id).return_to_pile(application_id)
+    return result.model_dump(mode="json")
+
+
+@router.post("/{application_id}/dismiss")
+def dismiss_application_package(
+    application_id: UUID,
+    session: DbSessionDep,
+    user_id: CurrentUserIdDep,
+) -> dict:
+    result = ApplicationPackageService(session, user_id).dismiss_package(application_id)
+    return result.model_dump(mode="json")
 
 
 @router.post(

@@ -7,7 +7,8 @@ import uuid
 
 from sqlalchemy.orm import Session
 
-from packages.domain.career_workflow import CareerWorkflowService, CareerWorkflowStart
+from packages.domain.career_workflow import CareerWorkflowStart
+from packages.domain.career_workflow_factory import build_career_workflow_service
 from packages.providers.notification import MockNotificationProvider
 from workers.celery_app import celery_app
 
@@ -30,7 +31,7 @@ def _run_career_workflow(
 ) -> dict:
     session = _session()
     try:
-        service = CareerWorkflowService(
+        service = build_career_workflow_service(
             session,
             user_id,
             notifications=MockNotificationProvider(),

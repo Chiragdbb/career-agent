@@ -11,6 +11,7 @@ import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Input } from "@/components/ui/Input";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { ScoreRing } from "@/components/ui/ScoreRing";
 import { ListSkeleton } from "@/components/ui/Skeleton";
 import { SegmentedTabs } from "@/components/ui/SegmentedTabs";
 import { apiFetch } from "@/lib/api";
@@ -61,6 +62,11 @@ function DocumentsContent() {
   const [docs, setDocs] = useState<Doc[]>([]);
   const [resumes, setResumes] = useState<ResumeSummary[]>([]);
   const [selectedResume, setSelectedResume] = useState<ResumeDetail | null>(null);
+  const [atsScore, setAtsScore] = useState<{
+    score: number;
+    warning: string | null;
+    missing: string[];
+  } | null>(null);
   const [uploading, setUploading] = useState(false);
   const [resumeName, setResumeName] = useState("");
   const [success, setSuccess] = useState<string | null>(null);
@@ -146,6 +152,32 @@ function DocumentsContent() {
       setError(err instanceof Error ? err.message : "Upload failed");
     } finally {
       setUploading(false);
+    }
+  }
+
+  async function openResume(resumeId: string) {
+    try {
+      const res = await apiFetch(`/api/v1/resumes/${resumeId}`);
+      if (!res.ok) throw new Error("Failed to load");
+      setSelectedResume((await res.json()) as ResumeDetail);
+      setAtsScore(null);
+      const atsRes = await apiFetch(`/api/v1/resumes/${resumeId}/ats-score`, {
+        method: "POST",
+      });
+      if (atsRes.ok) {
+        const body = (await atsRes.json()) as {
+          score: number;
+          warning?: string | null;
+          missing?: string[];
+        };
+        setAtsScore({
+          score: body.score,
+          warning: body.warning || null,
+          missing: body.missing || [],
+        });
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed");
     }
   }
 
@@ -241,15 +273,7 @@ function DocumentsContent() {
                     <button
                       type="button"
                       className="flex w-full items-center justify-between px-4 py-3 text-left hover:bg-muted/40"
-                      onClick={async () => {
-                        try {
-                          const res = await apiFetch(`/api/v1/resumes/${resume.id}`);
-                          if (!res.ok) throw new Error("Failed to load");
-                          setSelectedResume((await res.json()) as ResumeDetail);
-                        } catch (err) {
-                          setError(err instanceof Error ? err.message : "Failed");
-                        }
-                      }}
+                      onClick={() => void openResume(resume.id)}
                     >
                       <span className="text-sm font-medium text-foreground">
                         {resume.name}
@@ -268,7 +292,10 @@ function DocumentsContent() {
                 type="button"
                 className="fixed inset-0 z-40 bg-black/30"
                 aria-label="Close preview"
-                onClick={() => setSelectedResume(null)}
+                onClick={() => {
+                  setSelectedResume(null);
+                  setAtsScore(null);
+                }}
               />
               <aside className="fixed inset-y-0 right-0 z-50 flex w-full max-w-md flex-col border-l border-line bg-paper-raised shadow-xl">
                 <div className="flex items-center justify-between border-b border-line px-4 py-3">
@@ -277,13 +304,33 @@ function DocumentsContent() {
                   </h2>
                   <button
                     type="button"
-                    onClick={() => setSelectedResume(null)}
+                    onClick={() => {
+                      setSelectedResume(null);
+                      setAtsScore(null);
+                    }}
                     className="text-sm text-text-muted hover:text-foreground"
                   >
                     Close
                   </button>
                 </div>
                 <div className="flex-1 overflow-y-auto p-4 text-sm">
+                  {atsScore ? (
+                    <div className="mb-4 flex items-start gap-3 rounded-2xl border border-line bg-white p-3">
+                      <ScoreRing value={atsScore.score} size={56} />
+                      <div>
+                        <p className="text-xs font-semibold uppercase text-text-faint">
+                          Base ATS vs preferences
+                        </p>
+                        {atsScore.warning ? (
+                          <p className="mt-1 text-xs text-coral">{atsScore.warning}</p>
+                        ) : (
+                          <p className="mt-1 text-xs text-text-muted">
+                            Strong base coverage — fewer customize loops per job.
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  ) : null}
                   {selectedResume.signed_url ? (
                     <a
                       href={selectedResume.signed_url}

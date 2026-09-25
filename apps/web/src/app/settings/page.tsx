@@ -238,9 +238,24 @@ function SettingsContent() {
         <Card>
           <CardTitle>Email & mailbox</CardTitle>
           <p className="mt-3 text-sm text-text-muted">
-            Email integration is coming soon. Outreach send currently uses the configured
-            mock sender until Gmail/Outlook OAuth is available.
+            Outbound mail uses your configured sender (Resend/SMTP when keys are
+            set). Inbound mailbox connect is a stub for this release — replies
+            are not ingested yet.
           </p>
+          <div className="mt-4 rounded-2xl border border-dashed border-line bg-paper p-4">
+            <p className="text-sm font-semibold text-ink">Connect mailbox</p>
+            <p className="mt-1 text-xs text-text-muted">
+              Gmail / Outlook OAuth coming soon. Until then, send from Approvals
+              and the Mail hub after you approve each draft.
+            </p>
+            <button
+              type="button"
+              disabled
+              className="mt-3 rounded-full bg-line px-4 py-2 text-sm font-semibold text-text-muted"
+            >
+              Connect mailbox (coming soon)
+            </button>
+          </div>
         </Card>
       ) : null}
     </>

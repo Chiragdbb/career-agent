@@ -163,12 +163,19 @@ class JobDiscoveryService:
             metadata["max_results"] = self._max_results
             metadata["current_step"] = "starting"
             run.metadata_json = metadata
+            prefs = _prefs_for_discovery_mode(
+                prefs,
+                mode=str(metadata.get("discovery_mode") or "profile"),
+                query_hint=metadata.get("query_hint")
+                if isinstance(metadata.get("query_hint"), str)
+                else None,
+            )
             self._session.flush()
             self._publish_progress(
                 run_id=run.id,
                 step="starting",
                 message="Job discovery started",
-                data={"status": "running"},
+                data={"status": "running", "mode": metadata.get("discovery_mode") or "profile"},
             )
         else:
             run = WorkflowRun(
@@ -1263,6 +1270,42 @@ class JobDiscoveryService:
                 "data": payload_data,
             },
         )
+
+
+def _prefs_for_discovery_mode(
+    prefs: PreferenceSettings,
+    *,
+    mode: str,
+    query_hint: str | None,
+) -> PreferenceSettings:
+    """Profile uses preferences as-is; Explore widens titles/locations."""
+    if mode != "explore":
+        return prefs
+    roles = list(prefs.target_roles or [])
+    hint = (query_hint or "").strip()
+    if hint:
+        roles = [hint, *roles]
+    else:
+        roles = [*roles, "software engineer", "product manager"]
+    # De-dupe while preserving order.
+    seen: set[str] = set()
+    deduped_roles: list[str] = []
+    for role in roles:
+        key = role.strip().lower()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        deduped_roles.append(role.strip())
+    locations = list(prefs.locations or [])
+    for extra in ("remote", "united states"):
+        if extra not in {loc.lower() for loc in locations}:
+            locations.append(extra)
+    return prefs.model_copy(
+        update={
+            "target_roles": deduped_roles[:5] or ["software engineer"],
+            "locations": locations[:4] or ["remote"],
+        }
+    )
 
 
 def _build_queries(prefs: PreferenceSettings) -> list[str]:

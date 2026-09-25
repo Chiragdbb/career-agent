@@ -1,7 +1,7 @@
 """CareerWorkflowService — orchestrate per-job career pipeline.
 
-match → research → people → strategy → resume → content → approval pause →
-prepare application → (submit if permitted) → outreach draft → follow-up schedule → notify
+match → research → people → strategy → resume → content → outreach draft →
+approval pause → prepare application → (submit if permitted) → follow-up → notify
 
 Resumable, idempotent (via workflow_tasks), observable (workflow_runs + events).
 """
@@ -9,7 +9,7 @@ Resumable, idempotent (via workflow_tasks), observable (workflow_runs + events).
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from enum import StrEnum
 from typing import Any, Callable
 
@@ -61,10 +61,10 @@ class CareerWorkflowStep(StrEnum):
     strategy = "strategy"
     resume = "resume"
     content = "content"
+    outreach_draft = "outreach_draft"
     approval_pause = "approval_pause"
     prepare_application = "prepare_application"
     submit_application = "submit_application"
-    outreach_draft = "outreach_draft"
     follow_up_schedule = "follow_up_schedule"
     notify = "notify"
 
@@ -78,10 +78,10 @@ STEP_LABELS: dict[str, str] = {
     "strategy": "Building application strategy",
     "resume": "Selecting resume version",
     "content": "Preparing application materials",
+    "outreach_draft": "Drafting outreach",
     "approval_pause": "Waiting for your approval",
     "prepare_application": "Preparing application draft",
     "submit_application": "Submitting application",
-    "outreach_draft": "Drafting outreach",
     "follow_up_schedule": "Scheduling follow-up",
     "notify": "Sending notification",
 }
@@ -447,7 +447,10 @@ class CareerWorkflowService:
 
         if step == CareerWorkflowStep.resume:
             if self._resume_fn:
-                return self._resume_fn(self._session, self._user_id, outputs)
+                out = self._resume_fn(self._session, self._user_id, outputs)
+                if out.get("resume_version_id"):
+                    meta["resume_version_id"] = str(out["resume_version_id"])
+                return out
             version_id = meta.get("resume_version_id")
             if not version_id:
                 version_id = self._default_resume_version_id()
@@ -496,11 +499,29 @@ class CareerWorkflowService:
             if app_row is not None and isinstance(app_row.submission_evidence, dict):
                 evidence = dict(app_row.submission_evidence)
             evidence["engine_status"] = EngineState.AWAITING_APPROVAL.value
+            outreach_out = outputs.get("outreach")
+            outreach_dict = outreach_out if isinstance(outreach_out, dict) else {}
             evidence["draft_materials"] = {
-                "cover_letter": outputs.get("cover_letter"),
+                "cover_letter": outputs.get("cover_letter") or outputs.get("content"),
                 "content": outputs.get("content"),
+                "hook_subject": outputs.get("hook_subject")
+                or outreach_dict.get("subject"),
+                "hook_body": outputs.get("hook_body") or outreach_dict.get("body"),
                 "strategy_summary": outputs.get("strategy_summary"),
-                "resume_version_id": meta.get("resume_version_id"),
+                "resume_version_id": meta.get("resume_version_id")
+                or outputs.get("resume_version_id"),
+                "ats_score": outputs.get("ats_score"),
+                "ats_matched": outputs.get("ats_matched") or [],
+                "ats_missing": outputs.get("ats_missing") or [],
+                "outreach_id": outputs.get("outreach_id")
+                or (
+                    str(outreach_dict["id"])
+                    if outreach_dict.get("id") is not None
+                    else None
+                ),
+                "expires_at": (
+                    datetime.now(timezone.utc) + timedelta(hours=72)
+                ).isoformat(),
             }
             people_out = outputs.get("people") if isinstance(outputs.get("people"), list) else []
             evidence["contacts_snapshot"] = people_out[:20]

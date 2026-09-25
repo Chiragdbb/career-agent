@@ -356,6 +356,8 @@ class DiscoveryTriggerService:
         *,
         idempotency_key: str | None = None,
         max_results: int = 5,
+        discovery_mode: str = "profile",
+        query_hint: str | None = None,
     ) -> DiscoveryEnqueueResult:
         if idempotency_key:
             recent = (
@@ -406,6 +408,8 @@ class DiscoveryTriggerService:
             metadata_json={
                 "max_results": max_results,
                 "idempotency_key": idempotency_key,
+                "discovery_mode": discovery_mode if discovery_mode in ("profile", "explore") else "profile",
+                "query_hint": (query_hint or "").strip() or None,
                 "queued_at": datetime.now(timezone.utc).isoformat(),
             },
         )

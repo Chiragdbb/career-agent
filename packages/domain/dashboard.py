@@ -82,6 +82,8 @@ class ApplicationDetail(BaseModel):
     job_title: str | None = None
     company_name: str | None = None
     job_description: str | None = None
+    job_url: str | None = None
+    job_match_id: uuid.UUID | None = None
     contacts: list[dict[str, Any]] = Field(default_factory=list)
     events: list[TimelineEvent] = Field(default_factory=list)
     documents: list[dict[str, Any]] = Field(default_factory=list)
@@ -363,10 +365,18 @@ class DashboardService:
                     )
 
         desc = getattr(job, "description", None)
-        if isinstance(desc, str) and len(desc) > 600:
-            desc = desc[:600] + "…"
-        elif not isinstance(desc, str):
+        if not isinstance(desc, str):
             desc = None
+
+        match_row = (
+            self._session.query(JobMatch)
+            .filter(
+                JobMatch.user_id == self._user_id,
+                JobMatch.job_id == job.id,
+            )
+            .order_by(JobMatch.created_at.desc())
+            .first()
+        )
 
         return ApplicationDetail(
             id=application.id,
@@ -381,6 +391,8 @@ class DashboardService:
             job_title=job.title,
             company_name=company.name,
             job_description=desc,
+            job_url=getattr(job, "url", None),
+            job_match_id=match_row.id if match_row else None,
             contacts=contact_payload,
             events=self._timeline_for_application(application_id),
             documents=self._documents_for_application(application_id),
