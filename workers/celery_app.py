@@ -54,6 +54,11 @@ celery_app.conf.update(
             "schedule": 60 * 60,
             "kwargs": {"min_score": 0.75},
         },
+        "expire-package-artifacts-hourly": {
+            "task": "scheduled.expire_package_artifacts",
+            "schedule": 60 * 60,
+            "kwargs": {"limit": 200},
+        },
     },
 )
 

@@ -9,7 +9,8 @@ from fastapi import APIRouter, Query
 from app.dependencies import CurrentUserIdDep, DbSessionDep
 from app.schemas.human_tasks import HumanTaskResolveRequest, HumanTaskResponse
 from database.models.enums import HumanTaskStatus
-from packages.domain.career_workflow import CareerWorkflowService, CareerWorkflowStart
+from packages.domain.career_workflow import CareerWorkflowStart
+from packages.domain.career_workflow_factory import build_career_workflow_service
 from packages.domain.human_tasks import HumanTaskResolveInput, HumanTaskService
 from packages.providers.notification import MockNotificationProvider
 
@@ -78,7 +79,7 @@ def resolve_human_task(
             meta = run.metadata_json if isinstance(run.metadata_json, dict) else {}
             match_id = meta.get("job_match_id")
             if match_id:
-                CareerWorkflowService(
+                build_career_workflow_service(
                     session, user_id, notifications=_notifications()
                 ).start_or_resume(
                     CareerWorkflowStart(

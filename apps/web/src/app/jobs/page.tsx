@@ -59,6 +59,9 @@ function JobsPageInner() {
   const [jobs, setJobs] = useState<JobMatchSummary[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [activeTab, setActiveTab] = useState<(typeof tabs)[number]>("All");
+  const [discoveryMode, setDiscoveryMode] = useState<"profile" | "explore">(
+    "profile",
+  );
   const [exploreQuery, setExploreQuery] = useState("");
   const [activeDiscoveryRunId, setActiveDiscoveryRunId] = useState<string | null>(null);
   const autoDiscoverAttempted = useRef(false);
@@ -176,7 +179,8 @@ function JobsPageInner() {
         method: "POST",
         body: JSON.stringify({
           max_results: 5,
-          ...(exploreQuery.trim()
+          mode: discoveryMode,
+          ...(discoveryMode === "explore" && exploreQuery.trim()
             ? { query_hint: exploreQuery.trim() }
             : {}),
         }),
@@ -318,20 +322,42 @@ function JobsPageInner() {
           Quietly tailored openings shaped around your preferences — review,
           save, or start a pitch when you are ready.
         </p>
+        <div className="mx-auto mt-5 flex justify-center">
+          <SegmentedTabs
+            tabs={[
+              { id: "profile", label: "For your profile" },
+              { id: "explore", label: "Explore" },
+            ]}
+            active={discoveryMode}
+            onChange={setDiscoveryMode}
+          />
+        </div>
+        {discoveryMode === "explore" ? (
+          <p className="mx-auto mt-3 max-w-lg text-xs text-text-muted">
+            Explore widens titles and locations — expect lower precision than
+            profile-matched discovery.
+          </p>
+        ) : (
+          <p className="mx-auto mt-3 max-w-lg text-xs text-text-muted">
+            Uses your preference targets for higher-precision matches.
+          </p>
+        )}
         <form
           data-discover-form
           onSubmit={(e) => void onDiscover(e)}
           className="mx-auto mt-6 flex w-full max-w-2xl flex-col gap-3 sm:flex-row sm:items-center"
         >
-          <div className="flex flex-1 items-center gap-2 rounded-full border border-line bg-white px-4 py-2 shadow-soft">
-            <Sparkles className="h-4 w-4 text-coral" />
-            <input
-              value={exploreQuery}
-              onChange={(e) => setExploreQuery(e.target.value)}
-              placeholder="Find roles that match your craft…"
-              className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-text-faint"
-            />
-          </div>
+          {discoveryMode === "explore" ? (
+            <div className="flex flex-1 items-center gap-2 rounded-full border border-line bg-white px-4 py-2 shadow-soft">
+              <Sparkles className="h-4 w-4 text-coral" />
+              <input
+                value={exploreQuery}
+                onChange={(e) => setExploreQuery(e.target.value)}
+                placeholder="Optional broader craft or title…"
+                className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-text-faint"
+              />
+            </div>
+          ) : null}
           <GoldButton
             type="submit"
             disabled={discovering || acting}
@@ -341,23 +367,27 @@ function JobsPageInner() {
               ? "Discovery running"
               : discovering
                 ? "Starting…"
-                : "Explore with Waypoint"}
+                : discoveryMode === "explore"
+                  ? "Explore with Waypoint"
+                  : "Find profile matches"}
             <ArrowRight className="ml-1 h-3.5 w-3.5" />
           </GoldButton>
         </form>
-        <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
-          <span className="text-xs text-text-faint">Try exploring</span>
-          {exploreHints.map((hint) => (
-            <button
-              key={hint}
-              type="button"
-              onClick={() => setExploreQuery(hint)}
-              className="rounded-full bg-white/80 px-3 py-1 text-xs font-medium text-text-muted shadow-sm hover:text-ink"
-            >
-              {hint}
-            </button>
-          ))}
-        </div>
+        {discoveryMode === "explore" ? (
+          <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+            <span className="text-xs text-text-faint">Try exploring</span>
+            {exploreHints.map((hint) => (
+              <button
+                key={hint}
+                type="button"
+                onClick={() => setExploreQuery(hint)}
+                className="rounded-full bg-white/80 px-3 py-1 text-xs font-medium text-text-muted shadow-sm hover:text-ink"
+              >
+                {hint}
+              </button>
+            ))}
+          </div>
+        ) : null}
       </HeroBand>
 
       <ActionCard className="mb-8 !flex-row flex-wrap items-center justify-between gap-4">

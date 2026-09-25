@@ -115,7 +115,38 @@ def test_celery_includes_expanded_workers() -> None:
 
 def test_career_workflow_pauses_for_approval_then_resumes(wf_ctx) -> None:
     session, user, match, version, notif = wf_ctx
-    svc = CareerWorkflowService(session, user.id, notifications=notif)
+
+    def resume_fn(s, uid, outputs):
+        return {
+            "resume_version_id": str(version.id),
+            "customized": True,
+            "ats_score": 92,
+            "ats_matched": ["python", "fastapi"],
+            "ats_missing": [],
+        }
+
+    def content_fn(s, uid, outputs):
+        return {
+            "content": "Cover draft body",
+            "cover_letter": "Dear hiring team,\n\nI am applying.\n",
+        }
+
+    def outreach_fn(s, uid, outputs):
+        return {
+            "hook_subject": "Quick note on Staff Engineer",
+            "hook_body": "Hi,\n\nSaw the role and wanted to reach out.\n",
+            "outreach_id": None,
+            "note": "no_contact",
+        }
+
+    svc = CareerWorkflowService(
+        session,
+        user.id,
+        notifications=notif,
+        resume_fn=resume_fn,
+        content_fn=content_fn,
+        outreach_fn=outreach_fn,
+    )
     result = svc.start_or_resume(
         CareerWorkflowStart(
             job_match_id=match.id,
@@ -126,9 +157,17 @@ def test_career_workflow_pauses_for_approval_then_resumes(wf_ctx) -> None:
     assert result.paused is True
     assert result.human_task_id is not None
     assert "approval_pause" in result.completed_steps
+    assert "outreach_draft" in result.completed_steps
     assert result.application_id is not None
     session.refresh(match)
     assert match.status == JobMatchStatus.applied
+
+    app = session.query(Application).filter(Application.id == result.application_id).one()
+    materials = (app.submission_evidence or {}).get("draft_materials") or {}
+    assert materials.get("cover_letter")
+    assert materials.get("ats_score") == 92
+    assert materials.get("hook_subject")
+    assert materials.get("expires_at")
 
     # Second start without force is already_running — no duplicate task.
     again = svc.start_or_resume(

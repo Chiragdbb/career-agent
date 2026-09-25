@@ -71,3 +71,20 @@ def notify_high_fit_matches(*, min_score: float = 0.75) -> dict:
         return {"notified": notified}
     finally:
         session.close()
+
+
+@celery_app.task(name="scheduled.expire_package_artifacts")
+def expire_package_artifacts(limit: int = 200) -> dict:
+    """Clear unsent package drafts past TTL; never delete sent outreach."""
+    from packages.domain.artifact_expiry import ArtifactExpiryService
+
+    session = _session()
+    try:
+        stats = ArtifactExpiryService(session).expire_due(limit=limit)
+        return {
+            "applications_cleared": stats.applications_cleared,
+            "outreach_cancelled": stats.outreach_cancelled,
+            "resume_versions_discarded": stats.resume_versions_discarded,
+        }
+    finally:
+        session.close()

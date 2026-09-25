@@ -30,7 +30,7 @@ type Outreach = {
   reason?: string | null;
 };
 
-type FilterId = "all" | "signoff" | "scheduled" | "replies";
+type FilterId = "all" | "draft" | "approved" | "sent";
 
 export default function OutreachPage() {
   const router = useRouter();
@@ -39,7 +39,7 @@ export default function OutreachPage() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [approvingId, setApprovingId] = useState<string | null>(null);
-  const [filter, setFilter] = useState<FilterId>("signoff");
+  const [filter, setFilter] = useState<FilterId>("draft");
 
   const loadRows = useCallback(async () => {
     const response = await apiFetch("/api/v1/outreach");
@@ -104,17 +104,17 @@ export default function OutreachPage() {
   );
 
   const filtered = useMemo(() => {
-    if (filter === "signoff") return drafted;
-    if (filter === "scheduled") return approved;
-    if (filter === "replies") return sent;
+    if (filter === "draft") return drafted;
+    if (filter === "approved") return approved;
+    if (filter === "sent") return sent;
     return rows;
   }, [filter, drafted, approved, sent, rows]);
 
   const filters: { id: FilterId; label: string }[] = [
-    { id: "all", label: `All Outreach (${rows.length})` },
-    { id: "signoff", label: `Ready for Sign-off (${drafted.length})` },
-    { id: "scheduled", label: `Approved (${approved.length})` },
-    { id: "replies", label: `Sent (${sent.length})` },
+    { id: "all", label: `All mail (${rows.length})` },
+    { id: "draft", label: `Draft (${drafted.length})` },
+    { id: "approved", label: `Approved (${approved.length})` },
+    { id: "sent", label: `Sent (${sent.length})` },
   ];
 
   return (
@@ -123,12 +123,12 @@ export default function OutreachPage() {
         <div className="grid gap-8 lg:grid-cols-12 lg:items-center">
           <div className="lg:col-span-7">
             <h1 className="text-3xl font-bold tracking-tight text-ink sm:text-4xl">
-              Conversations with{" "}
-              <span className="font-serif italic text-coral">human warmth.</span>
+              Outbound{" "}
+              <span className="font-serif italic text-coral">Mail hub.</span>
             </h1>
             <p className="mt-4 max-w-xl text-sm leading-relaxed text-text-muted sm:text-[15px]">
-              Draft notes in your voice, then approve before anything is sent.
-              Cold spam stays off the table.
+              Drafts, approved notes, and sent mail for your applications. Nothing
+              leaves without your seal.
             </p>
             <div className="mt-5 flex flex-wrap gap-4 text-sm font-semibold text-ink">
               <span className="inline-flex items-center gap-1.5">
@@ -139,17 +139,17 @@ export default function OutreachPage() {
               </span>
               <span className="inline-flex items-center gap-1.5">
                 <Clock className="h-4 w-4 text-lavender-deep" />{" "}
-                {drafted.length} awaiting seal
+                {drafted.length} drafts
               </span>
             </div>
           </div>
           <ActionCard className="lg:col-span-5 !bg-lavender/50">
             <p className="text-sm font-semibold text-lavender-deep">
-              Warm introductions ready
+              Package-linked outbound
             </p>
             <p className="mt-2 text-sm text-text-muted">
-              Crafted for your review. Read, polish, or approve with one press —
-              send is always a separate step.
+              Open a draft to jump back to Approvals when it belongs to a package.
+              Send stays a separate step after approve.
             </p>
           </ActionCard>
         </div>
@@ -168,7 +168,7 @@ export default function OutreachPage() {
                 : "text-text-muted hover:bg-white/70",
             )}
           >
-            {filter === f.id && f.id === "signoff" ? (
+            {filter === f.id && f.id === "draft" ? (
               <span className="mr-1.5 inline-block size-1.5 rounded-full bg-coral" />
             ) : null}
             {f.label}
@@ -189,8 +189,8 @@ export default function OutreachPage() {
         <CardGridSkeleton count={4} />
       ) : rows.length === 0 ? (
         <EmptyState
-          title="No outreach drafted yet"
-          description="Outreach drafts appear here during application workflows. Approve before send."
+          title="No outbound mail yet"
+          description="Hook emails from application packages land here as drafts. Approve, then send."
         />
       ) : (
         <div className="grid gap-6 lg:grid-cols-12">
