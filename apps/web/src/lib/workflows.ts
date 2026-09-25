@@ -225,7 +225,7 @@ export async function fetchWorkflowProgress(runId: string): Promise<{
 }
 
 export async function fetchActivityRuns(limit = 50): Promise<ActivityRun[]> {
-  const response = await apiFetch(`/api/v1/activity?limit=${limit}`);
+  const response = await apiFetch(`/api/v1/activity/runs?limit=${limit}`);
   if (!response.ok) {
     const body = await response.json().catch(() => null);
     throw new Error(body?.error?.message || `API ${response.status}`);
