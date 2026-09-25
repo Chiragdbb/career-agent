@@ -77,6 +77,23 @@ class JobRescrapeService:
 
         run = self._load_run()
         if run is not None:
+            self._session.refresh(run)
+            if run.status in (
+                WorkflowRunStatus.cancelled,
+                WorkflowRunStatus.cancelling,
+            ) or (
+                self._cancellation is not None
+                and self._cancellation.is_cancelled(self._run_id)
+            ):
+                run.status = WorkflowRunStatus.cancelled
+                meta = dict(run.metadata_json or {})
+                meta["current_step"] = "cancelled"
+                meta["status_message"] = "Re-scrape cancelled"
+                run.metadata_json = meta
+                self._session.commit()
+                if self._cancellation is not None:
+                    self._cancellation.clear(self._run_id)
+                raise DomainError("Re-scrape cancelled")
             run.status = WorkflowRunStatus.running
             meta = dict(run.metadata_json or {})
             meta["human_title"] = f"Updating {job.title or 'job listing'}"
@@ -218,21 +235,38 @@ class JobRescrapeService:
         )
 
     def _raise_if_cancelled(self, run: WorkflowRun | None) -> None:
-        if self._cancellation is None:
-            return
-        if self._cancellation.is_cancelled(self._run_id):
-            if run is not None and run.status not in (
+        if run is not None:
+            self._session.refresh(run)
+            if run.status in (
                 WorkflowRunStatus.cancelled,
-                WorkflowRunStatus.completed,
-                WorkflowRunStatus.failed,
+                WorkflowRunStatus.cancelling,
             ):
-                run.status = WorkflowRunStatus.cancelled
-                metadata = dict(run.metadata_json or {})
-                metadata["current_step"] = "cancelled"
-                metadata["status_message"] = "Re-scrape cancelled"
-                run.metadata_json = metadata
-                self._session.commit()
-            raise DomainError("Re-scrape cancelled")
+                if run.status == WorkflowRunStatus.cancelling:
+                    run.status = WorkflowRunStatus.cancelled
+                    metadata = dict(run.metadata_json or {})
+                    metadata["current_step"] = "cancelled"
+                    metadata["status_message"] = "Re-scrape cancelled"
+                    run.metadata_json = metadata
+                    self._session.commit()
+                raise DomainError("Re-scrape cancelled")
+        redis_cancelled = (
+            self._cancellation is not None
+            and self._cancellation.is_cancelled(self._run_id)
+        )
+        if not redis_cancelled:
+            return
+        if run is not None and run.status not in (
+            WorkflowRunStatus.cancelled,
+            WorkflowRunStatus.completed,
+            WorkflowRunStatus.failed,
+        ):
+            run.status = WorkflowRunStatus.cancelled
+            metadata = dict(run.metadata_json or {})
+            metadata["current_step"] = "cancelled"
+            metadata["status_message"] = "Re-scrape cancelled"
+            run.metadata_json = metadata
+            self._session.commit()
+        raise DomainError("Re-scrape cancelled")
 
     def _checkpoint(
         self,
@@ -275,6 +309,14 @@ class JobRescrapeService:
                     "title": job.title,
                 },
             )
+            return
+        self._session.refresh(run)
+        if run.status in (
+            WorkflowRunStatus.cancelled,
+            WorkflowRunStatus.cancelling,
+        ):
+            run.status = WorkflowRunStatus.cancelled
+            self._session.commit()
             return
         run.status = WorkflowRunStatus.completed
         metadata = dict(run.metadata_json or {})

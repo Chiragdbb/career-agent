@@ -62,11 +62,15 @@ function phaseIcon(phase: LogEntry["phase"], active: boolean) {
   return <Brain className="h-3.5 w-3.5 text-muted-foreground" />;
 }
 
-function isJobDiscoveryRun(run: WorkflowRun): boolean {
-  return run.workflow_type === "job_discovery";
+function isDetailedWorkflowRun(run: WorkflowRun): boolean {
+  return (
+    run.workflow_type === "job_discovery" ||
+    run.workflow_type === "job_rescrape" ||
+    run.workflow_type === "career_job_pipeline"
+  );
 }
 
-function JobDiscoveryDetail({ runId }: { runId: string }) {
+function WorkflowRunDetail({ runId }: { runId: string }) {
   const [run, setRun] = useState<WorkflowRun | null>(null);
   const [tasks, setTasks] = useState<WorkflowTask[]>([]);
   const [log, setLog] = useState<LogEntry[]>([]);
@@ -203,12 +207,12 @@ function JobDiscoveryDetail({ runId }: { runId: string }) {
       setRun(updated);
       appendLog({
         id: `cancel-${runId}`,
-        message: "Discovery cancelled",
+        message: "Cancelled",
         phase: "error",
         step: "cancelled",
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to cancel discovery");
+      setError(err instanceof Error ? err.message : "Failed to cancel");
     } finally {
       setCancelling(false);
     }
@@ -222,7 +226,7 @@ function JobDiscoveryDetail({ runId }: { runId: string }) {
     return (
       <div className="flex items-center gap-2 py-2">
         <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
-        <p className="text-xs text-muted-foreground">Loading discovery progress…</p>
+        <p className="text-xs text-muted-foreground">Loading progress…</p>
       </div>
     );
   }
@@ -230,12 +234,14 @@ function JobDiscoveryDetail({ runId }: { runId: string }) {
   return (
     <div className="rounded-md border border-border bg-muted/20">
       <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
-        <p className="text-xs font-medium text-foreground">Job discovery progress</p>
+        <p className="text-xs font-medium text-foreground">
+          {formatWorkflowType(run.workflow_type)} progress
+        </p>
         {active ? (
           <Button
             type="button"
             variant="secondary"
-            disabled={cancelling}
+            loading={cancelling}
             className="px-2 py-1 text-[10px]"
             onClick={() => void handleCancel()}
           >
@@ -325,8 +331,8 @@ export function ActivityBar({ className, inline = false }: { className?: string;
     return () => window.removeEventListener("activity-bar:expand", handler);
   }, []);
 
-  const discoveryRuns = useMemo(
-    () => activeRuns.filter(isJobDiscoveryRun),
+  const detailRuns = useMemo(
+    () => activeRuns.filter(isDetailedWorkflowRun),
     [activeRuns],
   );
 
@@ -381,10 +387,10 @@ export function ActivityBar({ className, inline = false }: { className?: string;
             </section>
           ) : null}
 
-          {discoveryRuns.length > 0 ? (
+          {detailRuns.length > 0 ? (
             <section className="mb-3 space-y-2">
-              {discoveryRuns.map((run) => (
-                <JobDiscoveryDetail key={run.id} runId={run.id} />
+              {detailRuns.map((run) => (
+                <WorkflowRunDetail key={run.id} runId={run.id} />
               ))}
             </section>
           ) : null}

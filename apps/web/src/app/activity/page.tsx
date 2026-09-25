@@ -6,6 +6,7 @@ import { Loader2 } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { Button } from "@/components/ui/Button";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { ListSkeleton } from "@/components/ui/Skeleton";
 import { useEventStream } from "@/lib/useEventStream";
 import { cn } from "@/lib/cn";
 import {
@@ -32,6 +33,7 @@ function statusLabel(status: string | null | undefined): string {
 function badgeClass(workflowType: string): string {
   if (workflowType === "job_discovery") return "bg-ai-subtle text-ai";
   if (workflowType === "job_rescrape") return "bg-warning-subtle text-warning";
+  if (workflowType === "career_job_pipeline") return "bg-lavender text-lavender-deep";
   return "bg-muted text-muted-foreground";
 }
 
@@ -43,6 +45,7 @@ function LiveProcessBanner({
   onCancelled: () => void;
 }) {
   const [cancelling, setCancelling] = useState(false);
+  const [cancelError, setCancelError] = useState<string | null>(null);
   const ratio = Number(run.metadata?.progress_ratio ?? 0);
   const remainingMs = run.metadata?.eta_remaining_ms;
   const eta =
@@ -54,13 +57,17 @@ function LiveProcessBanner({
     run.human_title ||
     run.message ||
     formatWorkflowType(run.workflow_type);
+  const canCancel = isActiveWorkflow(run.status);
 
   const handleCancel = async () => {
     if (cancelling) return;
     setCancelling(true);
+    setCancelError(null);
     try {
       await cancelWorkflowRun(run.id);
       onCancelled();
+    } catch (err) {
+      setCancelError(err instanceof Error ? err.message : "Failed to cancel");
     } finally {
       setCancelling(false);
     }
@@ -85,18 +92,21 @@ function LiveProcessBanner({
           <p className="text-[15px] font-bold leading-snug text-ink">{title}</p>
           <p className="mt-1 text-sm font-semibold text-coral">{eta}</p>
         </div>
-        {isActiveWorkflow(run.status) && run.status !== "cancelling" ? (
+        {canCancel ? (
           <Button
             type="button"
             variant="secondary"
-            disabled={cancelling}
+            loading={cancelling}
             className="shrink-0 rounded-full px-3 py-1.5 text-xs"
             onClick={() => void handleCancel()}
           >
-            {cancelling ? "Cancelling…" : "Cancel"}
+            {cancelling || run.status === "cancelling" ? "Cancelling…" : "Cancel"}
           </Button>
         ) : null}
       </div>
+      {cancelError ? (
+        <p className="mt-2 text-xs text-destructive">{cancelError}</p>
+      ) : null}
 
       <div className="mt-3.5 h-1.5 overflow-hidden rounded-full bg-muted">
         <div
@@ -183,7 +193,7 @@ export default function ActivityPage() {
       />
 
       {loading ? (
-        <p className="text-sm text-text-muted">Loading…</p>
+        <ListSkeleton rows={5} />
       ) : (
         <div className="flex flex-col gap-6">
           {activeRuns.length > 0 ? (

@@ -28,7 +28,7 @@ Create accounts / resources and store secrets in the host’s secret manager
 - Optional: `SENTRY_DSN`, `POSTHOG_API_KEY`, `NOTION_API_KEY`
 - Domain + HTTPS certificates
 
-See [production-environment.md](./production-environment.md) for the env var checklist.
+See [`.env.example`](../.env.example) and the Environment variables section below for the full checklist.
 
 ## Build & run (containers)
 
@@ -106,3 +106,25 @@ Vercel/Render (or equivalent) are configured.
 - Sentry: set `SENTRY_DSN` (no-op stub when absent)
 - PostHog: set `POSTHOG_API_KEY` (mock when absent)
 - Prefer structured logs + `provider_usage` / `audit_logs` tables
+
+## Environment variables
+
+Copy from [`.env.example`](../.env.example) for each environment. Never commit real secrets.
+
+**Required:** `DATABASE_URL`, `REDIS_URL`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`,
+`SUPABASE_SERVICE_ROLE_KEY`, `NEXT_PUBLIC_SUPABASE_URL`,
+`NEXT_PUBLIC_SUPABASE_ANON_KEY`, `NEXT_PUBLIC_API_BASE_URL`, `CORS_ALLOW_ORIGINS`.
+
+**Production discovery (QStash):** `TASK_BACKEND=qstash`, `QSTASH_TOKEN`,
+`QSTASH_CURRENT_SIGNING_KEY`, `QSTASH_CALLBACK_BASE_URL` (public API HTTPS origin,
+no trailing slash).
+
+**Providers (as needed):** `LLM_PROVIDER` + keys, `TAVILY_API_KEY`,
+`FIRECRAWL_*`, `RESEND_*`, `SUPABASE_STORAGE_BUCKET`.
+
+## Backup and recovery
+
+- **Postgres** is the system of record — enable provider backups / PITR; test restore periodically.
+- **Redis** is ephemeral (queues/cache/SSE); a fresh instance is fine after restore.
+- **Object storage** — enable versioning/soft-delete for resumes; regenerate signed URLs after recovery.
+- After Postgres restore: confirm `vector` extension, redeploy API + web, re-check QStash schedules.

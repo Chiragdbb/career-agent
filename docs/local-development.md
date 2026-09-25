@@ -287,7 +287,7 @@ python -m pytest tests/test_embeddings.py tests/test_automation_rules.py tests/t
 celery -A workers.celery_app.celery_app beat --loglevel=info   # scheduled discovery
 ```
 
-Deploy docs: [deployment.md](./deployment.md), [production-environment.md](./production-environment.md), [backup-and-recovery.md](./backup-and-recovery.md). CI: `.github/workflows/ci.yml` (deploy gated on secrets).
+Deploy docs: [deployment.md](./deployment.md). CI: `.github/workflows/ci.yml` (deploy gated on secrets).
 
 ## Notes
 
