@@ -88,14 +88,15 @@ export function formatEventDetail(payload?: Record<string, unknown>): string | n
 
 const ACTIVE_STATUSES = new Set(["queued", "running", "cancelling"]);
 
-export function isActiveWorkflow(status: string): boolean {
+export function isActiveWorkflow(status: string | null | undefined): boolean {
+  if (!status) return false;
   return ACTIVE_STATUSES.has(status.toLowerCase());
 }
 
 export function workflowStatusVariant(
   status: string,
 ): "default" | "success" | "warning" | "error" | "primary" {
-  const s = status.toLowerCase();
+  const s = (status || "").toLowerCase();
   if (s === "completed") return "success";
   if (s === "failed" || s === "cancelled") return "error";
   if (s === "running" || s === "cancelling") return "primary";
@@ -103,7 +104,8 @@ export function workflowStatusVariant(
   return "default";
 }
 
-export function formatWorkflowType(type: string): string {
+export function formatWorkflowType(type: string | null | undefined): string {
+  if (!type) return "Workflow";
   if (type === "job_discovery") return "Discovery";
   if (type === "job_rescrape") return "Rescrape";
   return type.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
@@ -156,7 +158,7 @@ export function formatEventMessage(
     case "offer_updated":
       return "Offer updated";
     default:
-      return type.replace(/_/g, " ");
+      return (type || "event").replace(/_/g, " ");
   }
 }
 
