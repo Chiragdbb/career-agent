@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Loader2 } from "lucide-react";
 
@@ -264,6 +265,30 @@ export default function ActivityPage() {
                           {run.human_title ? " · " : null}
                           {summary}
                         </p>
+                        {typeof run.metadata?.href === "string" &&
+                        (run.metadata.href as string).startsWith("/") ? (
+                          <Link
+                            href={run.metadata.href as string}
+                            className="mt-1 inline-block text-xs font-semibold text-coral hover:underline"
+                          >
+                            Open →
+                          </Link>
+                        ) : run.workflow_type === "career_job_pipeline" &&
+                          typeof run.metadata?.application_id === "string" ? (
+                          <Link
+                            href={`/approvals?application=${run.metadata.application_id}`}
+                            className="mt-1 inline-block text-xs font-semibold text-coral hover:underline"
+                          >
+                            Open →
+                          </Link>
+                        ) : run.workflow_type === "job_discovery" ? (
+                          <Link
+                            href="/jobs"
+                            className="mt-1 inline-block text-xs font-semibold text-coral hover:underline"
+                          >
+                            Open jobs →
+                          </Link>
+                        ) : null}
                         {run.steps.length > 0 ? (
                           <details className="mt-2">
                             <summary className="cursor-pointer text-xs font-medium text-coral">

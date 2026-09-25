@@ -114,7 +114,7 @@ class WorkflowProgressService:
         display: dict[str, Any] | None = None,
         completed_units: int | None = None,
         planned_units: int | None = None,
-    ) -> WorkflowProgressEvent:
+    ) -> WorkflowProgressEvent | None:
         meta = dict(run.metadata_json or {})
         if planned_units is not None:
             meta["planned_units"] = planned_units
@@ -141,28 +141,36 @@ class WorkflowProgressService:
             message=message,
             display=display or {},
         )
-        self._session.add(row)
-        self._session.flush()
+        try:
+            with self._session.begin_nested():
+                self._session.add(row)
+                self._session.flush()
+        except Exception:
+            # Migrations may lag behind code; never block the workflow on progress rows.
+            row = None
 
         if self._events is not None:
-            self._events.publish(
-                self._user_id,
-                UserEventType.workflow_progress,
-                {
-                    "workflow_run_id": str(run.id),
-                    "workflow_type": run.workflow_type,
-                    "step": step,
-                    "phase": phase,
-                    "message": message,
-                    "data": {
-                        **(display or {}),
+            try:
+                self._events.publish(
+                    self._user_id,
+                    UserEventType.workflow_progress,
+                    {
+                        "workflow_run_id": str(run.id),
+                        "workflow_type": run.workflow_type,
+                        "step": step,
                         "phase": phase,
-                        "progress_ratio": meta.get("progress_ratio"),
-                        "eta_remaining_ms": meta.get("eta_remaining_ms"),
-                        "estimated_duration_ms": meta.get("estimated_duration_ms"),
+                        "message": message,
+                        "data": {
+                            **(display or {}),
+                            "phase": phase,
+                            "progress_ratio": meta.get("progress_ratio"),
+                            "eta_remaining_ms": meta.get("eta_remaining_ms"),
+                            "estimated_duration_ms": meta.get("estimated_duration_ms"),
+                        },
                     },
-                },
-            )
+                )
+            except Exception:
+                pass
         return row
 
     def list_for_run(self, run_id: uuid.UUID) -> list[WorkflowProgressEvent]:

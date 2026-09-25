@@ -98,6 +98,7 @@ class CareerWorkflowResult(BaseModel):
     workflow_run_id: uuid.UUID
     status: str
     paused: bool = False
+    already_running: bool = False
     human_task_id: uuid.UUID | None = None
     application_id: uuid.UUID | None = None
     completed_steps: list[str] = Field(default_factory=list)
@@ -158,12 +159,15 @@ class CareerWorkflowService:
         message: str | None = None,
     ) -> None:
         label = message or STEP_LABELS.get(step.value, step.value.replace("_", " "))
+        display: dict[str, Any] = {"step": step.value}
+        if step == CareerWorkflowStep.people and message and "found" in message.lower():
+            display["phase_hint"] = "contacts"
         self._progress.record_progress(
             run,
             step=step.value,
             message=label,
             phase=phase,
-            display={"step": step.value},
+            display=display,
             completed_units=completed_units,
             planned_units=len(STEP_ORDER),
         )
@@ -174,14 +178,41 @@ class CareerWorkflowService:
         run = self._find_or_create_run(match, payload)
         meta = dict(run.metadata_json or {})
 
+        # Leave discovery once a pipeline is bound to this match.
+        if match.status not in (JobMatchStatus.applied, JobMatchStatus.dismissed):
+            match.status = JobMatchStatus.applied
+            self._session.commit()
+
         if meta.get("paused") and not payload.force:
             return CareerWorkflowResult(
                 workflow_run_id=run.id,
                 status=run.status.value,
                 paused=True,
+                already_running=True,
                 human_task_id=_uuid_or_none(meta.get("pause_human_task_id")),
                 application_id=_uuid_or_none(meta.get("application_id")),
                 completed_steps=list(meta.get("completed_steps") or []),
+                current_step=meta.get("current_step"),
+                outputs=dict(meta.get("outputs") or {}),
+                errors=list(meta.get("errors") or []),
+            )
+
+        completed_existing = list(meta.get("completed_steps") or [])
+        if (
+            not payload.force
+            and run.status == WorkflowRunStatus.running
+            and completed_existing
+            and "approval_pause" not in completed_existing
+            and not meta.get("paused")
+        ):
+            return CareerWorkflowResult(
+                workflow_run_id=run.id,
+                status=run.status.value,
+                paused=False,
+                already_running=True,
+                human_task_id=_uuid_or_none(meta.get("pause_human_task_id")),
+                application_id=_uuid_or_none(meta.get("application_id")),
+                completed_steps=completed_existing,
                 current_step=meta.get("current_step"),
                 outputs=dict(meta.get("outputs") or {}),
                 errors=list(meta.get("errors") or []),
@@ -191,6 +222,7 @@ class CareerWorkflowService:
         meta["paused"] = False
         meta["permit_submit"] = payload.permit_submit
         meta["human_title"] = meta.get("human_title") or "Application pipeline"
+        meta["href"] = meta.get("href") or "/approvals"
         if payload.resume_version_id:
             meta["resume_version_id"] = str(payload.resume_version_id)
         run.metadata_json = meta
@@ -302,12 +334,20 @@ class CareerWorkflowService:
                 meta["outputs"] = outputs
                 run.metadata_json = meta
                 self._session.commit()
+                done_msg = f"{STEP_LABELS.get(step.value, step.value)} — done"
+                if step == CareerWorkflowStep.people:
+                    count = int((step_out or {}).get("contact_count") or 0)
+                    done_msg = (
+                        f"Found {count} contact{'s' if count != 1 else ''}"
+                        if count
+                        else "No contacts found yet"
+                    )
                 self._emit_step(
                     run,
                     step,
                     phase="result",
                     completed_units=len(completed),
-                    message=f"{STEP_LABELS.get(step.value, step.value)} — done",
+                    message=done_msg,
                 )
 
             run.status = WorkflowRunStatus.completed
@@ -375,8 +415,18 @@ class CareerWorkflowService:
 
         if step == CareerWorkflowStep.people:
             if self._people_fn:
-                return self._people_fn(self._session, self._user_id, job.company_id)
-            return {"people": [], "note": "Inject people_fn or run contacts worker"}
+                out = self._people_fn(self._session, self._user_id, job.company_id)
+            else:
+                out = self._default_people_research(job)
+            people = out.get("people") if isinstance(out, dict) else None
+            count = (
+                len(people)
+                if isinstance(people, list)
+                else int((out or {}).get("contact_count") or 0)
+            )
+            if isinstance(out, dict):
+                out = {**out, "contact_count": count}
+            return out
 
         if step == CareerWorkflowStep.strategy:
             strategy = self._strategy.build_strategy(
@@ -409,7 +459,18 @@ class CareerWorkflowService:
         if step == CareerWorkflowStep.content:
             if self._content_fn:
                 return self._content_fn(self._session, self._user_id, outputs)
-            return {"content": "stub", "cover_letter": None}
+            strategy = outputs.get("strategy_summary") or ""
+            return {
+                "content": (
+                    f"Draft application note for {job.title}.\n"
+                    f"{strategy}\n"
+                    "Tailor this from the selected resume — do not invent achievements."
+                ),
+                "cover_letter": (
+                    f"Hello,\n\nI'm applying for {job.title}. "
+                    "Please see my resume for relevant experience.\n\nThank you."
+                ),
+            }
 
         if step == CareerWorkflowStep.approval_pause:
             # Always pause for application approval unless automation is auto_with_approval
@@ -428,11 +489,35 @@ class CareerWorkflowService:
             state = engine.get_state(app_id)
             if state == EngineState.PREPARED:
                 engine.transition(app_id, EngineState.AWAITING_APPROVAL, reason="workflow_approval")
+            href = f"/approvals?application={app_id}"
+            meta["href"] = href
+            evidence: dict[str, Any] = {}
+            app_row = self._session.get(Application, app_id)
+            if app_row is not None and isinstance(app_row.submission_evidence, dict):
+                evidence = dict(app_row.submission_evidence)
+            evidence["engine_status"] = EngineState.AWAITING_APPROVAL.value
+            evidence["draft_materials"] = {
+                "cover_letter": outputs.get("cover_letter"),
+                "content": outputs.get("content"),
+                "strategy_summary": outputs.get("strategy_summary"),
+                "resume_version_id": meta.get("resume_version_id"),
+            }
+            people_out = outputs.get("people") if isinstance(outputs.get("people"), list) else []
+            evidence["contacts_snapshot"] = people_out[:20]
+            if app_row is not None:
+                app_row.submission_evidence = evidence
             task = self._human_tasks.create(
                 HumanTaskCreate(
                     task_type=HumanTaskType.approval_required_application,
                     title=f"Approve application for {job.title}",
-                    details={"job_id": str(job.id), "job_match_id": str(match.id)},
+                    details={
+                        "job_id": str(job.id),
+                        "job_match_id": str(match.id),
+                        "application_id": str(app_id),
+                        "company_id": str(job.company_id),
+                        "href": href,
+                        "job_title": job.title,
+                    },
                     application_id=app_id,
                     workflow_run_id=run_id,
                     blocking_entity_type="application",
@@ -441,7 +526,12 @@ class CareerWorkflowService:
             )
             raise _PauseWorkflow(
                 human_task_id=task.id,
-                output={"application_id": str(app_id), "approval": "paused", "human_task_id": str(task.id)},
+                output={
+                    "application_id": str(app_id),
+                    "approval": "paused",
+                    "human_task_id": str(task.id),
+                    "href": href,
+                },
             )
 
         if step == CareerWorkflowStep.prepare_application:
@@ -492,22 +582,60 @@ class CareerWorkflowService:
             }
 
         if step == CareerWorkflowStep.notify:
+            app_id = meta.get("application_id")
+            href = f"/applications/{app_id}" if app_id else "/applications"
             if self._notifications is not None:
                 self._notifications.send(
                     NotificationSendRequest(
                         user_id=self._user_id,
                         channel=NotificationChannel.in_app,
-                        title="Career workflow update",
-                        body=f"Pipeline finished for job match {match.id}",
+                        title="Application path finished",
+                        body=f"View the application for {job.title}",
                         payload={
                             "job_match_id": str(match.id),
-                            "application_id": meta.get("application_id"),
+                            "application_id": app_id,
+                            "href": href,
                         },
                     )
                 )
-            return {"notified": True}
+            return {"notified": True, "href": href}
 
         raise DomainError(f"Unknown step {step}")
+
+    def _default_people_research(self, job: Job) -> dict[str, Any]:
+        """Find contacts for the job's company; never invent emails."""
+        try:
+            from packages.domain.people_research import PeopleResearchService
+            from packages.providers.factory import (
+                ProviderSettings,
+                create_email_finder_provider,
+                create_email_verifier_provider,
+                create_people_provider,
+            )
+
+            settings = ProviderSettings.from_env()
+            service = PeopleResearchService(
+                self._session,
+                self._user_id,
+                people=create_people_provider(settings),
+                email_finder=create_email_finder_provider(settings),
+                email_verifier=create_email_verifier_provider(settings),
+            )
+            result = service.research_for_job(job.id, enrich_emails=False)
+            self._session.commit()
+            people = [p.model_dump(mode="json") for p in result.people]
+            return {
+                "people": people,
+                "contact_count": len(people),
+                "company_id": str(result.company_id),
+                "company_name": result.company_name,
+            }
+        except Exception as exc:  # noqa: BLE001
+            return {
+                "people": [],
+                "contact_count": 0,
+                "note": f"Contacts unavailable: {exc}",
+            }
 
     def _ensure_application(self, match: JobMatch, meta: dict[str, Any]) -> uuid.UUID:
         existing_id = _uuid_or_none(meta.get("application_id"))
@@ -542,7 +670,8 @@ class CareerWorkflowService:
         self._session.add(app)
         self._session.flush()
         meta["application_id"] = str(app.id)
-        match.status = JobMatchStatus.saved
+        meta["href"] = f"/approvals?application={app.id}"
+        match.status = JobMatchStatus.applied
         return app.id
 
     def _default_resume_version_id(self) -> uuid.UUID | None:

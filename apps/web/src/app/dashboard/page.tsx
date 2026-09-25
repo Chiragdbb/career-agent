@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 
 import { AppShell } from "@/components/AppShell";
-import { ActivityBar } from "@/components/ActivityBar";
+import { ProcessBanner } from "@/components/ProcessBanner";
 import { OnboardingChecklist, preferencesUnset } from "@/components/OnboardingChecklist";
 import { ActionCard } from "@/components/ui/ActionCard";
 import { GhostButton, GoldButton } from "@/components/ui/Button";
@@ -258,9 +258,7 @@ export default function DashboardPage() {
 
   return (
     <AppShell active="dashboard" wide hideActivityBar>
-      <div className="mb-4 flex justify-end">
-        <ActivityBar inline className="mb-0" />
-      </div>
+      <ProcessBanner className="mb-4" />
 
       {error ? <p className="mb-4 text-sm text-destructive">{error}</p> : null}
 

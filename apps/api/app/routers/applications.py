@@ -6,9 +6,16 @@ from fastapi import APIRouter
 
 from app.dependencies import CurrentUserIdDep, DbSessionDep
 from app.schemas import ApplicationResponse
-from app.schemas.saas import ApplicationDetailResponse, ApplicationSummaryResponse
+from app.schemas.saas import (
+    ApplicationDetailResponse,
+    ApplicationRefineRequest,
+    ApplicationRefineResponse,
+    ApplicationSummaryResponse,
+)
+from packages.domain.application_refine import ApplicationRefineInput, ApplicationRefineService
 from packages.domain.dashboard import DashboardService
 from packages.domain.tenant_resources import TenantResourceService
+from packages.providers.factory import create_llm_provider
 
 router = APIRouter(prefix="/applications", tags=["applications"])
 
@@ -39,6 +46,8 @@ def get_application(
         submission_evidence=detail.submission_evidence,
         job_title=detail.job_title,
         company_name=detail.company_name,
+        job_description=detail.job_description,
+        contacts=detail.contacts,
         events=[e.model_dump(mode="json") for e in detail.events],
         documents=detail.documents,
         outreach=detail.outreach,
@@ -46,6 +55,27 @@ def get_application(
         human_tasks=detail.human_tasks,
         interviews=detail.interviews,
         offers=detail.offers,
+    )
+
+
+@router.post(
+    "/{application_id}/refine",
+    response_model=ApplicationRefineResponse,
+)
+def refine_application(
+    application_id: UUID,
+    body: ApplicationRefineRequest,
+    session: DbSessionDep,
+    user_id: CurrentUserIdDep,
+) -> ApplicationRefineResponse:
+    result = ApplicationRefineService(
+        session, user_id, llm=create_llm_provider()
+    ).refine(application_id, ApplicationRefineInput(prompt=body.prompt))
+    return ApplicationRefineResponse(
+        application_id=result.application_id,
+        cover_letter=result.cover_letter,
+        content=result.content,
+        prompt=result.prompt,
     )
 
 
