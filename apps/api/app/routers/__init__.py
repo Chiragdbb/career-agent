@@ -5,7 +5,7 @@ from app.routers.dashboard import router as dashboard_router
 from app.routers.documents import analytics_router, documents_router
 from app.routers.events import router as events_router
 from app.routers.follow_ups import router as follow_ups_router
-from app.routers.health import router as health_router
+from app.routers.health import liveness_router, router as health_router
 from app.routers.human_tasks import router as human_tasks_router
 from app.routers.internal_qstash import router as internal_qstash_router
 from app.routers.jobs import router as jobs_router
@@ -29,6 +29,7 @@ __all__ = [
     "events_router",
     "follow_ups_router",
     "health_router",
+    "liveness_router",
     "human_tasks_router",
     "internal_qstash_router",
     "interviews_router",

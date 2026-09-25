@@ -22,6 +22,11 @@ class HealthChecks(BaseModel):
     redis: str
 
 
+class LivenessResponse(BaseModel):
+    status: str = Field(description="ok when the process is serving requests")
+    service: str
+
+
 class HealthResponse(BaseModel):
     status: str = Field(description="overall | degraded | unhealthy")
     service: str
