@@ -111,6 +111,10 @@ class JobRescrapeService:
             "job_id": str(job.id),
         }
         run_log.knobs_touched = [
+            "JOB_RESCRAPE_SCRAPER",
+            "SCRAPLING_ENABLED",
+            "SCRAPLING_FETCHER",
+            "SCRAPLING_ADAPTIVE",
             "FIRECRAWL_BASE_URL",
             "FIRECRAWL_API_KEY",
             "EXTRACTION_LLM_PROVIDER",

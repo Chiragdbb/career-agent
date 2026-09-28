@@ -132,10 +132,8 @@ def create_search_provider(settings: ProviderSettings | None = None) -> SearchPr
     _require_live("search", ["TAVILY_API_KEY"])
 
 
-def create_scraper_provider(settings: ProviderSettings | None = None) -> ScraperProvider:
-    settings = settings or ProviderSettings.from_env()
+def _firecrawl_scraper_backends(settings: ProviderSettings) -> list[ScraperProvider]:
     scrapers: list[ScraperProvider] = []
-
     if settings.firecrawl_base_url:
         scrapers.append(
             FirecrawlScraperProvider(
@@ -143,7 +141,6 @@ def create_scraper_provider(settings: ProviderSettings | None = None) -> Scraper
                 api_key=settings.firecrawl_api_key or None,
             )
         )
-
     cloud_configured = bool(settings.firecrawl_api_key) and (
         not settings.firecrawl_base_url
         or settings.firecrawl_base_url.rstrip("/") != FIRECRAWL_CLOUD_URL
@@ -155,11 +152,90 @@ def create_scraper_provider(settings: ProviderSettings | None = None) -> Scraper
                 api_key=settings.firecrawl_api_key,
             )
         )
+    return scrapers
+
+
+def _scrapling_scraper_backend(settings: ProviderSettings | None = None):
+    _ = settings
+    enabled = (os.getenv("SCRAPLING_ENABLED") or "1").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+    if not enabled:
+        return None
+    fetcher = (os.getenv("SCRAPLING_FETCHER") or "http").strip().lower()
+    if fetcher not in ("http", "dynamic", "stealthy"):
+        fetcher = "http"
+    adaptive = (os.getenv("SCRAPLING_ADAPTIVE") or "0").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+    try:
+        from packages.providers.scrapling_scraper import ScraplingScraperProvider
+
+        return ScraplingScraperProvider(fetcher=fetcher, adaptive=adaptive)
+    except ProviderNotConfiguredError as exc:
+        logger.info("scrapling_scraper_unavailable error=%s", exc)
+        return None
+    except Exception:
+        logger.warning("scrapling_scraper_create_failed", exc_info=True)
+        return None
+
+
+def create_scraper_provider(settings: ProviderSettings | None = None) -> ScraperProvider:
+    settings = settings or ProviderSettings.from_env()
+    scrapers = _firecrawl_scraper_backends(settings)
 
     if not scrapers:
         if mocks_allowed():
             return create_mock_providers().scraper
         _require_live("scraper", ["FIRECRAWL_BASE_URL", "FIRECRAWL_API_KEY"])
+    if len(scrapers) == 1:
+        return scrapers[0]
+    return FallbackScraperProvider(scrapers)
+
+
+def create_rescrape_scraper_provider(settings: ProviderSettings | None = None) -> ScraperProvider:
+    """Scraper chain for manual job re-scrape (Scrapling first, then Firecrawl)."""
+    settings = settings or ProviderSettings.from_env()
+    mode = (os.getenv("JOB_RESCRAPE_SCRAPER") or "scrapling-first").strip().lower()
+    scrapling = _scrapling_scraper_backend(settings)
+    firecrawl = _firecrawl_scraper_backends(settings)
+
+    scrapers: list[ScraperProvider] = []
+    if mode == "firecrawl":
+        scrapers.extend(firecrawl)
+    elif mode == "scrapling":
+        if scrapling is not None:
+            scrapers.append(scrapling)
+    elif mode == "scrapling-first":
+        if scrapling is not None:
+            scrapers.append(scrapling)
+        scrapers.extend(firecrawl)
+    else:
+        logger.warning("unknown JOB_RESCRAPE_SCRAPER=%r using scrapling-first", mode)
+        if scrapling is not None:
+            scrapers.append(scrapling)
+        scrapers.extend(firecrawl)
+
+    if not scrapers:
+        if mocks_allowed():
+            try:
+                from packages.providers.scrapling_scraper import MockScraplingScraperProvider
+
+                return MockScraplingScraperProvider()
+            except Exception:
+                return create_mock_providers().scraper
+        _require_live(
+            "scraper",
+            [
+                'pip install "scrapling[fetchers]" (SCRAPLING_ENABLED=1)',
+                "FIRECRAWL_BASE_URL",
+                "FIRECRAWL_API_KEY",
+            ],
+        )
     if len(scrapers) == 1:
         return scrapers[0]
     return FallbackScraperProvider(scrapers)
