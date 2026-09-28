@@ -20,26 +20,10 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 
+import type { NavKey } from "@/components/AppTopNav";
 import { TrailMark } from "@/components/ui/Illustrations";
 import { apiFetch } from "@/lib/api";
 import { cn } from "@/lib/cn";
-
-export type NavKey =
-  | "dashboard"
-  | "discover"
-  | "jobs"
-  | "applications"
-  | "contacts"
-  | "documents"
-  | "outreach"
-  | "automations"
-  | "analytics"
-  | "settings"
-  | "profile"
-  | "interviews"
-  | "tasks"
-  | "preferences"
-  | "resumes";
 
 type NavItem = {
   key: NavKey;
