@@ -232,7 +232,6 @@ function ApprovalsPageInner() {
 
   useEffect(() => {
     if (expandedId) void loadDetail(expandedId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [expandedId]);
 
   async function softDiscard(
