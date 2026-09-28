@@ -368,6 +368,11 @@ function ApprovalsPageInner() {
               Edit first.
             </p>
             <div className="mt-4 flex flex-wrap gap-2">
+              {pendingCount > 0 ? (
+                <SoftBadge tone="ember">
+                  {pendingCount} awaiting your review
+                </SoftBadge>
+              ) : null}
               <SoftBadge tone="lavender">
                 <Shield className="h-3 w-3" /> Human approval required
               </SoftBadge>
@@ -385,16 +390,16 @@ function ApprovalsPageInner() {
       </HeroBand>
 
       <div className="mb-8 grid gap-3 sm:grid-cols-3">
-        <ActionCard>
+        <ActionCard className={applicationTasks.length > 0 ? "ring-1 ring-ember/25" : undefined}>
           <p className="text-xs font-semibold uppercase tracking-wide text-text-faint">
             Applications to seal
           </p>
           <p className="mt-1 text-3xl font-bold text-ink">
             {applicationTasks.length}
           </p>
-          <p className="text-xs text-text-muted">Open a row → Finalize</p>
+          <p className="text-xs text-text-muted">Review draft → Finalize</p>
         </ActionCard>
-        <ActionCard>
+        <ActionCard className={draftOutreach.length > 0 ? "ring-1 ring-ember/25" : undefined}>
           <p className="text-xs font-semibold uppercase tracking-wide text-text-faint">
             Notes to review
           </p>
@@ -413,7 +418,31 @@ function ApprovalsPageInner() {
       {error ? <p className="mb-4 text-sm text-destructive">{error}</p> : null}
       {message ? <p className="mb-4 text-sm text-coral">{message}</p> : null}
 
-      <section className="mb-10">
+      {loading ? (
+        <div className="mb-10">
+          <ListSkeleton rows={3} />
+        </div>
+      ) : pendingCount === 0 ? (
+        <div className="mb-10 space-y-4">
+          <EmptyState
+            icon={CheckCircle2}
+            title="Nothing needs your seal"
+            description="Start applications from Jobs — packages land here when a draft needs your sign-off. Outreach drafts also appear below when ready."
+            primaryActionLabel="Go to Jobs"
+            actionHref="/jobs"
+          />
+          <p className="text-center text-sm text-text-muted">
+            Already have mail drafts?{" "}
+            <Link href="/outreach" className="font-semibold text-coral">
+              Open outreach hub →
+            </Link>
+          </p>
+        </div>
+      ) : null}
+
+      {!loading && pendingCount > 0 ? (
+        <div className="mb-10 space-y-10">
+      <section>
         <div className="mb-4 flex items-center justify-between gap-3">
           <h2 className="text-xl font-bold tracking-tight text-ink">
             Applications ready for your seal
@@ -423,16 +452,13 @@ function ApprovalsPageInner() {
           </Link>
         </div>
 
-        {loading ? (
-          <ListSkeleton rows={3} />
-        ) : pendingCount === 0 ? (
-          <EmptyState
-            icon={CheckCircle2}
-            title="Nothing needs your seal"
-            description="Start applications from Jobs — they’ll show up here when ready."
-            primaryActionLabel="Go to Jobs"
-            actionHref="/jobs"
-          />
+        {applicationTasks.length === 0 ? (
+          <p className="rounded-2xl border border-line bg-white p-6 text-sm text-text-muted shadow-soft">
+            No application packages in queue.{" "}
+            <Link href="/jobs" className="font-semibold text-coral">
+              Start from Jobs
+            </Link>
+          </p>
         ) : (
           <div className="space-y-4">
             {applicationTasks.map((task) => {
@@ -601,9 +627,23 @@ function ApprovalsPageInner() {
                                 ) : (
                                   <ul className="mt-2 space-y-1 text-sm">
                                     {contacts.map((c) => (
-                                      <li key={c.id || c.name} className="text-ink">
-                                        {c.name}
-                                        {c.title ? ` · ${c.title}` : ""}
+                                      <li key={c.id || c.name}>
+                                        {c.id ? (
+                                          <Link
+                                            href={`/contacts/${c.id}`}
+                                            className="font-semibold text-coral hover:underline"
+                                          >
+                                            {c.name}
+                                          </Link>
+                                        ) : (
+                                          <span className="text-ink">{c.name}</span>
+                                        )}
+                                        {c.title ? (
+                                          <span className="text-text-muted">
+                                            {" "}
+                                            · {c.title}
+                                          </span>
+                                        ) : null}
                                       </li>
                                     ))}
                                   </ul>
@@ -647,17 +687,42 @@ function ApprovalsPageInner() {
                 </ActionCard>
               );
             })}
+          </div>
+        )}
+      </section>
 
+      <section>
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <h2 className="text-xl font-bold tracking-tight text-ink">
+            Outreach awaiting approval
+          </h2>
+          <Link href="/outreach" className="text-sm font-semibold text-coral">
+            Mail hub →
+          </Link>
+        </div>
+        {draftOutreach.length === 0 ? (
+          <p className="rounded-2xl border border-line bg-white p-6 text-sm text-text-muted shadow-soft">
+            No outreach drafts right now. Hook emails from finalized packages appear here.
+          </p>
+        ) : (
+          <div className="space-y-4">
             {draftOutreach.map((row) => (
-              <ActionCard key={row.id} highlight>
+              <ActionCard key={row.id} highlight className="ring-1 ring-ember/20">
                 <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
                   <div>
                     <h3 className="text-lg font-bold text-ink">
                       {row.subject || "Untitled outreach"}
                     </h3>
-                    <SoftBadge tone="peach" className="mt-2">
-                      {row.status}
-                    </SoftBadge>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <SoftBadge tone="ember">Needs review</SoftBadge>
+                      <SoftBadge tone="peach">{row.status}</SoftBadge>
+                    </div>
+                    <Link
+                      href={`/contacts/${row.contact_id}`}
+                      className="mt-2 inline-block text-xs font-semibold text-coral"
+                    >
+                      View contact →
+                    </Link>
                   </div>
                 </div>
                 <DiffPane
@@ -680,12 +745,21 @@ function ApprovalsPageInner() {
                     {busyId === row.id ? "Approving…" : "Approve draft"}
                   </GoldButton>
                   <GhostButton onClick={() => router.push(`/outreach/${row.id}`)}>
-                    Personalize
+                    Review & edit
                   </GhostButton>
                 </div>
               </ActionCard>
             ))}
+          </div>
+        )}
+      </section>
 
+      {otherTasks.length > 0 ? (
+        <section>
+          <h2 className="mb-4 text-xl font-bold tracking-tight text-ink">
+            Other human tasks
+          </h2>
+          <div className="space-y-4">
             {otherTasks.map((task) => (
               <ActionCard key={task.id}>
                 <h3 className="text-lg font-bold text-ink">
@@ -703,8 +777,10 @@ function ApprovalsPageInner() {
               </ActionCard>
             ))}
           </div>
-        )}
-      </section>
+        </section>
+      ) : null}
+        </div>
+      ) : null}
 
       <section>
         <h2 className="mb-2 text-xl font-bold tracking-tight text-ink">

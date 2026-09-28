@@ -3,11 +3,13 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { Check, Circle, Loader2 } from "lucide-react";
+import { ArrowLeft, Check, Circle, ExternalLink, Loader2, Pencil } from "lucide-react";
 
 import { AppShell } from "@/components/AppShell";
 import { Badge } from "@/components/ui/Badge";
 import { Card, CardTitle } from "@/components/ui/Card";
+import { GhostButton, GoldButton } from "@/components/ui/Button";
+import { PageHeader } from "@/components/ui/PageHeader";
 import { ListSkeleton } from "@/components/ui/Skeleton";
 import { apiFetch } from "@/lib/api";
 import { cn } from "@/lib/cn";
@@ -18,6 +20,8 @@ type ApplicationDetail = {
   status: string;
   job_title: string | null;
   company_name: string | null;
+  job_match_id?: string | null;
+  job_url?: string | null;
   submission_evidence: Record<string, unknown> | null;
   events: { event_type: string; created_at?: string; payload?: Record<string, unknown> }[];
   documents: { id: string; filename: string | null; status: string }[];
@@ -194,35 +198,86 @@ export default function ApplicationDetailPage() {
     () => (detail?.human_tasks || []).filter((t) => t.status === "open"),
     [detail],
   );
+  const needsApproval =
+    engineStatus === "AWAITING_APPROVAL" ||
+    engineStatus === "REQUIRES_HUMAN" ||
+    openTasks.length > 0;
 
   return (
     <AppShell active="applications" wide>
       <Link
         href="/applications"
-        className="mb-4 inline-block text-sm text-muted-foreground hover:text-foreground"
+        className="mb-4 inline-flex items-center gap-1.5 text-sm text-text-muted hover:text-ink"
       >
-        ← Back to applications
+        <ArrowLeft className="h-3.5 w-3.5" /> Back to applications
       </Link>
       {error ? <p className="mb-4 text-sm text-destructive">{error}</p> : null}
       {!detail && !error ? <ListSkeleton rows={4} /> : null}
       {detail ? (
         <article className="space-y-6">
-          <header>
-            <h1 className="font-serif text-2xl text-foreground">
-              {detail.job_title || "Application"}
-            </h1>
-            <div className="mt-2 flex flex-wrap items-center gap-2">
-              <p className="text-sm text-muted-foreground">{detail.company_name}</p>
-              <Badge variant={badgeVariant(detail.status)}>
-                {formatStatus(detail.status)}
-              </Badge>
-              {engineStatus ? (
-                <span className="text-xs text-text-muted">
-                  {formatEngineState(engineStatus)}
-                </span>
-              ) : null}
-            </div>
-          </header>
+          <PageHeader
+            serif
+            title={detail.job_title || "Application"}
+            subtitle={detail.company_name || undefined}
+            actions={
+              <div className="flex flex-wrap items-center gap-2">
+                {detail.job_match_id ? (
+                  <GhostButton
+                    onClick={() => router.push(`/jobs/${detail.job_match_id}`)}
+                  >
+                    View job
+                  </GhostButton>
+                ) : null}
+                {detail.job_url ? (
+                  <GhostButton
+                    icon={ExternalLink}
+                    onClick={() => window.open(detail.job_url!, "_blank", "noopener,noreferrer")}
+                  >
+                    Posting
+                  </GhostButton>
+                ) : null}
+                <GhostButton
+                  icon={Pencil}
+                  onClick={() => router.push(`/applications/${detail.id}/edit`)}
+                >
+                  Edit package
+                </GhostButton>
+                {needsApproval ? (
+                  <GoldButton onClick={() => router.push(`/approvals?application=${detail.id}`)}>
+                    Review &amp; approve
+                  </GoldButton>
+                ) : (
+                  <GhostButton onClick={() => router.push("/approvals")}>
+                    Approvals
+                  </GhostButton>
+                )}
+              </div>
+            }
+            className="!pb-4"
+          />
+
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant={badgeVariant(detail.status)}>
+              {formatStatus(detail.status)}
+            </Badge>
+            {engineStatus ? (
+              <span className="text-xs text-text-muted">
+                {formatEngineState(engineStatus)}
+              </span>
+            ) : null}
+            <Link
+              href="/outreach"
+              className="text-xs font-semibold text-coral hover:underline"
+            >
+              Outreach hub →
+            </Link>
+            <Link
+              href="/interviews"
+              className="text-xs font-semibold text-coral hover:underline"
+            >
+              Interviews →
+            </Link>
+          </div>
 
           <Section title="Progress">
             <ol className="space-y-3">
@@ -276,7 +331,7 @@ export default function ApplicationDetailPage() {
                   {openTasks.map((t) => (
                     <li key={t.id}>
                       <Link
-                        href="/approvals"
+                        href={`/approvals?application=${detail.id}`}
                         className="text-sm text-coral hover:underline"
                       >
                         {t.title || humanizeToken(t.task_type)} →
@@ -315,7 +370,9 @@ export default function ApplicationDetailPage() {
 
           <Section title="Timeline">
             {detail.events.length === 0 ? (
-              <Empty>No activity recorded yet.</Empty>
+              <SectionHint href="/activity" linkLabel="View activity log">
+                No events recorded yet for this application.
+              </SectionHint>
             ) : (
               <ul className="space-y-3">
                 {[...detail.events].reverse().map((event, idx) => {
@@ -340,12 +397,19 @@ export default function ApplicationDetailPage() {
 
           <Section title="Documents">
             {detail.documents.length === 0 ? (
-              <Empty>No documents attached yet.</Empty>
+              <SectionHint href="/documents" linkLabel="Open documents">
+                No documents attached yet.
+              </SectionHint>
             ) : (
               <ul className="space-y-2 text-sm">
                 {detail.documents.map((d) => (
                   <li key={d.id} className="flex justify-between gap-3">
-                    <span className="text-ink">{d.filename || "Untitled document"}</span>
+                    <Link
+                      href="/documents"
+                      className="text-ink hover:text-coral hover:underline"
+                    >
+                      {d.filename || "Untitled document"}
+                    </Link>
                     <span className="text-text-muted">{formatStatus(d.status)}</span>
                   </li>
                 ))}
@@ -355,12 +419,19 @@ export default function ApplicationDetailPage() {
 
           <Section title="Outreach">
             {detail.outreach.length === 0 ? (
-              <Empty>No outreach drafts yet.</Empty>
+              <SectionHint href="/outreach" linkLabel="Browse outreach">
+                No outreach drafts yet for this application.
+              </SectionHint>
             ) : (
               <ul className="space-y-2 text-sm">
                 {detail.outreach.map((o) => (
                   <li key={o.id} className="flex justify-between gap-3">
-                    <span className="text-ink">{o.subject || "Untitled message"}</span>
+                    <Link
+                      href={`/outreach/${o.id}`}
+                      className="text-ink hover:text-coral hover:underline"
+                    >
+                      {o.subject || "Untitled message"}
+                    </Link>
                     <span className="text-text-muted">{formatStatus(o.status)}</span>
                   </li>
                 ))}
@@ -370,7 +441,9 @@ export default function ApplicationDetailPage() {
 
           <Section title="Follow-ups">
             {detail.follow_ups.length === 0 ? (
-              <Empty>No follow-ups scheduled.</Empty>
+              <SectionHint href="/outreach" linkLabel="Plan outreach">
+                No follow-ups scheduled.
+              </SectionHint>
             ) : (
               <ul className="space-y-2 text-sm">
                 {detail.follow_ups.map((f) => (
@@ -388,15 +461,20 @@ export default function ApplicationDetailPage() {
 
           <Section title="Interviews">
             {detail.interviews.length === 0 ? (
-              <Empty>No interviews scheduled.</Empty>
+              <SectionHint href="/interviews" linkLabel="Open interviews">
+                No interviews scheduled yet.
+              </SectionHint>
             ) : (
               <ul className="space-y-2 text-sm">
                 {detail.interviews.map((i) => (
                   <li key={i.id}>
-                    <p className="text-ink">
+                    <Link
+                      href="/interviews"
+                      className="font-medium text-ink hover:text-coral hover:underline"
+                    >
                       {i.title || "Interview"}
                       {i.round != null ? ` · Round ${i.round}` : ""}
-                    </p>
+                    </Link>
                     <p className="text-xs text-text-muted">
                       {formatStatus(i.status)}
                       {i.scheduled_at ? ` · ${formatWhen(i.scheduled_at)}` : ""}
@@ -409,7 +487,10 @@ export default function ApplicationDetailPage() {
 
           <Section title="Offers">
             {detail.offers.length === 0 ? (
-              <Empty>No offers yet.</Empty>
+              <p className="text-sm text-text-muted">
+                No offers recorded yet — they will appear here when you add them to
+                the pipeline.
+              </p>
             ) : (
               <ul className="space-y-2 text-sm">
                 {detail.offers.map((o) => (
@@ -434,13 +515,28 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <Card>
+    <Card className="shadow-card">
       <CardTitle>{title}</CardTitle>
       <div className="mt-3">{children}</div>
     </Card>
   );
 }
 
-function Empty({ children }: { children: React.ReactNode }) {
-  return <p className="text-sm text-muted-foreground">{children}</p>;
+function SectionHint({
+  href,
+  linkLabel,
+  children,
+}: {
+  href: string;
+  linkLabel: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <p className="text-sm text-text-muted">
+      {children}{" "}
+      <Link href={href} className="font-semibold text-coral hover:underline">
+        {linkLabel} →
+      </Link>
+    </p>
+  );
 }

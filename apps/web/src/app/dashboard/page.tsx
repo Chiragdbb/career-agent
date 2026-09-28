@@ -24,7 +24,6 @@ import { apiFetch } from "@/lib/api";
 import { createClient } from "@/lib/supabase/client";
 import { useProcessActivity } from "@/hooks/useProcessActivity";
 import { formatWorkflowType } from "@/lib/workflows";
-import { cn } from "@/lib/cn";
 
 type Summary = {
   jobs_count: number;
@@ -77,13 +76,13 @@ function ScoreRing({ value }: { value: number }) {
   return (
     <div className="relative size-16 shrink-0">
       <svg className="size-full -rotate-90" viewBox="0 0 64 64" aria-hidden>
-        <circle cx="32" cy="32" r={r} fill="none" stroke="#E2DFFF" strokeWidth="6" />
+        <circle cx="32" cy="32" r={r} fill="none" stroke="#EEEDFF" strokeWidth="6" />
         <circle
           cx="32"
           cy="32"
           r={r}
           fill="none"
-          stroke="#D63B20"
+          stroke="#5B54FF"
           strokeWidth="6"
           strokeLinecap="round"
           strokeDasharray={c}
@@ -214,8 +213,8 @@ export default function DashboardPage() {
         id: "notifications",
         title: `${summary.unread_notifications} unread notification${summary.unread_notifications > 1 ? "s" : ""}`,
         sub: "Catch up without losing your place.",
-        href: "/settings",
-        cta: "View",
+        href: "/activity",
+        cta: "Open activity",
         icon: Mail,
       });
     }
@@ -438,59 +437,70 @@ export default function DashboardPage() {
                 label: "Discovering",
                 count: summary.jobs_count,
                 hint: "roles under review",
-                tone: "border-l-lavender-deep",
+                href: "/jobs",
               },
               {
                 label: "Ready for You",
                 count: summary.open_human_tasks + summary.open_follow_ups,
                 hint: "awaiting your seal",
-                tone: "border-l-coral",
+                href: "/approvals",
               },
               {
                 label: "In Discussion",
                 count: summary.applications_count,
                 hint: "active applications",
-                tone: "border-l-warning",
+                href: "/applications",
               },
               {
                 label: "Offer Stage",
                 count: summary.pending_offers,
-                hint: "celebrations approaching",
-                tone: "border-l-coral-deep",
+                hint: "open offers",
+                href: "/applications?status=offer",
               },
             ].map((stage) => (
-              <div
+              <Link
                 key={stage.label}
-                className={cn(
-                  "rounded-2xl border border-line border-l-4 bg-white p-4 shadow-soft",
-                  stage.tone,
-                )}
+                href={stage.href}
+                className="rounded-2xl border border-line bg-white p-4 shadow-soft transition hover:border-coral/30 hover:shadow-card"
               >
-                <p className="text-xs font-semibold uppercase tracking-wide text-text-faint">
-                  {stage.label}
-                </p>
-                <p className="mt-1 text-2xl font-bold text-ink">{stage.count}</p>
+                <p className="text-xs font-semibold text-text-faint">{stage.label}</p>
+                <p className="mt-1 text-2xl font-bold tabular-nums text-ink">{stage.count}</p>
                 <p className="text-xs text-text-muted">{stage.hint}</p>
-              </div>
+              </Link>
             ))}
           </div>
         ) : null}
 
-        <div className="rounded-3xl border border-line bg-white p-5 shadow-soft">
-          <h3 className="mb-3 text-sm font-semibold text-text-muted">Live activity</h3>
+        <div className="rounded-2xl border border-line bg-white p-5 shadow-soft">
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <h3 className="text-sm font-semibold text-text-muted">Live activity</h3>
+            <Link href="/activity" className="text-xs font-semibold text-coral hover:underline">
+              Full log →
+            </Link>
+          </div>
           {feedItems.length === 0 ? (
-            <p className="text-sm text-text-muted">
-              Workflow events from discovery and applications will appear here.
-            </p>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-sm text-text-muted">
+                Workflow events from discovery and applications will appear here.
+              </p>
+              <GoldButton onClick={() => router.push("/jobs?discover=1")}>
+                Run discovery
+              </GoldButton>
+            </div>
           ) : (
             <ul className="space-y-3">
               {feedItems.map((item) => (
-                <li key={item.id} className="flex gap-3 text-sm">
-                  <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-coral" />
-                  <div>
-                    <p className="text-ink">{item.title}</p>
-                    <p className="text-xs text-text-faint">{relativeTime(item.time)}</p>
-                  </div>
+                <li key={item.id}>
+                  <Link
+                    href="/activity"
+                    className="flex gap-3 rounded-xl px-2 py-1.5 text-sm transition hover:bg-paper"
+                  >
+                    <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-coral" />
+                    <div>
+                      <p className="text-ink">{item.title}</p>
+                      <p className="text-xs text-text-faint">{relativeTime(item.time)}</p>
+                    </div>
+                  </Link>
                 </li>
               ))}
             </ul>

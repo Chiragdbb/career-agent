@@ -10,7 +10,10 @@ import {
 } from "@/components/DiscoverWizard";
 import { Button, GhostButton } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
-import { PageHeader } from "@/components/ui/PageHeader";
+import { ErrorBanner } from "@/components/ui/ErrorBanner";
+import { HeroBand } from "@/components/ui/HeroBand";
+import { SoftBadge } from "@/components/ui/SoftBadge";
+import { ListSkeleton } from "@/components/ui/Skeleton";
 import { apiFetch } from "@/lib/api";
 import { detectLocaleCurrency, localeHint } from "@/lib/currency";
 import {
@@ -41,8 +44,6 @@ export default function PreferencesPage() {
   const [targetRolesText, setTargetRolesText] = useState("");
   const [locationsText, setLocationsText] = useState("");
   const [industriesText, setIndustriesText] = useState("");
-  const [showDiscoverCta, setShowDiscoverCta] = useState(false);
-
   useEffect(() => {
     let cancelled = false;
 
@@ -124,9 +125,9 @@ export default function PreferencesPage() {
       setTargetRolesText(joinList(merged.target_roles));
       setLocationsText(joinList(merged.locations));
       setIndustriesText(joinList(merged.industries));
-      setSuccess("Preferences saved.");
-      setShowDiscoverCta(true);
+      setSuccess("Preferences saved — opening job discovery…");
       setPhase("wizard");
+      router.push("/jobs?discover=1");
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Failed to save preferences",
@@ -200,36 +201,32 @@ export default function PreferencesPage() {
 
   return (
     <AppShell active="discover">
-      <PageHeader
-        title="Discover"
-        large
-        subtitle="Describe your ideal role, refine the details, and save your search preferences."
-      />
+      <HeroBand className="mb-8">
+        <SoftBadge tone="lavender" className="mb-3">
+          Search preferences
+        </SoftBadge>
+        <h1 className="text-3xl font-bold tracking-tight text-ink sm:text-4xl">
+          Discover{" "}
+          <span className="font-serif italic text-coral">your fit.</span>
+        </h1>
+        <p className="mt-3 max-w-xl text-sm text-text-muted">
+          Describe your ideal role in plain language, refine structured filters, and
+          save — we&apos;ll route you to discovery when you&apos;re done.
+        </p>
+      </HeroBand>
 
-      {error ? <p className="mb-4 text-sm text-destructive">{error}</p> : null}
-      {success ? <p className="mb-4 text-sm text-teal">{success}</p> : null}
-      {showDiscoverCta ? (
-        <Card className="mb-4 border-coral/30 bg-coral-bg/40">
-          <p className="text-lg font-bold tracking-tight text-ink">
-            Run your first job discovery now?
-          </p>
-          <p className="mt-1 text-sm text-text-muted">
-            We&apos;ll search for roles that match the preferences you just saved.
-          </p>
-          <div className="mt-4 flex gap-3">
-            <Button onClick={() => router.push("/jobs?discover=1")}>
-              Discover jobs
-            </Button>
-            <GhostButton onClick={() => setShowDiscoverCta(false)}>Not now</GhostButton>
-          </div>
-        </Card>
+      {error ? <ErrorBanner message={error} /> : null}
+      {success ? (
+        <p className="mb-4 rounded-2xl border border-line bg-teal-bg/80 px-4 py-3 text-sm font-medium text-teal">
+          {success}
+        </p>
       ) : null}
 
       {loading ? (
-        <p className="text-sm text-text-muted">Loading…</p>
+        <ListSkeleton rows={6} />
       ) : phase === "prompt" ? (
-        <div className="mx-auto flex max-w-2xl flex-col items-center py-8 text-center">
-          <h2 className="font-serif text-3xl font-semibold text-ink">
+        <div className="mx-auto flex max-w-2xl flex-col items-center py-4 text-center">
+          <h2 className="font-serif text-2xl font-semibold text-ink sm:text-3xl">
             What kind of role are you looking for?
           </h2>
           <p className="mt-2 max-w-lg text-sm text-text-muted">
@@ -237,7 +234,7 @@ export default function PreferencesPage() {
             preferences you can review.
           </p>
           <textarea
-            className="mt-8 min-h-[140px] w-full rounded-xl border border-line bg-paper-raised px-4 py-3 text-left text-sm text-ink shadow-sm focus:border-gold focus:outline-none focus:ring-2 focus:ring-gold/20"
+            className="mt-8 min-h-[140px] w-full rounded-xl border border-line bg-paper-raised px-4 py-3 text-left text-sm text-ink shadow-sm focus:border-coral focus:outline-none focus:ring-2 focus:ring-coral/20"
             value={promptText}
             onChange={(e) => setPromptText(e.target.value)}
             placeholder="e.g. Senior backend engineer in NYC or remote, $180k+, fintech startups"
@@ -252,10 +249,10 @@ export default function PreferencesPage() {
           </div>
         </div>
       ) : (
-        <Card>
+        <Card className="border-line bg-white shadow-soft">
           {parseNotes.length > 0 ? (
-            <div className="mb-4 rounded-md border border-border bg-paper-raised px-3 py-2 text-xs text-muted-foreground">
-              <span className="font-medium text-foreground">Notes: </span>
+            <div className="mb-4 rounded-xl border border-line bg-paper px-3 py-2 text-xs text-text-muted">
+              <span className="font-medium text-ink">Notes: </span>
               {parseNotes.join(" ")}
             </div>
           ) : null}

@@ -3,9 +3,11 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { ArrowLeft } from "lucide-react";
 
 import { AppShell } from "@/components/AppShell";
 import { GhostButton, GoldButton } from "@/components/ui/Button";
+import { PageHeader } from "@/components/ui/PageHeader";
 import { ScoreRing } from "@/components/ui/ScoreRing";
 import { ListSkeleton } from "@/components/ui/Skeleton";
 import { apiFetch } from "@/lib/api";
@@ -106,7 +108,7 @@ export default function ApplicationEditPage() {
         content?: string | null;
       };
       setDraft(body.cover_letter || body.content || draft);
-      setMessage("Draft updated. Save & back to Approvals when you’re happy.");
+      setMessage("Draft updated. Continue to Approvals when you’re happy.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Rewrite failed");
     } finally {
@@ -116,12 +118,20 @@ export default function ApplicationEditPage() {
 
   return (
     <AppShell active="applications" wide>
-      <Link
-        href={`/approvals?application=${params.id}`}
-        className="mb-4 inline-block text-sm text-text-muted hover:text-ink"
-      >
-        ← Back to Approvals
-      </Link>
+      <div className="mb-4 flex flex-wrap items-center gap-4">
+        <Link
+          href={`/applications/${params.id}`}
+          className="inline-flex items-center gap-1.5 text-sm text-text-muted hover:text-ink"
+        >
+          <ArrowLeft className="h-3.5 w-3.5" /> Application overview
+        </Link>
+        <Link
+          href={`/approvals?application=${params.id}`}
+          className="text-sm font-semibold text-coral hover:underline"
+        >
+          Back to approvals
+        </Link>
+      </div>
 
       {!detail && !error ? <ListSkeleton rows={3} /> : null}
       {error ? <p className="mb-4 text-sm text-destructive">{error}</p> : null}
@@ -129,37 +139,41 @@ export default function ApplicationEditPage() {
 
       {detail ? (
         <article className="space-y-6">
-          <header className="flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <h1 className="text-2xl font-bold tracking-tight text-ink">
-                Edit package · {detail.job_title || "Application"}
-              </h1>
-              <p className="mt-2 text-sm text-text-muted">
-                {detail.company_name} — JD on the left, drafts on the right. We
-                won’t invent experience or metrics.
-              </p>
-            </div>
-            {atsScore != null ? (
-              <div className="flex items-center gap-3">
-                <ScoreRing value={atsScore} />
-                <p className="text-xs text-text-muted">ATS vs this JD</p>
-              </div>
-            ) : null}
-          </header>
+          <PageHeader
+            title={`Edit package · ${detail.job_title || "Application"}`}
+            subtitle={`${detail.company_name || "Role"} — refine drafts against the job description. We won’t invent experience or metrics.`}
+            actions={
+              atsScore != null ? (
+                <div className="flex items-center gap-3">
+                  <ScoreRing value={atsScore} />
+                  <p className="max-w-[120px] text-xs text-text-muted">
+                    ATS fit vs this JD (when provided by pipeline)
+                  </p>
+                </div>
+              ) : (
+                <GhostButton
+                  onClick={() => router.push(`/applications/${params.id}`)}
+                >
+                  View overview
+                </GhostButton>
+              )
+            }
+            className="!pb-4"
+          />
 
           <div className="grid gap-6 lg:grid-cols-12">
             <section className="lg:col-span-5">
-              <p className="text-xs font-semibold uppercase text-text-faint">
+              <p className="text-xs font-semibold uppercase tracking-wide text-text-faint">
                 Job description
               </p>
-              <div className="mt-2 max-h-[70vh] overflow-y-auto whitespace-pre-wrap rounded-2xl border border-line bg-paper p-4 text-sm text-ink">
+              <div className="mt-2 max-h-[70vh] overflow-y-auto whitespace-pre-wrap rounded-2xl border border-line bg-paper p-4 text-sm leading-relaxed text-ink shadow-soft">
                 {detail.job_description || "No job description captured."}
               </div>
             </section>
 
             <section className="space-y-5 lg:col-span-7">
               {(hookSubject || hookBody) && (
-                <div className="rounded-2xl border border-line bg-white p-4">
+                <div className="rounded-2xl border border-line bg-white p-4 shadow-card">
                   <p className="text-xs font-semibold uppercase text-text-faint">
                     Hook email
                   </p>
@@ -174,8 +188,8 @@ export default function ApplicationEditPage() {
                 </div>
               )}
 
-              <div className="rounded-2xl border border-line bg-white p-4">
-                <p className="text-xs font-semibold uppercase text-text-faint">
+              <div className="rounded-2xl border border-line bg-white p-4 shadow-card">
+                <p className="text-xs font-semibold uppercase tracking-wide text-text-faint">
                   Cover letter / note
                 </p>
                 <pre className="mt-2 whitespace-pre-wrap text-sm text-ink">
@@ -183,8 +197,8 @@ export default function ApplicationEditPage() {
                 </pre>
               </div>
 
-              <div className="rounded-2xl border border-line bg-white p-4">
-                <p className="text-xs font-semibold uppercase text-text-faint">
+              <div className="rounded-2xl border border-line bg-white p-4 shadow-card">
+                <p className="text-xs font-semibold uppercase tracking-wide text-text-faint">
                   How should we change it?
                 </p>
                 <textarea
@@ -202,7 +216,7 @@ export default function ApplicationEditPage() {
                       router.push(`/approvals?application=${params.id}`)
                     }
                   >
-                    Save &amp; back to Approvals
+                    Back to Approvals
                   </GhostButton>
                 </div>
               </div>

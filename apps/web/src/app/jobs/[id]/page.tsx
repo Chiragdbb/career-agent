@@ -6,10 +6,8 @@ import { useParams, useRouter } from "next/navigation";
 import {
   ArrowLeft,
   ArrowRight,
-  Building2,
   CheckCircle2,
   Loader2,
-  MapPin,
   Send,
   Sparkles,
   Star,
@@ -18,7 +16,10 @@ import {
 } from "lucide-react";
 
 import { AppShell } from "@/components/AppShell";
+import { ActionCard } from "@/components/ui/ActionCard";
 import { GoldButton, GhostButton, Button } from "@/components/ui/Button";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { SoftBadge } from "@/components/ui/SoftBadge";
 import { CollapsibleSection } from "@/components/ui/CollapsibleSection";
 import { ErrorBanner } from "@/components/ui/ErrorBanner";
 import { ScoreRing } from "@/components/ui/ScoreRing";
@@ -478,9 +479,9 @@ export default function JobDetailPage() {
     <AppShell active="jobs" wide>
       <Link
         href="/jobs"
-        className="mb-3.5 inline-flex items-center gap-1.5 text-[12.5px] text-text-muted hover:text-foreground"
+        className="mb-4 inline-flex items-center gap-1.5 text-sm text-text-muted hover:text-ink"
       >
-        <ArrowLeft className="h-3.5 w-3.5" /> Back to jobs
+        <ArrowLeft className="h-3.5 w-3.5" /> Back to opportunities
       </Link>
       {error ? <p className="mb-4 text-sm text-destructive">{error}</p> : null}
       {rescrapeError ? (
@@ -491,66 +492,77 @@ export default function JobDetailPage() {
       ) : null}
       {loading ? <p className="text-sm text-text-muted">Loading…</p> : null}
       {job ? (
-        <article className="max-w-[760px]">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <h1 className="font-serif text-2xl font-semibold text-ink">{job.title}</h1>
-              <div className="mt-2 flex flex-wrap items-center gap-3.5">
-                <span className="flex items-center gap-1.5 text-[13.5px] text-text-muted">
-                  <Building2 className="h-3.5 w-3.5" /> {displayValue(job.company_name)}
-                </span>
-                <span className="flex items-center gap-1.5 text-[13.5px] text-text-muted">
-                  <MapPin className="h-3.5 w-3.5" />
-                  {[job.work_arrangement, job.location].filter(Boolean).join(" · ") || "—"}
-                </span>
+        <article className="max-w-[820px] space-y-6">
+          <PageHeader
+            serif
+            title={job.title}
+            subtitle={[job.company_name, job.work_arrangement, job.location]
+              .filter(Boolean)
+              .join(" · ")}
+            actions={
+              <div className="flex flex-wrap items-center gap-2">
+                {scorePercent != null ? (
+                  <ScoreRing value={scorePercent} />
+                ) : null}
+                {hasApplication ? (
+                  <GoldButton
+                    icon={ArrowRight}
+                    onClick={() =>
+                      router.push(`/applications/${workspace!.application!.id}`)
+                    }
+                  >
+                    View application
+                  </GoldButton>
+                ) : (
+                  <GoldButton
+                    icon={Sparkles}
+                    loading={starting}
+                    disabled={saving || starting}
+                    onClick={() => void onStartApplication()}
+                  >
+                    {starting ? "Starting…" : "Start application"}
+                  </GoldButton>
+                )}
               </div>
-            </div>
-            {scorePercent != null ? <ScoreRing value={scorePercent} /> : null}
+            }
+            className="!pb-4"
+          />
+
+          <div className="flex flex-wrap items-center gap-2">
+            <SoftBadge tone="lavender">{job.status}</SoftBadge>
+            {hasApplication ? (
+              <Link
+                href={`/applications/${workspace!.application!.id}`}
+                className="text-xs font-semibold text-coral hover:underline"
+              >
+                Open pipeline →
+              </Link>
+            ) : null}
           </div>
 
-          <div className="mb-6 mt-5 flex min-h-[38px] flex-wrap items-center gap-2.5">
-            {hasApplication ? (
+          <div className="flex min-h-[38px] flex-wrap items-center gap-2.5">
+            {!hasApplication ? (
               <GhostButton
-                icon={ArrowRight}
-                className="border-teal bg-teal-bg text-teal"
-                onClick={() =>
-                  router.push(`/applications/${workspace!.application!.id}`)
+                icon={Star}
+                disabled={saving || starting}
+                onClick={() => void onSaveJob()}
+                className={
+                  saved ? "border-gold bg-gold-bg text-[#7A551D]" : undefined
                 }
               >
-                View application
+                {saving ? "Saving…" : saved ? "Saved" : "Save for later"}
               </GhostButton>
-            ) : (
-              <>
-                <GhostButton
-                  icon={Star}
-                  disabled={saving || starting}
-                  onClick={() => void onSaveJob()}
-                  className={
-                    saved ? "border-gold bg-gold-bg text-[#7A551D]" : undefined
-                  }
-                >
-                  {saving ? "Saving…" : saved ? "Saved" : "Save job"}
-                </GhostButton>
-                <GoldButton
-                  icon={Sparkles}
-                  loading={starting}
-                  disabled={saving || starting}
-                  onClick={() => void onStartApplication()}
-                >
-                  {starting ? "Preparing application" : "Start application"}
-                </GoldButton>
-              </>
-            )}
-            <span className="ml-1 flex gap-3 text-xs text-text-faint">
+            ) : null}
+            <span className="ml-1 flex flex-wrap gap-3 text-xs font-medium text-coral">
               {job.url ? (
-                <a href={job.url} target="_blank" rel="noreferrer" className="hover:text-foreground">
+                <a href={job.url} target="_blank" rel="noreferrer" className="hover:underline">
                   View posting
                 </a>
               ) : null}
               <button
                 type="button"
                 onClick={() => void onRescrape()}
-                className="hover:text-foreground"
+                className="hover:underline"
               >
                 Re-scrape listing
               </button>
@@ -558,10 +570,13 @@ export default function JobDetailPage() {
                 type="button"
                 onClick={() => void onRescore()}
                 disabled={rescoring}
-                className="hover:text-foreground"
+                className="hover:underline disabled:opacity-50"
               >
-                {rescoring ? "Re-scoring…" : "Re-score"}
+                {rescoring ? "Re-scoring…" : "Re-score match"}
               </button>
+              <Link href="/applications" className="hover:underline">
+                All applications
+              </Link>
             </span>
           </div>
 
@@ -575,21 +590,19 @@ export default function JobDetailPage() {
           ) : null}
 
           {job.explanation ? (
-            <div className="mb-4 rounded-xl bg-teal-bg px-[18px] py-4">
+            <div className="rounded-2xl border border-line bg-lavender/40 px-5 py-4 shadow-soft">
               <div className="mb-1.5 flex items-center gap-1.5">
                 <Target className="h-3.5 w-3.5 text-teal" />
-                <span className="text-[12.5px] font-semibold text-teal">Why it matches</span>
+                <span className="text-sm font-semibold text-ink">Why it matches</span>
               </div>
-              <p className="whitespace-pre-line text-[13.5px] leading-relaxed text-[#254E42]">
+              <p className="whitespace-pre-line text-sm leading-relaxed text-text-muted">
                 {job.explanation}
               </p>
             </div>
           ) : null}
 
-          <section className="mb-5 rounded-xl border border-line-soft bg-paper-raised px-[18px] py-4">
-            <h2 className="mb-3 font-serif text-[15.5px] font-semibold text-ink">
-              Job details
-            </h2>
+          <ActionCard className="!rounded-2xl !p-5 shadow-card sm:!p-6">
+            <h2 className="mb-3 text-base font-bold text-ink">Job details</h2>
             <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <JobField label="Title" value={displayValue(job.title)} />
               <JobField label="Company" value={displayValue(job.company_name)} />
@@ -641,9 +654,9 @@ export default function JobDetailPage() {
                 {jobSkills.length ? jobSkills.join(", ") : "—"}
               </p>
             </div>
-          </section>
+          </ActionCard>
 
-          <div className="mb-5 flex flex-col gap-2.5">
+          <div className="flex flex-col gap-2.5">
             <CollapsibleSection
               title={`Matched skills (${job.matched_skills.length})`}
               tone="good"
@@ -667,8 +680,8 @@ export default function JobDetailPage() {
           </div>
 
           {(workspace?.contacts?.length ?? 0) > 0 ? (
-            <section>
-              <h2 className="mb-2.5 font-serif text-[15.5px] font-semibold text-ink">
+            <section className="rounded-2xl border border-line bg-white p-5 shadow-card">
+              <h2 className="mb-3 text-base font-bold text-ink">
                 People at {job.company_name || "this company"}
               </h2>
               <div className="flex flex-col gap-2">
@@ -687,7 +700,7 @@ export default function JobDetailPage() {
                       key={c.id}
                       className="flex items-center gap-3 rounded-[10px] border border-line-soft bg-paper-raised px-3.5 py-2.5"
                     >
-                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gold-bg font-serif text-xs font-semibold text-[#7A551D]">
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-lavender font-serif text-xs font-semibold text-lavender-deep">
                         {initials}
                       </div>
                       <div className="min-w-0 flex-1">
@@ -701,7 +714,9 @@ export default function JobDetailPage() {
                         icon={Send}
                         onClick={() => router.push(outreachHref(c.id))}
                       >
-                        Draft outreach
+                        {workspace?.outreach.some((o) => o.contact_id === c.id)
+                          ? "Open outreach"
+                          : "View contact"}
                       </GhostButton>
                     </div>
                   );

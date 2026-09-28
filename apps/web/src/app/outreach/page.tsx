@@ -3,12 +3,12 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Check, Heart, Shield, Clock } from "lucide-react";
+import { Heart, Shield, Clock } from "lucide-react";
 
 import { AppShell } from "@/components/AppShell";
 import { ActionCard } from "@/components/ui/ActionCard";
 import { SoftBadge } from "@/components/ui/SoftBadge";
-import { Button, GhostButton, GoldButton } from "@/components/ui/Button";
+import { GhostButton, GoldButton } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorBanner } from "@/components/ui/ErrorBanner";
 import { HeroBand } from "@/components/ui/HeroBand";
@@ -168,8 +168,8 @@ export default function OutreachPage() {
                 : "text-text-muted hover:bg-white/70",
             )}
           >
-            {filter === f.id && f.id === "draft" ? (
-              <span className="mr-1.5 inline-block size-1.5 rounded-full bg-coral" />
+            {f.id === "draft" && drafted.length > 0 ? (
+              <span className="mr-1.5 inline-block size-1.5 rounded-full bg-ember" />
             ) : null}
             {f.label}
           </button>
@@ -190,7 +190,9 @@ export default function OutreachPage() {
       ) : rows.length === 0 ? (
         <EmptyState
           title="No outbound mail yet"
-          description="Hook emails from application packages land here as drafts. Approve, then send."
+          description="Hook emails from application packages land here as drafts. Seal them in Approvals, then send from each thread."
+          primaryActionLabel="Open Approvals"
+          actionHref="/approvals"
         />
       ) : (
         <div className="grid gap-6 lg:grid-cols-12">
@@ -215,21 +217,7 @@ export default function OutreachPage() {
                       </div>
                     </div>
                     {isDraftedOutreachStatus(row.status) ? (
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        size="icon"
-                        disabled={approvingId === row.id}
-                        title="Approve"
-                        aria-label="Approve outreach"
-                        onClick={() => void approveFromKanban(row.id)}
-                      >
-                        {approvingId === row.id ? (
-                          <span className="text-[10px]">…</span>
-                        ) : (
-                          <Check className="h-3.5 w-3.5" />
-                        )}
-                      </Button>
+                      <SoftBadge tone="ember">Review</SoftBadge>
                     ) : null}
                   </div>
                   {row.reason ? (
@@ -248,15 +236,25 @@ export default function OutreachPage() {
                   </div>
                   <div className="mt-4 flex flex-wrap gap-2">
                     {isDraftedOutreachStatus(row.status) ? (
-                      <GoldButton
-                        disabled={approvingId === row.id}
-                        onClick={() => void approveFromKanban(row.id)}
-                      >
-                        Approve draft
-                      </GoldButton>
+                      <>
+                        <GoldButton
+                          disabled={approvingId === row.id}
+                          onClick={() => void approveFromKanban(row.id)}
+                        >
+                          {approvingId === row.id ? "Approving…" : "Approve draft"}
+                        </GoldButton>
+                        <GhostButton onClick={() => router.push("/approvals")}>
+                          Approvals queue
+                        </GhostButton>
+                      </>
                     ) : null}
                     <GhostButton onClick={() => router.push(`/outreach/${row.id}`)}>
-                      Personalize
+                      {isDraftedOutreachStatus(row.status) ? "Review thread" : "Open thread"}
+                    </GhostButton>
+                    <GhostButton
+                      onClick={() => router.push(`/contacts/${row.contact_id}`)}
+                    >
+                      Contact
                     </GhostButton>
                   </div>
                 </ActionCard>
