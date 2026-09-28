@@ -17,7 +17,7 @@ import { ActionCard } from "@/components/ui/ActionCard";
 import { SoftBadge } from "@/components/ui/SoftBadge";
 import { Button, GhostButton, GoldButton } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { HeroBand } from "@/components/ui/HeroBand";
+import { PageHeader } from "@/components/ui/PageHeader";
 import { useProcessActivity } from "@/hooks/useProcessActivity";
 import { apiFetch } from "@/lib/api";
 import { SegmentedTabs } from "@/components/ui/SegmentedTabs";
@@ -311,45 +311,44 @@ function JobsPageInner() {
 
   return (
     <AppShell active="jobs" wide>
-      <HeroBand className="mb-8 text-center">
-        <SoftBadge tone="white" className="mx-auto mb-4 shadow-sm">
-          Curated for your trajectory
-        </SoftBadge>
-        <h1 className="mx-auto max-w-2xl text-3xl font-bold tracking-tight text-ink sm:text-4xl">
-          Where do you want to take your work next?
-        </h1>
-        <p className="mx-auto mt-3 max-w-xl text-sm leading-relaxed text-text-muted sm:text-[15px]">
-          Quietly tailored openings shaped around your preferences — review,
-          save, or start a pitch when you are ready.
-        </p>
-        <div className="mx-auto mt-5 flex justify-center">
+      <PageHeader
+        large
+        title="Opportunities"
+        subtitle="Roles matched to your preferences — review, save, or start an application when you are ready. Nothing is sent without your approval."
+        actions={
+          <GhostButton onClick={() => router.push("/preferences")}>
+            Edit preferences
+          </GhostButton>
+        }
+      />
+
+      <ActionCard highlight className="mb-8">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
+            <h2 className="text-lg font-bold text-ink">Run discovery</h2>
+            <p className="mt-1 max-w-xl text-sm text-text-muted">
+              {discoveryMode === "explore"
+                ? "Explore widens titles and locations — expect lower precision than profile-matched runs."
+                : "Uses your preference targets for higher-precision matches."}
+            </p>
+          </div>
           <SegmentedTabs
             tabs={[
-              { id: "profile", label: "For your profile" },
+              { id: "profile", label: "Profile match" },
               { id: "explore", label: "Explore" },
             ]}
             active={discoveryMode}
             onChange={setDiscoveryMode}
           />
         </div>
-        {discoveryMode === "explore" ? (
-          <p className="mx-auto mt-3 max-w-lg text-xs text-text-muted">
-            Explore widens titles and locations — expect lower precision than
-            profile-matched discovery.
-          </p>
-        ) : (
-          <p className="mx-auto mt-3 max-w-lg text-xs text-text-muted">
-            Uses your preference targets for higher-precision matches.
-          </p>
-        )}
         <form
           data-discover-form
           onSubmit={(e) => void onDiscover(e)}
-          className="mx-auto mt-6 flex w-full max-w-2xl flex-col gap-3 sm:flex-row sm:items-center"
+          className="mt-5 flex w-full flex-col gap-3 sm:flex-row sm:items-center"
         >
           {discoveryMode === "explore" ? (
-            <div className="flex flex-1 items-center gap-2 rounded-full border border-line bg-white px-4 py-2 shadow-soft">
-              <Sparkles className="h-4 w-4 text-coral" />
+            <div className="flex flex-1 items-center gap-2 rounded-2xl border border-line bg-paper px-4 py-2.5 shadow-soft">
+              <Sparkles className="h-4 w-4 shrink-0 text-coral" />
               <input
                 value={exploreQuery}
                 onChange={(e) => setExploreQuery(e.target.value)}
@@ -374,47 +373,36 @@ function JobsPageInner() {
           </GoldButton>
         </form>
         {discoveryMode === "explore" ? (
-          <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+          <div className="mt-4 flex flex-wrap items-center gap-2">
             <span className="text-xs text-text-faint">Try exploring</span>
             {exploreHints.map((hint) => (
               <button
                 key={hint}
                 type="button"
                 onClick={() => setExploreQuery(hint)}
-                className="rounded-full bg-white/80 px-3 py-1 text-xs font-medium text-text-muted shadow-sm hover:text-ink"
+                className="rounded-full border border-line bg-white px-3 py-1 text-xs font-medium text-text-muted hover:border-coral/40 hover:text-ink"
               >
                 {hint}
               </button>
             ))}
           </div>
         ) : null}
-      </HeroBand>
-
-      <ActionCard className="mb-8 !flex-row flex-wrap items-center justify-between gap-4">
-        <div>
-          <SoftBadge tone="lavender" className="mb-2">
-            Market note
-          </SoftBadge>
-          <h2 className="text-lg font-bold text-ink">
-            Discovery watches teams that match your preferences.
-          </h2>
-          <p className="mt-1 max-w-xl text-sm text-text-muted">
-            Set intentions in Discover, then let Waypoint surface roles for your
-            review — nothing is sent without your seal.
-          </p>
-          <div className="mt-3 flex flex-wrap gap-3 text-sm font-semibold text-coral">
-            <Link href="/preferences">Set intentions →</Link>
-            <Link href="/approvals">Review approvals →</Link>
-          </div>
+        <div className="mt-4 flex flex-wrap gap-4 border-t border-line pt-4 text-sm font-semibold text-coral">
+          <Link href="/preferences" className="hover:underline">
+            Set preferences
+          </Link>
+          <Link href="/approvals" className="hover:underline">
+            Review approvals
+          </Link>
+          <Link href="/applications" className="hover:underline">
+            View applications
+          </Link>
         </div>
-        <GhostButton onClick={() => router.push("/preferences")}>
-          Open Discover
-        </GhostButton>
       </ActionCard>
 
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-xl font-bold tracking-tight text-ink">
-          Curated Opportunities
+        <h2 className="text-lg font-bold tracking-tight text-ink">
+          Your list
           <span className="ml-2 text-base font-semibold text-text-muted">
             ({filteredJobs.length})
           </span>
@@ -478,9 +466,9 @@ function JobsPageInner() {
         <EmptyState
           icon={Briefcase}
           title="No opportunities yet"
-          description="Set your preferences and explore with Waypoint to find matching roles."
-          primaryActionLabel="Explore"
-          onPrimaryAction={() => void onDiscover()}
+          description="Set your preferences first, then run discovery above to surface matching roles."
+          primaryActionLabel="Set preferences"
+          actionHref="/preferences"
         />
       ) : (
         <ul className="space-y-4">
@@ -490,7 +478,7 @@ function JobsPageInner() {
             const initial = (job.company_name || job.title || "?").charAt(0);
             return (
               <li key={job.id}>
-                <ActionCard className="!p-5 sm:!p-6">
+                <ActionCard className="!rounded-2xl !p-5 shadow-card sm:!p-6">
                   <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                     <div className="flex min-w-0 flex-1 gap-3">
                       <input

@@ -38,10 +38,10 @@ type DiscoverWizardProps = {
 };
 
 const inputClassName =
-  "mt-1 w-full rounded-md border border-input bg-card px-3 py-2 text-sm text-foreground shadow-sm focus:outline-none focus:ring-2 focus:ring-ring/30";
+  "mt-1 w-full rounded-xl border border-line bg-paper-raised px-3 py-2 text-sm text-ink shadow-sm focus:border-coral focus:outline-none focus:ring-2 focus:ring-coral/20";
 
 const selectClassName =
-  "mt-1 w-full rounded-md border border-input bg-card px-3 py-2 text-sm text-foreground shadow-sm focus:outline-none focus:ring-2 focus:ring-ring/30 appearance-none";
+  "mt-1 w-full rounded-xl border border-line bg-paper-raised px-3 py-2 text-sm text-ink shadow-sm focus:border-coral focus:outline-none focus:ring-2 focus:ring-coral/20 appearance-none";
 
 function CheckboxGroup({
   label,
@@ -56,21 +56,29 @@ function CheckboxGroup({
 }) {
   return (
     <fieldset className="text-sm">
-      <legend className="font-medium text-foreground">{label}</legend>
-      <div className="mt-2 flex flex-wrap gap-3">
-        {options.map((option) => (
-          <label key={option} className="inline-flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={selected.includes(option)}
-              onChange={() => onChange(toggleInList(selected, option))}
-              className="rounded border-input text-primary focus:ring-ring"
-            />
-            <span className="text-muted-foreground">
-              {formatOptionLabel(option)}
-            </span>
-          </label>
-        ))}
+      <legend className="font-medium text-ink">{label}</legend>
+      <div className="mt-2 flex flex-wrap gap-2">
+        {options.map((option) => {
+          const active = selected.includes(option);
+          return (
+            <label
+              key={option}
+              className={`inline-flex cursor-pointer items-center gap-2 rounded-full border px-3 py-1.5 transition-colors ${
+                active
+                  ? "border-coral/40 bg-lavender font-medium text-lavender-deep"
+                  : "border-line bg-white text-text-muted hover:border-coral/25"
+              }`}
+            >
+              <input
+                type="checkbox"
+                checked={active}
+                onChange={() => onChange(toggleInList(selected, option))}
+                className="sr-only"
+              />
+              <span className="text-[13px]">{formatOptionLabel(option)}</span>
+            </label>
+          );
+        })}
       </div>
     </fieldset>
   );
@@ -140,8 +148,8 @@ export function DiscoverWizard({
       {activeStep === 0 ? (
         <div className="space-y-6">
           <label className="block text-sm">
-            <span className="font-medium text-foreground">Target roles</span>
-            <span className="ml-2 text-muted-foreground">(comma-separated)</span>
+            <span className="font-medium text-ink">Target roles</span>
+            <span className="ml-2 text-text-muted">(comma-separated)</span>
             <input
               className={inputClassName}
               value={targetRolesText}
@@ -151,8 +159,8 @@ export function DiscoverWizard({
           </label>
 
           <label className="block text-sm">
-            <span className="font-medium text-foreground">Locations</span>
-            <span className="ml-2 text-muted-foreground">(comma-separated)</span>
+            <span className="font-medium text-ink">Locations</span>
+            <span className="ml-2 text-text-muted">(comma-separated)</span>
             <input
               className={inputClassName}
               value={locationsText}
@@ -172,13 +180,13 @@ export function DiscoverWizard({
 
       {activeStep === 1 ? (
         <div className="space-y-4">
-          <p className="text-sm text-muted-foreground">
+          <p className="text-sm text-text-muted">
             Set your minimum compensation. Jobs in other currencies are scored
             neutrally until we know the exchange rate.
           </p>
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="block text-sm">
-              <span className="font-medium text-foreground">Minimum salary</span>
+              <span className="font-medium text-ink">Minimum salary</span>
               <input
                 type="number"
                 min={0}
@@ -193,7 +201,7 @@ export function DiscoverWizard({
               />
             </label>
             <div className="block text-sm">
-              <span className="font-medium text-foreground">Currency</span>
+              <span className="font-medium text-ink">Currency</span>
               <CustomSelect
                 className="mt-1"
                 value={salaryCurrency}
@@ -216,8 +224,8 @@ export function DiscoverWizard({
           />
 
           <label className="block text-sm">
-            <span className="font-medium text-foreground">Industries</span>
-            <span className="ml-2 text-muted-foreground">(comma-separated)</span>
+            <span className="font-medium text-ink">Industries</span>
+            <span className="ml-2 text-text-muted">(comma-separated)</span>
             <input
               className={inputClassName}
               value={industriesText}
@@ -241,7 +249,7 @@ export function DiscoverWizard({
           />
 
           <label className="block text-sm">
-            <span className="font-medium text-foreground">Job freshness</span>
+            <span className="font-medium text-ink">Job freshness</span>
             <select
               className={selectClassName}
               value={settings.job_freshness}
@@ -260,7 +268,7 @@ export function DiscoverWizard({
       {activeStep === 3 ? (
         <div className="space-y-6">
           <label className="block text-sm">
-            <span className="font-medium text-foreground">
+            <span className="font-medium text-ink">
               Application automation mode
             </span>
             <select
@@ -279,7 +287,7 @@ export function DiscoverWizard({
           </label>
 
           <label className="block text-sm">
-            <span className="font-medium text-foreground">
+            <span className="font-medium text-ink">
               Outreach approval mode
             </span>
             <select
@@ -299,7 +307,7 @@ export function DiscoverWizard({
 
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="block text-sm">
-              <span className="font-medium text-foreground">
+              <span className="font-medium text-ink">
                 Daily application limit
               </span>
               <input
@@ -316,7 +324,7 @@ export function DiscoverWizard({
               />
             </label>
             <label className="block text-sm">
-              <span className="font-medium text-foreground">
+              <span className="font-medium text-ink">
                 Daily outreach limit
               </span>
               <input
@@ -336,7 +344,7 @@ export function DiscoverWizard({
         </div>
       ) : null}
 
-      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line pt-4">
         <GhostButton
           type="button"
           onClick={handleBack}

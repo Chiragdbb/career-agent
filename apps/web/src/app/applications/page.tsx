@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { FileCheck, ShieldCheck } from "lucide-react";
 
@@ -9,8 +9,9 @@ import { AppShell } from "@/components/AppShell";
 import { ActionCard } from "@/components/ui/ActionCard";
 import { SoftBadge } from "@/components/ui/SoftBadge";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { HeroBand } from "@/components/ui/HeroBand";
-import { GoldButton } from "@/components/ui/Button";
+import { GoldButton, GhostButton } from "@/components/ui/Button";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { SegmentedTabs } from "@/components/ui/SegmentedTabs";
 import { apiFetch } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { createClient } from "@/lib/supabase/client";
@@ -56,7 +57,7 @@ function daysInStage(appliedAt: string | null): number | null {
   return Math.floor(diff / (1000 * 60 * 60 * 24));
 }
 
-export default function ApplicationsPage() {
+function ApplicationsPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [rows, setRows] = useState<Application[]>([]);
@@ -71,6 +72,11 @@ export default function ApplicationsPage() {
     if (v === "list") setView("list");
     else if (v === "board") setView("board");
   }, [searchParams]);
+
+  function setViewAndUrl(next: "board" | "list") {
+    setView(next);
+    router.replace(`/applications?view=${next}`, { scroll: false });
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -112,60 +118,60 @@ export default function ApplicationsPage() {
     {} as Record<string, Application[]>,
   );
 
+  const signoffCount = grouped.signoff?.length ?? 0;
+
   return (
     <AppShell active="applications" wide>
-      <HeroBand className="mb-8">
-        <div className="grid gap-6 lg:grid-cols-12 lg:items-end">
-          <div className="lg:col-span-8">
-            <SoftBadge tone="lavender" className="mb-3">
-              Active opportunities
-            </SoftBadge>
-            <h1 className="text-3xl font-bold tracking-tight text-ink sm:text-4xl">
-              Your career trajectory,{" "}
-              <span className="font-serif italic text-coral">unfolded.</span>
-            </h1>
-            <p className="mt-3 max-w-xl text-sm text-text-muted">
-              Track every stage with human control. Submissions only happen when
-              you have evidence and choose to proceed.
-            </p>
-            <div className="mt-4 flex flex-wrap gap-2">
-              {(
-                [
-                  ["board", "Visual Journey"],
-                  ["list", "Compact Table"],
-                ] as const
-              ).map(([id, label]) => (
-                <button
-                  key={id}
-                  type="button"
-                  onClick={() => setView(id)}
-                  className={cn(
-                    "rounded-full px-3.5 py-1.5 text-xs font-semibold",
-                    view === id
-                      ? "bg-lavender text-lavender-deep"
-                      : "bg-white/70 text-text-muted",
-                  )}
-                >
-                  {label}
-                </button>
-              ))}
-              <Link
-                href="/activity"
-                className="rounded-full bg-white/70 px-3.5 py-1.5 text-xs font-semibold text-text-muted hover:text-ink"
-              >
-                Activity Log
-              </Link>
-            </div>
+      <PageHeader
+        large
+        title="Applications"
+        subtitle="Track every stage with human control. Submissions only happen when you have evidence and choose to proceed."
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            <GhostButton onClick={() => router.push("/jobs")}>
+              Browse opportunities
+            </GhostButton>
+            {signoffCount > 0 ? (
+              <GoldButton onClick={() => router.push("/approvals")}>
+                Review sign-off ({signoffCount})
+              </GoldButton>
+            ) : (
+              <GhostButton onClick={() => router.push("/approvals")}>
+                Open approvals
+              </GhostButton>
+            )}
           </div>
-          <ActionCard className="lg:col-span-4">
-            <p className="text-xs font-semibold uppercase tracking-wide text-text-faint">
-              Stage health
-            </p>
-            <p className="mt-1 text-3xl font-bold text-ink">{rows.length}</p>
-            <p className="text-xs text-text-muted">applications in motion</p>
-          </ActionCard>
+        }
+      />
+
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+        <SegmentedTabs
+          tabs={[
+            { id: "board", label: "Board" },
+            { id: "list", label: "List" },
+          ]}
+          active={view}
+          onChange={setViewAndUrl}
+        />
+        <div className="flex flex-wrap items-center gap-3 text-sm text-text-muted">
+          <span>
+            <span className="font-semibold text-ink">{rows.length}</span> in
+            pipeline
+          </span>
+          <Link
+            href="/activity"
+            className="font-semibold text-coral hover:underline"
+          >
+            Activity log
+          </Link>
+          <Link
+            href="/interviews"
+            className="font-semibold text-coral hover:underline"
+          >
+            Interviews
+          </Link>
         </div>
-      </HeroBand>
+      </div>
 
       {error ? <p className="mb-4 text-sm text-destructive">{error}</p> : null}
 
@@ -175,7 +181,7 @@ export default function ApplicationsPage() {
         <EmptyState
           icon={FileCheck}
           title="No applications yet"
-          description="Save a job and start an application to track your pipeline here."
+          description="Save a job and start an application from Opportunities to track your pipeline here."
           primaryActionLabel="Browse opportunities"
           actionHref="/jobs"
         />
@@ -185,8 +191,8 @@ export default function ApplicationsPage() {
             <div
               key={col.key}
               className={cn(
-                "flex min-w-[85vw] flex-1 snap-center flex-col gap-2 rounded-3xl border border-line bg-white p-3 shadow-soft sm:min-w-[220px]",
-                col.key === "signoff" && "border-coral/30 bg-coral-bg/30",
+                "flex min-w-[85vw] flex-1 snap-center flex-col gap-2 rounded-2xl border border-line bg-paper p-3 shadow-card sm:min-w-[220px]",
+                col.key === "signoff" && "border-coral/30 bg-coral-bg/20",
               )}
             >
               <div className="px-1 pb-1">
@@ -206,7 +212,7 @@ export default function ApplicationsPage() {
                   <Link
                     key={row.id}
                     href={`/applications/${row.id}`}
-                    className="rounded-2xl border border-line bg-white p-3 transition-shadow hover:shadow-soft"
+                    className="rounded-2xl border border-line bg-white p-3 shadow-soft transition-shadow hover:shadow-card"
                   >
                     <div className="mb-2 flex items-center gap-2">
                       <span className="flex size-8 items-center justify-center rounded-xl bg-lavender text-xs font-bold text-lavender-deep">
@@ -234,7 +240,7 @@ export default function ApplicationsPage() {
                       <p
                         className={cn(
                           "text-[10px]",
-                          stale ? "font-medium text-brick" : "text-text-faint",
+                          stale ? "font-medium text-ember" : "text-text-faint",
                         )}
                       >
                         Day {days}
@@ -250,15 +256,31 @@ export default function ApplicationsPage() {
                 );
               })}
               {(grouped[col.key] ?? []).length === 0 ? (
-                <p className="py-6 text-center text-[11px] text-text-faint">
-                  Empty
-                </p>
+                col.key === "signoff" ? (
+                  <Link
+                    href="/approvals"
+                    className="rounded-2xl border border-dashed border-line px-3 py-6 text-center text-[11px] font-semibold text-coral hover:border-coral/40 hover:bg-white"
+                  >
+                    Open approvals →
+                  </Link>
+                ) : col.key === "vetted" ? (
+                  <Link
+                    href="/jobs"
+                    className="rounded-2xl border border-dashed border-line px-3 py-6 text-center text-[11px] font-semibold text-coral hover:border-coral/40 hover:bg-white"
+                  >
+                    Start from opportunities →
+                  </Link>
+                ) : (
+                  <p className="py-6 text-center text-[11px] text-text-faint">
+                    Nothing here yet
+                  </p>
+                )
               ) : null}
             </div>
           ))}
         </div>
       ) : (
-        <div className="overflow-hidden rounded-3xl border border-line bg-white shadow-soft">
+        <div className="overflow-hidden rounded-2xl border border-line bg-white shadow-card">
           <ul>
             {rows.map((row) => (
               <li key={row.id} className="border-b border-line last:border-0">
@@ -283,10 +305,10 @@ export default function ApplicationsPage() {
       )}
 
       {rows.length > 0 ? (
-        <ActionCard className="mt-8 !flex-row flex-wrap items-center justify-between gap-4">
+        <ActionCard className="mt-8 !flex-row flex-wrap items-center justify-between gap-4 !rounded-2xl shadow-card">
           <div className="flex items-start gap-3">
-            <div className="flex size-10 items-center justify-center rounded-full bg-teal-bg">
-              <ShieldCheck className="h-5 w-5 text-teal" />
+            <div className="flex size-10 items-center justify-center rounded-2xl bg-lavender">
+              <ShieldCheck className="h-5 w-5 text-lavender-deep" />
             </div>
             <div>
               <h3 className="font-bold text-ink">Human control active</h3>
@@ -297,10 +319,24 @@ export default function ApplicationsPage() {
             </div>
           </div>
           <GoldButton onClick={() => router.push("/approvals")}>
-            Open Approvals
+            Open approvals
           </GoldButton>
         </ActionCard>
       ) : null}
     </AppShell>
+  );
+}
+
+export default function ApplicationsPage() {
+  return (
+    <Suspense
+      fallback={
+        <AppShell active="applications" wide>
+          <p className="text-sm text-text-muted">Loading…</p>
+        </AppShell>
+      }
+    >
+      <ApplicationsPageInner />
+    </Suspense>
   );
 }

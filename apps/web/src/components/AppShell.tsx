@@ -30,7 +30,7 @@ function AppShellInner({
   hideActivityBar,
 }: AppShellProps) {
   return (
-    <div className="flex min-h-screen flex-col bg-paper">
+    <div className="app-shell flex min-h-screen flex-col bg-paper">
       <AppTopNav active={active} />
       <main
         className={cn(

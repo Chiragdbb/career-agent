@@ -2,11 +2,13 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { Loader2, Radio } from "lucide-react";
 
 import { AppShell } from "@/components/AppShell";
 import { Button } from "@/components/ui/Button";
-import { PageHeader } from "@/components/ui/PageHeader";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { HeroBand } from "@/components/ui/HeroBand";
+import { SoftBadge } from "@/components/ui/SoftBadge";
 import { ListSkeleton } from "@/components/ui/Skeleton";
 import { useEventStream } from "@/lib/useEventStream";
 import { cn } from "@/lib/cn";
@@ -32,10 +34,10 @@ function statusLabel(status: string | null | undefined): string {
 }
 
 function badgeClass(workflowType: string): string {
-  if (workflowType === "job_discovery") return "bg-ai-subtle text-ai";
-  if (workflowType === "job_rescrape") return "bg-warning-subtle text-warning";
+  if (workflowType === "job_discovery") return "bg-lavender text-lavender-deep";
+  if (workflowType === "job_rescrape") return "bg-coral-bg text-coral-deep";
   if (workflowType === "career_job_pipeline") return "bg-lavender text-lavender-deep";
-  return "bg-muted text-muted-foreground";
+  return "bg-paper text-text-muted";
 }
 
 function LiveProcessBanner({
@@ -79,7 +81,7 @@ function LiveProcessBanner({
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="mb-1.5 flex flex-wrap items-center gap-2">
-            <span className="h-[7px] w-[7px] shrink-0 rounded-full bg-success shadow-[0_0_0_3px_var(--success-subtle)]" />
+            <span className="h-[7px] w-[7px] shrink-0 animate-pulse rounded-full bg-coral shadow-[0_0_0_3px_rgba(91,84,255,0.15)]" />
             <span
               className={cn(
                 "rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide",
@@ -109,7 +111,7 @@ function LiveProcessBanner({
         <p className="mt-2 text-xs text-destructive">{cancelError}</p>
       ) : null}
 
-      <div className="mt-3.5 h-1.5 overflow-hidden rounded-full bg-muted">
+      <div className="mt-3.5 h-1.5 overflow-hidden rounded-full bg-line/60">
         <div
           className="h-full rounded-full bg-coral transition-[width] duration-500"
           style={{ width: `${Math.max(4, Math.min(100, ratio * 100))}%` }}
@@ -188,10 +190,19 @@ export default function ActivityPage() {
 
   return (
     <AppShell active="activity" wide hideActivityBar>
-      <PageHeader
-        title="Activity log"
-        subtitle="Live processes and past requests, with human-readable steps."
-      />
+      <HeroBand className="mb-8">
+        <SoftBadge tone="coral" className="mb-3">
+          Live & historical
+        </SoftBadge>
+        <h1 className="text-3xl font-bold tracking-tight text-ink sm:text-4xl">
+          Activity{" "}
+          <span className="font-serif italic text-coral">log.</span>
+        </h1>
+        <p className="mt-3 max-w-xl text-sm text-text-muted">
+          Every discovery run, scrape, and application pipeline — with human-readable
+          steps and links back to your work.
+        </p>
+      </HeroBand>
 
       {loading ? (
         <ListSkeleton rows={5} />
@@ -214,9 +225,17 @@ export default function ActivityPage() {
               {activeRuns.length > 0 ? "Earlier" : "History"}
             </h2>
             {historyRuns.length === 0 && activeRuns.length === 0 ? (
-              <p className="text-sm text-text-muted">No activity yet.</p>
+              <EmptyState
+                icon={Radio}
+                title="No activity yet"
+                description="Start job discovery or run an application pipeline — progress and outcomes will stream here in real time."
+                primaryActionLabel="Discover jobs"
+                actionHref="/jobs?discover=1"
+              />
             ) : historyRuns.length === 0 ? (
-              <p className="text-sm text-text-muted">No earlier activity.</p>
+              <p className="rounded-2xl border border-line bg-white px-4 py-6 text-center text-sm text-text-muted shadow-soft">
+                No earlier activity — live runs appear above when they finish.
+              </p>
             ) : (
               <div className="overflow-hidden rounded-3xl border border-line bg-white shadow-soft">
                 <ul className="divide-y divide-line">
@@ -249,9 +268,9 @@ export default function ActivityPage() {
                             className={cn(
                               "text-[11px] font-semibold",
                               run.status === "completed"
-                                ? "text-success"
+                                ? "text-teal"
                                 : run.status === "failed" || run.status === "cancelled"
-                                  ? "text-destructive"
+                                  ? "text-ember"
                                   : "text-text-muted",
                             )}
                           >

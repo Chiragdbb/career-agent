@@ -3,12 +3,21 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, Check, CheckCircle2, Pencil, Send } from "lucide-react";
+import {
+  ArrowLeft,
+  Check,
+  CheckCircle2,
+  Send,
+  Shield,
+  UserRound,
+} from "lucide-react";
 
 import { AppShell } from "@/components/AppShell";
+import { ActionCard } from "@/components/ui/ActionCard";
 import { GoldButton, GhostButton } from "@/components/ui/Button";
 import { ErrorBanner } from "@/components/ui/ErrorBanner";
 import { ListSkeleton } from "@/components/ui/Skeleton";
+import { SoftBadge } from "@/components/ui/SoftBadge";
 import { apiFetch } from "@/lib/api";
 import {
   isApprovedOutreachStatus,
@@ -35,7 +44,6 @@ export default function OutreachDetailPage() {
   const router = useRouter();
   const params = useParams<{ id: string }>();
   const [detail, setDetail] = useState<OutreachDetail | null>(null);
-  const [message, setMessage] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -65,10 +73,7 @@ export default function OutreachDetailPage() {
           return;
         }
         const data = await loadDetail();
-        if (!cancelled) {
-          setDetail(data);
-          setMessage(data.body || "");
-        }
+        if (!cancelled) setDetail(data);
       } catch (err) {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : "Failed to load");
@@ -98,7 +103,6 @@ export default function OutreachDetailPage() {
       }
       const updated = (await response.json()) as OutreachDetail;
       setDetail(updated);
-      setMessage(updated.body || message);
     } catch (err) {
       setActionError(err instanceof Error ? err.message : `${action} failed`);
     } finally {
@@ -111,15 +115,26 @@ export default function OutreachDetailPage() {
   const isApproved = detail ? isApprovedOutreachStatus(detail.status) : false;
   const isSent = detail ? outreachColumnForStatus(detail.status) === "sent" : false;
   const statusCol = detail ? outreachColumnForStatus(detail.status) : "drafted";
+  const bodyText = detail?.body?.trim() || "";
 
   return (
     <AppShell active="outreach" wide>
-      <Link
-        href="/outreach"
-        className="mb-3.5 inline-flex items-center gap-1.5 text-[12.5px] text-text-muted hover:text-foreground"
-      >
-        <ArrowLeft className="h-3.5 w-3.5" /> Back to outreach
-      </Link>
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+        <Link
+          href="/outreach"
+          className="inline-flex items-center gap-1.5 text-sm text-text-muted hover:text-ink"
+        >
+          <ArrowLeft className="h-3.5 w-3.5" /> Back to outreach
+        </Link>
+        {isDrafted ? (
+          <Link
+            href="/approvals"
+            className="inline-flex items-center gap-1.5 text-sm font-semibold text-coral"
+          >
+            <Shield className="h-3.5 w-3.5" /> Approvals queue
+          </Link>
+        ) : null}
+      </div>
 
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
       {actionError ? (
@@ -132,85 +147,139 @@ export default function OutreachDetailPage() {
       {loading ? (
         <ListSkeleton rows={4} />
       ) : detail ? (
-        <div className="max-w-[640px]">
-          <header className="mb-1.5">
-            <h1 className="font-serif text-[19px] font-semibold text-ink">
-              {detail.subject || "Outreach message"}
-            </h1>
-            {detail.recipient_email ? (
-              <p className="mt-0.5 text-[12.5px] text-text-muted">
-                To {detail.recipient_email}
-              </p>
-            ) : null}
-          </header>
-
-          <div className="my-5 grid grid-cols-3 gap-2">
-            {COLUMNS.map((col) => (
-              <div
-                key={col}
-                className="relative min-h-[58px] rounded-[10px] border border-line-soft bg-paper-raised px-2.5 pb-6 pt-2.5"
-              >
-                <div className="mb-1.5 text-[11px] capitalize text-text-faint">{col}</div>
-                {statusCol === col ? (
-                  <div className="animate-riseIn rounded-[7px] border border-gold/30 bg-paper px-2 py-1.5 text-[11.5px] text-ink">
-                    {detail.subject || "This message"}
-                  </div>
+        <div className="grid gap-8 lg:grid-cols-12">
+          <div className="space-y-6 lg:col-span-8">
+            <header>
+              <div className="flex flex-wrap items-center gap-2">
+                {isDrafted ? (
+                  <SoftBadge tone="ember">Awaiting your approval</SoftBadge>
                 ) : null}
+                <SoftBadge tone="lavender">{detail.status}</SoftBadge>
               </div>
-            ))}
+              <h1 className="mt-3 text-2xl font-bold tracking-tight text-ink sm:text-3xl">
+                {detail.subject || "Outreach message"}
+              </h1>
+              {detail.recipient_email ? (
+                <p className="mt-2 text-sm text-text-muted">
+                  To {detail.recipient_email}
+                </p>
+              ) : null}
+            </header>
+
+            <div className="grid grid-cols-3 gap-2">
+              {COLUMNS.map((col) => (
+                <div
+                  key={col}
+                  className={cn(
+                    "relative min-h-[58px] rounded-2xl border px-3 pb-6 pt-2.5",
+                    statusCol === col
+                      ? "border-coral/40 bg-coral-bg/50"
+                      : "border-line bg-paper",
+                  )}
+                >
+                  <div className="mb-1.5 text-[11px] capitalize text-text-faint">
+                    {col}
+                  </div>
+                  {statusCol === col ? (
+                    <div className="rounded-xl border border-line bg-white px-2 py-1.5 text-[11.5px] text-ink">
+                      Current stage
+                    </div>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+
+            {detail.reason ? (
+              <ActionCard className="!bg-paper">
+                <p className="text-xs font-semibold uppercase tracking-wide text-text-faint">
+                  Context
+                </p>
+                <p className="mt-2 text-sm leading-relaxed text-text-muted">
+                  {detail.reason}
+                </p>
+              </ActionCard>
+            ) : null}
+
+            <ActionCard>
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <p className="text-sm font-semibold text-ink">Draft body</p>
+                <span className="text-xs text-text-faint">
+                  {bodyText.length} characters
+                </span>
+              </div>
+              <div
+                className="whitespace-pre-wrap rounded-2xl border border-line bg-paper px-4 py-3 text-sm leading-relaxed text-ink"
+                aria-label="Message body"
+              >
+                {bodyText ||
+                  "No body text yet — check Approvals or regenerate from the job package."}
+              </div>
+              <p className="mt-2 text-xs text-text-muted">
+                Draft text comes from your workflow. Approve when it matches your voice;
+                sending uses the stored draft on the server.
+              </p>
+            </ActionCard>
+
+            <div className="flex flex-wrap items-center gap-2.5">
+              {isSent ? (
+                <div className="flex items-center gap-2 text-teal">
+                  <CheckCircle2 className="h-[17px] w-[17px]" />
+                  <span className="text-sm font-medium">Sent</span>
+                </div>
+              ) : (
+                <>
+                  <GoldButton
+                    icon={Check}
+                    loading={approving && isDrafted}
+                    disabled={!isDrafted || sending}
+                    onClick={() => void runAction("approve")}
+                  >
+                    {isApproved ? "Approved" : "Approve draft"}
+                  </GoldButton>
+                  <GhostButton
+                    icon={Send}
+                    disabled={!isApproved || approving || sending}
+                    loading={sending && isApproved}
+                    onClick={() => void runAction("send")}
+                    className={isApproved ? "border-teal bg-teal-bg text-teal" : undefined}
+                  >
+                    Send
+                  </GhostButton>
+                </>
+              )}
+            </div>
           </div>
 
-          <div className="mb-2 flex items-center justify-between">
-            <span className="flex items-center gap-1.5 text-[12.5px] font-semibold text-text-muted">
-              <Pencil className="h-3 w-3" /> Message
-            </span>
-            <span className="text-[11.5px] text-text-faint">{message.length} characters</span>
-          </div>
-
-          <textarea
-            value={message}
-            onChange={(e) => setMessage(e.target.value)}
-            disabled={!isDrafted}
-            rows={9}
-            className={cn(
-              "w-full resize-y rounded-[10px] border border-line px-3.5 py-3.5 text-[13.5px] leading-relaxed text-foreground",
-              isDrafted ? "bg-paper-raised" : "bg-paper text-text-muted",
-            )}
-            aria-label="Message body"
-          />
-
-          <div className="mt-4 flex items-center gap-2.5">
-            {isSent ? (
-              <div className="flex animate-riseIn items-center gap-2 text-teal">
-                <CheckCircle2 className="h-[17px] w-[17px]" />
-                <span className="text-[13.5px] font-medium">Sent</span>
-              </div>
-            ) : (
-              <>
+          <aside className="space-y-4 lg:col-span-4">
+            <ActionCard>
+              <p className="text-xs font-semibold uppercase tracking-wide text-text-faint">
+                Recipient
+              </p>
+              <GhostButton
+                className="mt-3 w-full justify-center"
+                icon={UserRound}
+                onClick={() => router.push(`/contacts/${detail.contact_id}`)}
+              >
+                Open contact profile
+              </GhostButton>
+            </ActionCard>
+            {isDrafted ? (
+              <ActionCard className="ring-1 ring-ember/20">
+                <p className="text-sm font-semibold text-ink">Human approval</p>
+                <p className="mt-2 text-sm text-text-muted">
+                  This note stays internal until you approve. You can also seal it from
+                  the Approvals hub alongside application packages.
+                </p>
                 <GoldButton
-                  icon={Check}
-                  loading={approving && isDrafted}
-                  disabled={!isDrafted || sending}
+                  className="mt-4 w-full justify-center"
+                  disabled={approving}
                   onClick={() => void runAction("approve")}
                 >
-                  {isApproved ? "Approved" : "Approve"}
+                  {approving ? "Approving…" : "Approve from here"}
                 </GoldButton>
-                <GhostButton
-                  icon={Send}
-                  disabled={!isApproved || approving || sending}
-                  loading={sending && isApproved}
-                  onClick={() => void runAction("send")}
-                  className={isApproved ? "border-teal bg-teal-bg text-teal" : undefined}
-                >
-                  Send
-                </GhostButton>
-              </>
-            )}
-          </div>
-
-          {detail.reason ? (
-            <p className="mt-4 text-xs text-text-muted">{detail.reason}</p>
-          ) : null}
+              </ActionCard>
+            ) : null}
+          </aside>
         </div>
       ) : null}
     </AppShell>
