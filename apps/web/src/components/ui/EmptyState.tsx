@@ -4,7 +4,6 @@ import Link from "next/link";
 import type { LucideIcon } from "lucide-react";
 
 import { GoldButton } from "@/components/ui/Button";
-import { EmptyDoodle } from "@/components/ui/Illustrations";
 import { cn } from "@/lib/cn";
 
 type EmptyStateProps = {
@@ -32,29 +31,30 @@ export function EmptyState({
   const label = primaryActionLabel ?? action?.label;
   const href = actionHref ?? action?.href;
   const handleClick = onPrimaryAction ?? action?.onClick;
+  const hasAction = Boolean(label && (href || handleClick));
 
   return (
     <div
       className={cn(
-        "flex flex-col items-center rounded-3xl border border-line bg-white px-6 py-12 text-center shadow-soft",
+        "flex flex-col items-center rounded-2xl border border-line bg-white px-6 py-14 text-center shadow-soft",
         className,
       )}
     >
       {Icon ? (
-        <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-lavender">
-          <Icon className="h-5 w-5 text-lavender-deep" />
+        <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-lavender text-lavender-deep">
+          <Icon className="h-5 w-5" />
         </div>
       ) : (
-        <EmptyDoodle />
+        <div className="mb-4 h-12 w-12 rounded-2xl bg-gradient-to-br from-coral/25 to-[#22d3ee]/15" />
       )}
-      <p className="mt-3 text-[17px] font-bold tracking-tight text-ink">{title}</p>
+      <p className="text-[17px] font-semibold tracking-tight text-ink">{title}</p>
       {description ? (
-        <p className="mt-2 max-w-[320px] text-[13.5px] leading-relaxed text-text-muted">
+        <p className="mt-2 max-w-[340px] text-[13.5px] leading-relaxed text-text-muted">
           {description}
         </p>
       ) : null}
-      {label ? (
-        <div className="mt-5">
+      {hasAction ? (
+        <div className="mt-6">
           {href ? (
             <Link href={href}>
               <GoldButton>{label}</GoldButton>

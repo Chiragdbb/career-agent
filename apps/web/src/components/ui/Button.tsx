@@ -3,8 +3,8 @@ import type { LucideIcon } from "lucide-react";
 
 import { cn } from "@/lib/cn";
 
-type ButtonVariant = "primary" | "gold" | "secondary" | "ghost" | "destructive";
-type ButtonSize = "default" | "icon" | "lg";
+type ButtonVariant = "primary" | "gold" | "secondary" | "ghost" | "destructive" | "ember";
+type ButtonSize = "default" | "icon" | "lg" | "sm";
 
 type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: ButtonVariant;
@@ -15,18 +15,21 @@ type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
 
 const variantStyles: Record<ButtonVariant, string> = {
   primary:
-    "bg-coral text-white border border-coral hover:bg-coral-deep active:scale-[0.98] disabled:opacity-50",
+    "bg-coral text-white border border-coral shadow-glow hover:bg-coral-deep active:scale-[0.98] disabled:opacity-50 disabled:shadow-none",
   gold:
-    "bg-coral text-white border border-coral font-semibold hover:bg-coral-deep active:scale-[0.98] disabled:opacity-50",
+    "bg-coral text-white border border-coral font-semibold shadow-glow hover:bg-coral-deep active:scale-[0.98] disabled:opacity-50",
   secondary:
     "border border-line bg-white text-ink hover:bg-paper disabled:opacity-45",
   ghost:
-    "border border-line bg-transparent text-ink hover:bg-white/80 disabled:opacity-45",
+    "border border-line bg-transparent text-ink hover:bg-white disabled:opacity-45",
   destructive:
-    "bg-coral-deep text-white hover:brightness-95 disabled:opacity-60",
+    "bg-ember text-white border border-ember hover:bg-ember-deep disabled:opacity-60",
+  ember:
+    "bg-ember text-white border border-ember hover:bg-ember-deep active:scale-[0.98] disabled:opacity-50",
 };
 
 const sizeStyles: Record<ButtonSize, string> = {
+  sm: "rounded-full px-3.5 py-1.5 text-xs font-semibold gap-1.5",
   default: "rounded-full px-5 py-2.5 text-[13.5px] font-semibold gap-1.5",
   lg: "rounded-full px-6 py-3 text-sm font-semibold gap-2",
   icon: "h-10 w-10 rounded-full p-0",
@@ -63,7 +66,7 @@ export function Button({
   );
 }
 
-/** Primary CTA — coral (kept as GoldButton for call-site compatibility) */
+/** Primary CTA — accent indigo (GoldButton kept for call-site compatibility) */
 export function GoldButton({
   className,
   loading,

@@ -1,12 +1,15 @@
 "use client";
 
+import Link from "next/link";
 import { FormEvent, Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { Bell, Mail } from "lucide-react";
 
 import { SettingsLayout } from "@/components/SettingsLayout";
-import { Button } from "@/components/ui/Button";
+import { Button, GhostButton } from "@/components/ui/Button";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { ErrorBanner } from "@/components/ui/ErrorBanner";
 import { Input } from "@/components/ui/Input";
 import { ListSkeleton } from "@/components/ui/Skeleton";
 import { apiFetch } from "@/lib/api";
@@ -26,6 +29,9 @@ type ProfileResponse = {
   linkedin_url: string | null;
   summary: string | null;
 };
+
+const textareaClassName =
+  "rounded-xl border border-line bg-paper-raised px-3 py-2 text-sm text-ink shadow-sm focus:border-coral focus:outline-none focus:ring-2 focus:ring-coral/20";
 
 function SettingsContent() {
   const router = useRouter();
@@ -70,6 +76,22 @@ function SettingsContent() {
     });
   }
 
+  async function reloadTab() {
+    setLoading(true);
+    setError(null);
+    try {
+      if (tab === "profile") {
+        await loadProfile();
+      } else if (tab === "notifications") {
+        await loadNotificationsAndMailbox();
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   useEffect(() => {
     let cancelled = false;
     async function init() {
@@ -84,7 +106,7 @@ function SettingsContent() {
         }
         if (tab === "profile") {
           await loadProfile();
-        } else {
+        } else if (tab === "notifications") {
           await loadNotificationsAndMailbox();
         }
       } catch (err) {
@@ -102,6 +124,7 @@ function SettingsContent() {
   }, [router, tab]);
 
   async function markAllRead() {
+    if (notifications.length === 0) return;
     setError(null);
     setMessage(null);
     try {
@@ -151,13 +174,19 @@ function SettingsContent() {
 
   return (
     <>
-      {error ? <p className="mb-4 text-sm text-destructive">{error}</p> : null}
-      {message ? <p className="mb-4 text-sm text-primary">{message}</p> : null}
+      {error ? (
+        <ErrorBanner message={error} onRetry={() => void reloadTab()} />
+      ) : null}
+      {message ? (
+        <p className="mb-4 rounded-2xl border border-line bg-lavender/40 px-4 py-3 text-sm font-medium text-lavender-deep">
+          {message}
+        </p>
+      ) : null}
 
       {tab === "profile" ? (
-        <Card>
-          <h2 className="mb-1 text-base font-semibold text-foreground">Profile</h2>
-          <p className="mb-4 text-sm text-muted-foreground">
+        <Card className="border-line bg-white shadow-soft">
+          <h2 className="mb-1 text-base font-semibold text-ink">Profile</h2>
+          <p className="mb-4 text-sm text-text-muted">
             Your canonical candidate profile used for applications and outreach.
           </p>
           <form onSubmit={(e) => void onSaveProfile(e)} className="space-y-4">
@@ -191,17 +220,17 @@ function SettingsContent() {
               }
             />
             <label className="flex flex-col gap-1.5 text-sm">
-              <span className="font-medium text-foreground">Summary</span>
+              <span className="font-medium text-ink">Summary</span>
               <textarea
                 rows={5}
-                className="rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring/30"
+                className={textareaClassName}
                 value={profile.summary}
                 onChange={(e) =>
                   setProfile((p) => ({ ...p, summary: e.target.value }))
                 }
               />
             </label>
-            <Button type="submit" disabled={savingProfile}>
+            <Button type="submit" loading={savingProfile}>
               {savingProfile ? "Saving…" : "Save profile"}
             </Button>
           </form>
@@ -209,24 +238,31 @@ function SettingsContent() {
       ) : null}
 
       {tab === "notifications" ? (
-        <Card>
+        <Card className="border-line bg-white shadow-soft">
           <CardHeader className="mb-0">
             <CardTitle>Notifications</CardTitle>
-            <Button variant="secondary" onClick={() => void markAllRead()}>
+            <Button
+              variant="secondary"
+              disabled={notifications.length === 0}
+              onClick={() => void markAllRead()}
+            >
               Mark all read
             </Button>
           </CardHeader>
           {notifications.length === 0 ? (
             <EmptyState
+              icon={Bell}
               title="No unread notifications"
-              description="You're all caught up. New alerts will appear here."
+              description="You're all caught up. New alerts will appear here when workflows need your attention."
+              primaryActionLabel="View activity"
+              actionHref="/activity"
             />
           ) : (
             <ul className="space-y-3">
               {notifications.map((n) => (
-                <li key={n.id} className="border-b border-border pb-3 last:border-0">
-                  <p className="text-sm font-medium text-foreground">{n.title}</p>
-                  <p className="text-sm text-muted-foreground">{n.body}</p>
+                <li key={n.id} className="border-b border-line pb-3 last:border-0">
+                  <p className="text-sm font-medium text-ink">{n.title}</p>
+                  <p className="text-sm text-text-muted">{n.body}</p>
                 </li>
               ))}
             </ul>
@@ -235,26 +271,37 @@ function SettingsContent() {
       ) : null}
 
       {tab === "email" ? (
-        <Card>
-          <CardTitle>Email & mailbox</CardTitle>
+        <Card className="border-line bg-white shadow-soft">
+          <CardTitle className="text-ink">Email & mailbox</CardTitle>
           <p className="mt-3 text-sm text-text-muted">
             Outbound mail uses your configured sender (Resend/SMTP when keys are
-            set). Inbound mailbox connect is a stub for this release — replies
-            are not ingested yet.
+            set). Inbound mailbox connect is planned — replies are not ingested in
+            this release.
           </p>
           <div className="mt-4 rounded-2xl border border-dashed border-line bg-paper p-4">
-            <p className="text-sm font-semibold text-ink">Connect mailbox</p>
-            <p className="mt-1 text-xs text-text-muted">
-              Gmail / Outlook OAuth coming soon. Until then, send from Approvals
-              and the Mail hub after you approve each draft.
-            </p>
-            <button
-              type="button"
-              disabled
-              className="mt-3 rounded-full bg-line px-4 py-2 text-sm font-semibold text-text-muted"
-            >
-              Connect mailbox (coming soon)
-            </button>
+            <div className="flex items-start gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-lavender text-lavender-deep">
+                <Mail className="h-5 w-5" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold text-ink">Send from Approvals</p>
+                <p className="mt-1 text-xs text-text-muted">
+                  Review and approve each outreach draft before it leaves your
+                  workspace. OAuth mailbox sync will land in a future release.
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <GhostButton type="button" onClick={() => router.push("/approvals")}>
+                    Open approvals
+                  </GhostButton>
+                  <Link
+                    href="/settings?tab=notifications"
+                    className="inline-flex items-center rounded-full border border-line bg-white px-5 py-2.5 text-[13.5px] font-semibold text-ink transition-colors hover:bg-paper"
+                  >
+                    Notification settings
+                  </Link>
+                </div>
+              </div>
+            </div>
           </div>
         </Card>
       ) : null}

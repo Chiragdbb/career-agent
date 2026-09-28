@@ -36,23 +36,23 @@ export function ContactRow({
     <Link
       href={`/contacts/${id}`}
       className={cn(
-        "flex items-center gap-3 border-b border-border px-4 py-3.5 transition-colors last:border-0 hover:bg-muted/40",
+        "flex items-center gap-3 border-b border-line px-4 py-3.5 transition-colors last:border-0 hover:bg-paper",
         className,
       )}
     >
-      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary-subtle text-xs font-semibold text-primary">
+      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-lavender text-xs font-semibold text-lavender-deep">
         {letters}
       </div>
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium text-foreground">{name}</p>
+        <p className="truncate text-sm font-medium text-ink">{name}</p>
         {subtitle ? (
-          <p className="truncate text-xs text-muted-foreground">{subtitle}</p>
+          <p className="truncate text-xs text-text-muted">{subtitle}</p>
         ) : null}
       </div>
       <Badge variant="default" className="shrink-0 capitalize">
         {status}
       </Badge>
-      <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+      <ChevronRight className="h-4 w-4 shrink-0 text-text-faint" />
     </Link>
   );
 }

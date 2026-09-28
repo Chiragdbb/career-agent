@@ -25,7 +25,7 @@ export function OnboardingChecklist({ steps, className }: OnboardingChecklistPro
   return (
     <div
       className={cn(
-        "mb-8 flex animate-riseIn items-center justify-between gap-6 rounded-3xl border border-line bg-white px-6 py-5 shadow-soft",
+        "mb-8 flex animate-riseIn items-center justify-between gap-6 rounded-3xl border border-line bg-white px-6 py-5 shadow-soft ring-1 ring-lavender/30",
         className,
       )}
     >
@@ -43,7 +43,7 @@ export function OnboardingChecklist({ steps, className }: OnboardingChecklistPro
             <li key={step.id}>
               <Link
                 href={step.href}
-                className="flex items-center gap-2.5 py-0.5 text-left"
+                className="group flex items-center gap-2.5 rounded-lg py-0.5 text-left transition-colors hover:bg-paper/80"
               >
                 <span
                   className={cn(
@@ -62,7 +62,7 @@ export function OnboardingChecklist({ steps, className }: OnboardingChecklistPro
                     "text-[13.5px]",
                     step.complete
                       ? "text-text-faint line-through"
-                      : "text-text-muted",
+                      : "text-text-muted group-hover:text-coral",
                   )}
                 >
                   {step.label}

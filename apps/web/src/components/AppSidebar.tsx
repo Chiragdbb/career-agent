@@ -77,9 +77,9 @@ const supportNav: NavItem[] = [
 
 const insightNav: NavItem[] = [
   {
-    key: "automations",
-    href: "/tasks",
-    label: "Automations",
+    key: "approvals",
+    href: "/approvals",
+    label: "Approvals",
     icon: Sparkles,
     badgeKey: "automations",
   },

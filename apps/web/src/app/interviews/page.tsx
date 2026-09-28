@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { CalendarClock, Heart, Mic } from "lucide-react";
+import { CalendarClock, Heart } from "lucide-react";
 
 import { AppShell } from "@/components/AppShell";
 import { ActionCard } from "@/components/ui/ActionCard";
@@ -234,9 +234,10 @@ export default function InterviewsPage() {
                 >
                   Open application dossier
                 </GoldButton>
-                <GhostButton disabled title="Mock rehearsal is UI scaffolding only">
-                  <Mic className="mr-1 h-3.5 w-3.5" />
-                  Rehearsal (soon)
+                <GhostButton
+                  onClick={() => router.push("/approvals")}
+                >
+                  Review prep materials
                 </GhostButton>
               </div>
             </ActionCard>
@@ -278,7 +279,9 @@ export default function InterviewsPage() {
             <EmptyState
               icon={CalendarClock}
               title="No interviews scheduled"
-              description="Add an interview below once you have a real round on the calendar."
+              description="Add an interview below once you have a real round on the calendar, or open an application dossier to track progress."
+              primaryActionLabel="View applications"
+              actionHref="/applications"
             />
           ) : null}
 
@@ -346,11 +349,16 @@ export default function InterviewsPage() {
             </div>
           </ActionCard>
           <ActionCard>
-            <h3 className="text-sm font-bold text-ink">Practice toolkit</h3>
+            <h3 className="text-sm font-bold text-ink">Prep shortcuts</h3>
             <ul className="mt-3 space-y-3 text-sm">
               <li className="rounded-xl bg-paper px-3 py-2">
-                <p className="font-semibold text-ink">Mock simulator</p>
-                <p className="text-xs text-text-faint">Coming soon — UI only</p>
+                <p className="font-semibold text-ink">Application dossiers</p>
+                <Link
+                  href="/applications"
+                  className="text-xs font-semibold text-coral"
+                >
+                  Open pipeline →
+                </Link>
               </li>
               <li className="rounded-xl bg-paper px-3 py-2">
                 <p className="font-semibold text-ink">Compensation notes</p>
@@ -359,10 +367,10 @@ export default function InterviewsPage() {
                 </Link>
               </li>
               <li className="rounded-xl bg-paper px-3 py-2">
-                <p className="font-semibold text-ink">Questions to ask them</p>
-                <p className="text-xs text-text-muted">
-                  Prefer curiosity about craft over performance theater.
-                </p>
+                <p className="font-semibold text-ink">Human approval queue</p>
+                <Link href="/approvals" className="text-xs font-semibold text-coral">
+                  Open Approvals →
+                </Link>
               </li>
             </ul>
           </ActionCard>
@@ -380,7 +388,12 @@ export default function InterviewsPage() {
             <ul className="mt-3 space-y-2 text-sm text-text-muted">
               {offers.map((o) => (
                 <li key={o.id}>
-                  {o.status}
+                  <Link
+                    href={`/applications/${o.application_id}`}
+                    className="font-semibold text-coral hover:underline"
+                  >
+                    {o.status}
+                  </Link>
                   {o.compensation ? ` · ${o.compensation}` : ""}
                   {o.location ? ` · ${o.location}` : ""}
                 </li>

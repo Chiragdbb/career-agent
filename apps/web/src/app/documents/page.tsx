@@ -2,15 +2,17 @@
 
 import { FormEvent, Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { FileText } from "lucide-react";
+import { FileText, FolderOpen } from "lucide-react";
 
 import { AppShell } from "@/components/AppShell";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { ErrorBanner } from "@/components/ui/ErrorBanner";
+import { HeroBand } from "@/components/ui/HeroBand";
 import { Input } from "@/components/ui/Input";
-import { PageHeader } from "@/components/ui/PageHeader";
+import { SoftBadge } from "@/components/ui/SoftBadge";
 import { ScoreRing } from "@/components/ui/ScoreRing";
 import { ListSkeleton } from "@/components/ui/Skeleton";
 import { SegmentedTabs } from "@/components/ui/SegmentedTabs";
@@ -187,24 +189,56 @@ function DocumentsContent() {
 
   return (
     <>
-      <PageHeader
-        title="Documents"
-        large
-        subtitle="Resumes, cover letters, and application attachments."
-      />
+      <HeroBand className="mb-6">
+        <SoftBadge tone="mint" className="mb-3">
+          Canonical sources
+        </SoftBadge>
+        <h1 className="text-3xl font-bold tracking-tight text-ink sm:text-4xl">
+          Documents{" "}
+          <span className="font-serif italic text-coral">vault.</span>
+        </h1>
+        <p className="mt-3 max-w-xl text-sm text-text-muted">
+          Master resumes, generated cover letters, and attachments tied to your
+          applications — parsed facts feed every draft.
+        </p>
+      </HeroBand>
 
       <SegmentedTabs tabs={tabs} active={activeTab} onChange={setTab} className="mb-4" />
 
-      {error ? <p className="mb-4 text-sm text-destructive">{error}</p> : null}
-      {success ? <p className="mb-4 text-sm text-primary">{success}</p> : null}
+      {error ? (
+        <ErrorBanner
+          message={error}
+          onRetry={() => {
+            setError(null);
+            setLoading(true);
+            void Promise.all([loadDocs(), loadResumes()])
+              .then(([docRows, resumeRows]) => {
+                setDocs(docRows);
+                setResumes(resumeRows);
+              })
+              .catch((err) =>
+                setError(err instanceof Error ? err.message : "Failed to load"),
+              )
+              .finally(() => setLoading(false));
+          }}
+        />
+      ) : null}
+      {success ? (
+        <p className="mb-4 rounded-2xl border border-line bg-lavender/40 px-4 py-3 text-sm font-medium text-lavender-deep">
+          {success}
+        </p>
+      ) : null}
 
       {loading ? (
         <ListSkeleton />
       ) : activeTab === "files" ? (
         docs.length === 0 ? (
           <EmptyState
+            icon={FolderOpen}
             title="No documents yet"
-            description="Application attachments and generated documents will appear here."
+            description="Attachments from applications and generated exports show up here. Upload a master resume to seed your candidate profile."
+            primaryActionLabel="Upload a resume"
+            actionHref="/documents?tab=resumes"
           />
         ) : (
           <div className="overflow-hidden rounded-3xl border border-line bg-white shadow-soft">
@@ -228,7 +262,11 @@ function DocumentsContent() {
         )
       ) : (
         <div className="space-y-4">
-          <Card>
+          <Card className="border-line bg-white shadow-soft">
+            <h2 className="mb-1 text-sm font-semibold text-ink">Upload master resume</h2>
+            <p className="mb-4 text-xs text-text-muted">
+              PDF or DOCX — extracted skills and experience become your canonical source.
+            </p>
             <form ref={uploadFormRef} onSubmit={(e) => void onUpload(e)} className="space-y-3">
               <Input
                 label="Display name (optional)"

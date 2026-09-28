@@ -3,7 +3,7 @@ import { cn } from "@/lib/cn";
 type SoftBadgeProps = {
   children: React.ReactNode;
   className?: string;
-  tone?: "lavender" | "coral" | "mint" | "peach" | "white";
+  tone?: "lavender" | "coral" | "mint" | "peach" | "white" | "ember";
 };
 
 const tones: Record<NonNullable<SoftBadgeProps["tone"]>, string> = {
@@ -12,6 +12,7 @@ const tones: Record<NonNullable<SoftBadgeProps["tone"]>, string> = {
   mint: "bg-teal-bg text-teal",
   peach: "bg-coral-bg text-coral-deep",
   white: "bg-white text-ink shadow-sm",
+  ember: "bg-ember-soft text-ember-deep",
 };
 
 export function SoftBadge({

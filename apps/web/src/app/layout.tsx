@@ -18,8 +18,9 @@ const fraunces = Fraunces({
 });
 
 export const metadata: Metadata = {
-  title: "Waypoint",
-  description: "Thoughtful career intelligence, shaped around your voice and pace.",
+  title: "Waypoint — Career intelligence with human approval",
+  description:
+    "Discover roles, tailor truthful documents, and coordinate outreach from one workspace — with explicit approval before anything is sent.",
 };
 
 export const viewport: Viewport = {

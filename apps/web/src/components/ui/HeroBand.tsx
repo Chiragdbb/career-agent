@@ -3,28 +3,32 @@ import { cn } from "@/lib/cn";
 type HeroBandProps = {
   children: React.ReactNode;
   className?: string;
+  dark?: boolean;
 };
 
-export function HeroBand({ children, className }: HeroBandProps) {
+export function HeroBand({ children, className, dark = false }: HeroBandProps) {
   return (
     <section
       className={cn(
-        "relative overflow-hidden rounded-3xl p-6 shadow-card sm:p-8 md:p-10",
+        "relative overflow-hidden rounded-2xl border p-6 shadow-card sm:p-8 md:p-10",
+        dark
+          ? "border-white/10 text-white aurora-mesh-dark"
+          : "border-line bg-white",
         className,
       )}
-      style={{
-        backgroundImage:
-          "linear-gradient(158.78deg, rgb(249, 241, 255) 0%, rgb(255, 255, 255) 50%, rgba(226, 223, 255, 0.35) 100%)",
-      }}
     >
-      <div
-        className="pointer-events-none absolute -right-20 -top-24 size-96 rounded-full bg-[rgba(255,218,211,0.4)] blur-[32px]"
-        aria-hidden
-      />
-      <div
-        className="pointer-events-none absolute bottom-[-96px] left-[30%] h-80 w-80 rounded-full bg-[rgba(194,193,255,0.35)] blur-[32px]"
-        aria-hidden
-      />
+      {!dark ? (
+        <>
+          <div
+            className="pointer-events-none absolute -right-16 -top-20 size-80 rounded-full bg-[rgba(91,84,255,0.16)] blur-[48px]"
+            aria-hidden
+          />
+          <div
+            className="pointer-events-none absolute bottom-[-80px] left-[20%] h-64 w-64 rounded-full bg-[rgba(34,211,238,0.12)] blur-[40px]"
+            aria-hidden
+          />
+        </>
+      ) : null}
       <div className="relative z-10">{children}</div>
     </section>
   );

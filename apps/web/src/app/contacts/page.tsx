@@ -4,9 +4,13 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Users } from "lucide-react";
 
+import Link from "next/link";
+
 import { AppShell } from "@/components/AppShell";
 import { ContactRow } from "@/components/ui/ContactRow";
+import { HeroBand } from "@/components/ui/HeroBand";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { SoftBadge } from "@/components/ui/SoftBadge";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ListSkeleton } from "@/components/ui/Skeleton";
 import { SegmentedTabs } from "@/components/ui/SegmentedTabs";
@@ -70,9 +74,30 @@ export default function ContactsPage() {
     return true;
   });
 
+  const emptyAll = !loading && rows.length === 0;
+  const emptyFilter = !loading && rows.length > 0 && filtered.length === 0;
+
   return (
     <AppShell active="contacts" wide>
-      <PageHeader title="Contacts" large subtitle="People tied to your applications — recruiters, hiring managers, referrals." />
+      <HeroBand className="mb-6">
+        <SoftBadge tone="lavender" className="mb-3">
+          Relationship graph
+        </SoftBadge>
+        <PageHeader
+          className="!pb-0"
+          title="Contacts"
+          large
+          subtitle="People tied to your applications — recruiters, hiring managers, and referral paths. Open a profile to reach their outreach thread."
+          actions={
+            <Link
+              href="/outreach"
+              className="text-sm font-semibold text-coral hover:underline"
+            >
+              Outreach hub →
+            </Link>
+          }
+        />
+      </HeroBand>
 
       <SegmentedTabs
         tabs={tabs}
@@ -85,11 +110,21 @@ export default function ContactsPage() {
 
       {loading ? (
         <ListSkeleton />
-      ) : filtered.length === 0 ? (
+      ) : emptyAll ? (
         <EmptyState
           icon={Users}
           title="No contacts yet"
-          description="Contacts appear here after job discovery and company research identify recruiters, hiring managers, and referral paths."
+          description="Contacts appear after job discovery and company research find real people — we never invent emails."
+          primaryActionLabel="Browse jobs"
+          actionHref="/jobs"
+        />
+      ) : emptyFilter ? (
+        <EmptyState
+          icon={Users}
+          title="No contacts in this view"
+          description="Try another tab or discover roles to grow your network."
+          primaryActionLabel="Show all"
+          onPrimaryAction={() => setActiveTab("all")}
         />
       ) : (
         <div className="overflow-hidden rounded-3xl border border-line bg-white shadow-soft">
