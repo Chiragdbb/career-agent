@@ -14,6 +14,7 @@ from packages.providers.factory import (
     create_extraction_llm_provider,
     create_llm_provider,
     create_playwright_jobs_provider,
+    create_rescrape_scraper_provider,
     create_scraper_provider,
     create_search_provider,
 )
@@ -229,7 +230,7 @@ def _run_rescrape(
         service = JobRescrapeService(
             session,
             user_id,
-            scraper=create_scraper_provider(settings),
+            scraper=create_rescrape_scraper_provider(settings),
             llm_tasks=LLMTaskService(
                 create_llm_provider(settings),
                 extraction_llm=create_extraction_llm_provider(settings),
