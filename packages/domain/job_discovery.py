@@ -96,6 +96,7 @@ class JobDiscoveryService:
     ) -> None:
         self._session = session
         self._user_id = user_id
+        self._base_search = search
         self._search = search
         self._scraper = scraper
         self._llm = llm
@@ -496,7 +497,8 @@ class JobDiscoveryService:
             )
             self._ensure_not_cancelled(run)
             task = self._start_task(run_id, "search", {"query": query})
-            provider = self._search.metadata.name
+            search = self._search_for_run(run_id)
+            provider = search.metadata.name
             self._publish_progress(
                 run_id=run_id,
                 step="search",
@@ -514,8 +516,20 @@ class JobDiscoveryService:
                     max_results=self._max_results,
                 )
             try:
-                response = self._search.search(
+                response = search.search(
                     SearchRequest(query=query, max_results=self._max_results)
+                )
+                self._usage.record(
+                    context=ProviderUsageContext(
+                        user_id=self._user_id,
+                        workflow_run_id=run_id,
+                    ),
+                    provider_name=provider,
+                    operation="search",
+                    usage=response.usage,
+                    success=True,
+                    related_entity_type="workflow_run",
+                    related_entity_id=run_id,
                 )
                 found = []
                 for hit in response.results:
@@ -595,6 +609,18 @@ class JobDiscoveryService:
                     exc,
                 )
         return ordered
+
+    def _search_for_run(self, run_id: uuid.UUID) -> SearchProvider:
+        from packages.providers.composite_search import wrap_search_with_usage_logging
+
+        return wrap_search_with_usage_logging(
+            self._base_search,
+            usage=self._usage,
+            context=ProviderUsageContext(
+                user_id=self._user_id,
+                workflow_run_id=run_id,
+            ),
+        )
 
     def _ingest_url(self, url: str, run_id: uuid.UUID, result: DiscoveryResult) -> None:
         if is_likely_listing_page(url):
@@ -703,7 +729,8 @@ class JobDiscoveryService:
                 )
                 return
 
-            markdown, content_source = self._scrape_markdown(url, run_id)
+            markdown, content_source, scraped_html = self._scrape_markdown(url, run_id)
+            from packages.domain.job_ingest.json_ld import extract_job_posting_json_ld
             from packages.shared.security import sanitize_scraped_content, validate_public_url
 
             try:
@@ -712,6 +739,28 @@ class JobDiscoveryService:
                 raise DomainError(f"Blocked URL: {exc}") from exc
             guarded = sanitize_scraped_content(markdown)
             markdown = guarded.safe_text
+            if scraped_html:
+                json_posting = extract_job_posting_json_ld(scraped_html, url=url)
+                if json_posting is not None:
+                    job = persist_structured_job(
+                        self._session,
+                        json_posting,
+                        user_id=self._user_id,
+                        run_id=run_id,
+                    )
+                    job.extraction_provenance = "json_ld"
+                    self._session.flush()
+                    result.scrapes_fresh += 1
+                    result.created_jobs.append(job.id)
+                    self._complete_task(
+                        task,
+                        {
+                            "job_id": str(job.id),
+                            "title": job.title,
+                            "content_source": "json_ld",
+                        },
+                    )
+                    return
             if self._file_log is not None:
                 self._file_log.bump("scrapes")
                 scrape_fields = {
@@ -858,8 +907,29 @@ class JobDiscoveryService:
         url: str,
         run_id: uuid.UUID,
     ) -> StructuredJobPosting | None:
-        """Playwright for known boards; Firecrawl structured extract for one-offs only."""
+        """ATS API → Playwright boards; Firecrawl for one-offs only."""
+        from packages.domain.job_ingest.ats_extractors import extract_from_ats_url
+
         context = ProviderUsageContext(user_id=self._user_id, workflow_run_id=run_id)
+
+        ats_posting = extract_from_ats_url(url)
+        if ats_posting is not None:
+            self._usage.record(
+                context=context,
+                provider_name="greenhouse-ats-api",
+                operation="job_extraction",
+                usage=UsageInfo(
+                    operation="job_extraction",
+                    unit_type="requests",
+                    units=1.0,
+                    provider="greenhouse-ats-api",
+                    extra={"provenance": "ats_extractor"},
+                ),
+                success=True,
+                related_entity_type="job_url",
+                tier_reached=0,
+            )
+            return normalize_job_posting(ats_posting)
 
         if self._playwright_jobs is not None and (
             self._playwright_jobs.can_handle(url) or is_known_job_board(url)
@@ -907,7 +977,7 @@ class JobDiscoveryService:
             logger.warning("FIRECRAWL_STRUCTURED_FAILED url=%s error=%s", url, exc)
             return None
 
-    def _scrape_markdown(self, url: str, run_id: uuid.UUID) -> tuple[str, str]:
+    def _scrape_markdown(self, url: str, run_id: uuid.UUID) -> tuple[str, str, str | None]:
         run = (
             self._session.query(WorkflowRun)
             .filter(WorkflowRun.id == run_id)
@@ -917,7 +987,9 @@ class JobDiscoveryService:
         scrape_provider = self._scraper.metadata.name
         try:
             logger.info("FETCH scrape provider=%s url=%s", scrape_provider, url)
-            scraped = self._scraper.scrape_url(ScrapeRequest(url=url))
+            scraped = self._scraper.scrape_url(
+                ScrapeRequest(url=url, formats=["markdown", "html"])
+            )
             markdown = scraped.markdown or scraped.title or ""
             logger.info(
                 "RECEIVED scrape provider=%s url=%s title=%r chars=%d",
@@ -927,7 +999,8 @@ class JobDiscoveryService:
                 len(markdown),
             )
             if markdown.strip():
-                return markdown, "scrape"
+                html = scraped.html if hasattr(scraped, "html") else None
+                return markdown, "scrape", html
         except (ProviderError, OSError, ConnectionError) as exc:
             logger.warning("SCRAPE_FALLBACK url=%s provider=%s error=%s", url, scrape_provider, exc)
             if self._file_log is not None:
@@ -947,7 +1020,7 @@ class JobDiscoveryService:
                 f"Could not read page and no search preview available for {url}"
             )
         markdown = f"# {title}\n\nSource: {url}\n\n{snippet}"
-        return markdown, "search_snippet"
+        return markdown, "search_snippet", None
 
     @staticmethod
     def _short_url(url: str) -> str:
@@ -1311,11 +1384,19 @@ def _prefs_for_discovery_mode(
 def _build_queries(prefs: PreferenceSettings) -> list[str]:
     roles = prefs.target_roles or ["software engineer"]
     locations = prefs.locations or ["remote"]
+    board_sites = (
+        "site:boards.greenhouse.io",
+        "site:jobs.lever.co",
+        "site:jobs.ashbyhq.com",
+    )
     queries: list[str] = []
     for role in roles[:3]:
         for location in locations[:2]:
-            queries.append(f"{role} jobs {location}")
-    return queries or ["software engineer jobs"]
+            base = f"{role} jobs {location}"
+            queries.append(f"{base} ({board_sites[0]})")
+            queries.append(f"{base} ({' OR '.join(board_sites[1:])})")
+            queries.append(base)
+    return queries or ["software engineer jobs site:boards.greenhouse.io"]
 
 
 def normalize_job_url(url: str) -> str:

@@ -233,6 +233,65 @@ class ScraplingScraperProvider(ScraperProvider):
         )
 
 
+class EscalatingScraplingScraperProvider(ScraperProvider):
+    """Try http → dynamic → stealthy on failure (cost-aware)."""
+
+    _MODES: tuple[FetcherMode, ...] = ("http", "dynamic", "stealthy")
+
+    def __init__(self, *, headless: bool = True, default_timeout_seconds: float = 45.0) -> None:
+        self._headless = headless
+        self._default_timeout = default_timeout_seconds
+        self._meta = ProviderMetadata(
+            name="escalating-scrapling-scraper",
+            vendor="scrapling",
+            capabilities=frozenset({"scrape", "markdown"}),
+        )
+
+    @property
+    def metadata(self) -> ProviderMetadata:
+        return self._meta
+
+    def scrape(self, request: ScrapeRequest) -> ScrapeResponse:
+        started = time.perf_counter()
+        page = self.scrape_url(request)
+        return ScrapeResponse(
+            url=page.url,
+            title=page.title,
+            markdown=page.markdown if "markdown" in request.formats else "",
+            html=page.html if "html" in request.formats else None,
+            links=page.links,
+            metadata=page.metadata,
+            usage=UsageInfo(
+                operation="scrape",
+                unit_type="pages",
+                units=1.0,
+                latency_ms=(time.perf_counter() - started) * 1000.0,
+                provider=self._meta.name,
+                extra={"fetcher": page.metadata.get("fetcher_escalation", "http")},
+            ),
+        )
+
+    def scrape_url(self, request: ScrapeRequest) -> ScrapedPage:
+        last_exc: Exception | None = None
+        for mode in self._MODES:
+            backend = ScraplingScraperProvider(
+                fetcher=mode,
+                headless=self._headless,
+                default_timeout_seconds=self._default_timeout,
+            )
+            try:
+                page = backend.scrape_url(request)
+                page.metadata["fetcher_escalation"] = mode
+                return page
+            except (ProviderError, ProviderValidationError) as exc:
+                last_exc = exc
+                logger.info("scrapling_escalate from=%s url=%s error=%s", mode, request.url, exc)
+                continue
+        if last_exc is not None:
+            raise last_exc
+        raise ProviderError("Scrapling escalation failed", provider=self._meta.name, operation="scrape_url")
+
+
 class MockScraplingScraperProvider(ScraperProvider):
     """Deterministic Scrapling stand-in for tests."""
 

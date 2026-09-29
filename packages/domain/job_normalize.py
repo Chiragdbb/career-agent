@@ -15,6 +15,7 @@ from database.models.schema import Company, CompanyDomain, Job, JobMatch
 from packages.domain.exceptions import DomainError
 from packages.domain.job_models import ExtractedJob
 from packages.domain.job_posting import StructuredJobPosting
+from packages.domain.job_ingest.completeness import JobCompletenessService
 
 
 def normalize_job_posting(raw: dict[str, Any] | StructuredJobPosting) -> StructuredJobPosting:
@@ -138,6 +139,8 @@ def persist_structured_job(
             _ensure_match(session, user_id, existing.id)
         return existing
 
+    provenance = validated.source if validated.source in ("ats_extractor", "json_ld", "llm", "firecrawl") else validated.source
+    JobCompletenessService().apply_to_job(job, provenance=str(provenance), posting=validated)
     if user_id is not None:
         _ensure_match(session, user_id, job.id)
     return job
@@ -173,6 +176,7 @@ def _apply_posting_fields(
     job.scraped_at = scraped_at
     if run_id is not None:
         job.discovery_run_id = run_id
+    JobCompletenessService().apply_to_job(job, provenance=validated.source, posting=validated)
 
 
 def _posted_at_datetime(validated: StructuredJobPosting) -> datetime | None:

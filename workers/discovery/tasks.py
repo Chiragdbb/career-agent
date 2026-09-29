@@ -284,3 +284,79 @@ def rescrape_job(
         self.request.retries + 1,
     )
     return _run_rescrape(uid, run_id, mid)
+
+
+@celery_app.task(bind=True, name="re_enrich_incomplete_jobs", max_retries=1)
+def re_enrich_incomplete_jobs(self, limit: int = 25) -> dict:
+    """Queue re-scrape runs for jobs below the completeness threshold."""
+    from packages.domain.job_ingest.completeness import completeness_threshold
+    from packages.domain.jobs import JobRescrapeTriggerService
+    from packages.shared.env import load_project_env
+
+    load_project_env()
+    session = _session()
+    try:
+        from database.models.schema import Job, JobMatch
+
+        threshold = completeness_threshold()
+        cap = max(1, min(limit, 100))
+        jobs = (
+            session.query(Job)
+            .filter(
+                (Job.completeness_score.is_(None)) | (Job.completeness_score < threshold),
+            )
+            .order_by(Job.updated_at.asc())
+            .limit(cap * 2)
+            .all()
+        )
+
+        enqueued: list[dict[str, str]] = []
+        for job in jobs:
+            if not job.url or len(enqueued) >= cap:
+                continue
+            matches = (
+                session.query(JobMatch)
+                .filter(JobMatch.job_id == job.id)
+                .order_by(JobMatch.updated_at.desc())
+                .all()
+            )
+            for match in matches:
+                if len(enqueued) >= cap:
+                    break
+                try:
+                    trigger = JobRescrapeTriggerService(session, match.user_id)
+                    queued = trigger.enqueue(match.id)
+                    async_result = rescrape_job.delay(
+                        str(match.user_id),
+                        str(queued.workflow_run_id),
+                        str(match.id),
+                    )
+                    trigger.attach_task_id(queued.workflow_run_id, async_result.id)
+                    session.commit()
+                    enqueued.append(
+                        {
+                            "job_id": str(job.id),
+                            "match_id": str(match.id),
+                            "user_id": str(match.user_id),
+                            "workflow_run_id": str(queued.workflow_run_id),
+                            "celery_task_id": async_result.id,
+                        }
+                    )
+                except Exception as exc:
+                    session.rollback()
+                    logger.warning(
+                        "re_enrich_enqueue_failed job=%s match=%s error=%s",
+                        job.id,
+                        match.id,
+                        exc,
+                    )
+            if len(enqueued) >= cap:
+                break
+
+        return {
+            "enqueued": enqueued,
+            "count": len(enqueued),
+            "threshold": threshold,
+        }
+    finally:
+        session.close()

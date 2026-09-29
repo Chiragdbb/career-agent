@@ -53,6 +53,9 @@ class JobMatchDetailResponse(JobMatchSummaryResponse):
     posted_at: datetime | None = None
     last_scraped_at: datetime | None = None
     scraped_at: datetime | None = None
+    completeness_score: int | None = None
+    missing_fields: list[str] = Field(default_factory=list)
+    extraction_provenance: str | None = None
     job_status: str | None = None
 
 

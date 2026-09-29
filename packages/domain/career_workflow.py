@@ -92,6 +92,7 @@ class CareerWorkflowStart(BaseModel):
     permit_submit: bool = False
     resume_version_id: uuid.UUID | None = None
     force: bool = False
+    override_completeness: bool = False
 
 
 class CareerWorkflowResult(BaseModel):
@@ -175,6 +176,21 @@ class CareerWorkflowService:
 
     def start_or_resume(self, payload: CareerWorkflowStart) -> CareerWorkflowResult:
         match = self._get_match(payload.job_match_id)
+        job = self._session.query(Job).filter(Job.id == match.job_id).one_or_none()
+        if job is not None and not payload.force:
+            from packages.domain.job_ingest.completeness import job_meets_workflow_threshold
+
+            ok, detail = job_meets_workflow_threshold(
+                job,
+                override=payload.override_completeness,
+            )
+            if not ok:
+                raise DomainError(
+                    "Job listing is incomplete for application workflow "
+                    f"(score {detail.get('completeness_score')}/{detail.get('threshold')}). "
+                    f"Missing: {', '.join(detail.get('missing_fields') or [])}. "
+                    "Re-enrich the job or pass override_completeness=true."
+                )
         run = self._find_or_create_run(match, payload)
         meta = dict(run.metadata_json or {})
 

@@ -11,7 +11,14 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 
-JobSource = Literal["playwright", "firecrawl"]
+JobSource = Literal[
+    "playwright",
+    "firecrawl",
+    "scrapling",
+    "json_ld",
+    "ats_extractor",
+    "llm",
+]
 RemoteType = Literal["remote", "hybrid", "onsite"]
 EmploymentType = Literal["full_time", "part_time", "contract", "internship"]
 

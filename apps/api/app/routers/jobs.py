@@ -99,6 +99,9 @@ def _to_detail(row) -> JobMatchDetailResponse:
         last_scraped_at=row.last_scraped_at,
         scraped_at=row.scraped_at,
         job_status=row.job_status,
+        completeness_score=row.completeness_score,
+        missing_fields=row.missing_fields or [],
+        extraction_provenance=row.extraction_provenance,
     )
 
 

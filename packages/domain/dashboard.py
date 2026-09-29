@@ -599,4 +599,7 @@ class DashboardService:
             ),
             "scraped_at": detail.scraped_at.isoformat() if detail.scraped_at else None,
             "job_status": detail.job_status,
+            "completeness_score": detail.completeness_score,
+            "missing_fields": detail.missing_fields or [],
+            "extraction_provenance": detail.extraction_provenance,
         }

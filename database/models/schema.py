@@ -157,6 +157,12 @@ class ResumeVersion(UUIDMixin, TimestampMixin, Base):
     embedding_generated_at = sa.Column(sa.DateTime(timezone=True))
     section_embeddings = sa.Column(sa.dialects.postgresql.JSONB)
 
+    render_engine = sa.Column(sa.Text)
+    html_path = sa.Column(sa.Text)
+    ats_score = sa.Column(sa.Integer)
+    ats_issues = sa.Column(sa.dialects.postgresql.JSONB)
+    ats_checked_at = sa.Column(sa.DateTime(timezone=True))
+
 
 class Document(UUIDMixin, TimestampMixin, Base):
     __tablename__ = "documents"
@@ -317,6 +323,10 @@ class Job(UUIDMixin, TimestampMixin, Base):
         index=True,
     )
 
+    completeness_score = sa.Column(sa.Integer)
+    missing_fields = sa.Column(sa.dialects.postgresql.JSONB)
+    extraction_provenance = sa.Column(sa.Text)
+
     embedding = sa.Column(Vector(EMBEDDING_DIMENSIONS), nullable=True)
     embedding_model = sa.Column(sa.Text)
     embedding_version = sa.Column(sa.Text)
@@ -447,6 +457,7 @@ class Contact(UUIDMixin, TimestampMixin, Base):
     source = sa.Column(sa.Text)  # playwright | apollo | hunter | contactout | manual
     confidence = sa.Column(sa.Text)  # verified | guessed | unverified
     last_verified_at = sa.Column(sa.DateTime(timezone=True))
+    tier_reached = sa.Column(sa.Integer)
 
 
 class ContactSource(UUIDMixin, TimestampMixin, Base):
@@ -893,6 +904,7 @@ class ProviderUsage(UUIDMixin, TimestampMixin, Base):
     success = sa.Column(sa.Boolean, nullable=False, default=True)
     error = sa.Column(sa.Text)
     error_code = sa.Column(sa.Text)
+    tier_reached = sa.Column(sa.Integer)
     payload = sa.Column(sa.dialects.postgresql.JSONB)
 
     __table_args__ = (

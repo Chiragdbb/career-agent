@@ -64,6 +64,9 @@ type Workspace = {
     last_scraped_at?: string | null;
     scraped_at?: string | null;
     job_status?: string | null;
+    completeness_score?: number | null;
+    missing_fields?: string[];
+    extraction_provenance?: string | null;
   };
   contacts: {
     id: string;
@@ -527,6 +530,21 @@ export default function JobDetailPage() {
             }
             className="!pb-4"
           />
+
+          {job.completeness_score != null ? (
+            <p className="text-sm text-[var(--text-muted)]">
+              Listing quality:{" "}
+              <span className="font-medium text-[var(--text-primary)]">
+                {job.completeness_score}%
+              </span>
+              {job.extraction_provenance
+                ? ` · via ${job.extraction_provenance.replace(/_/g, " ")}`
+                : ""}
+              {job.missing_fields && job.missing_fields.length > 0
+                ? ` · missing ${job.missing_fields.slice(0, 4).join(", ")}`
+                : ""}
+            </p>
+          ) : null}
 
           <div className="flex flex-wrap items-center gap-2">
             <SoftBadge tone="lavender">{job.status}</SoftBadge>
