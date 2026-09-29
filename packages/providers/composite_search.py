@@ -17,6 +17,46 @@ def _normalize_url(url: str) -> str:
     return url.strip().rstrip("/").lower()
 
 
+def wrap_search_with_usage_logging(
+    search: SearchProvider,
+    *,
+    usage: object,
+    context: object,
+) -> SearchProvider:
+    """Wrap any search provider so composite attempts log to provider_usage."""
+
+    from packages.providers.base import UsageInfo
+
+    def on_attempt(
+        *,
+        provider_name: str,
+        operation: str,
+        success: bool,
+        error: str | None = None,
+        extra: dict | None = None,
+    ) -> None:
+        usage.record(
+            context=context,
+            provider_name=provider_name,
+            operation=operation,
+            usage=UsageInfo(
+                operation=operation,
+                unit_type="searches",
+                units=1.0,
+                provider=provider_name,
+                extra=extra or {},
+            ),
+            success=success,
+            error=error,
+            related_entity_type="workflow_run",
+            related_entity_id=context.workflow_run_id,
+        )
+
+    if isinstance(search, CompositeSearchProvider):
+        return CompositeSearchProvider(search.providers, on_attempt=on_attempt)
+    return CompositeSearchProvider([search], on_attempt=on_attempt)
+
+
 class CompositeSearchProvider(SearchProvider):
     """Try providers in order; merge results; log each attempt via callback."""
 
@@ -40,6 +80,10 @@ class CompositeSearchProvider(SearchProvider):
     @property
     def metadata(self) -> ProviderMetadata:
         return self._meta
+
+    @property
+    def providers(self) -> list[SearchProvider]:
+        return list(self._providers)
 
     def search(self, request: SearchRequest) -> SearchResponse:
         started = time.perf_counter()

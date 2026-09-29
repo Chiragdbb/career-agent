@@ -7,7 +7,7 @@ from typing import Any
 
 from fastapi import APIRouter, Header, HTTPException, Request
 
-from app.database import DbSessionDep
+from app.dependencies import DbSessionDep
 from database.models.schema import Outreach, OutreachEvent
 
 logger = logging.getLogger(__name__)

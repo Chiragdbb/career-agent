@@ -96,6 +96,7 @@ class JobDiscoveryService:
     ) -> None:
         self._session = session
         self._user_id = user_id
+        self._base_search = search
         self._search = search
         self._scraper = scraper
         self._llm = llm
@@ -496,7 +497,8 @@ class JobDiscoveryService:
             )
             self._ensure_not_cancelled(run)
             task = self._start_task(run_id, "search", {"query": query})
-            provider = self._search.metadata.name
+            search = self._search_for_run(run_id)
+            provider = search.metadata.name
             self._publish_progress(
                 run_id=run_id,
                 step="search",
@@ -514,8 +516,20 @@ class JobDiscoveryService:
                     max_results=self._max_results,
                 )
             try:
-                response = self._search.search(
+                response = search.search(
                     SearchRequest(query=query, max_results=self._max_results)
+                )
+                self._usage.record(
+                    context=ProviderUsageContext(
+                        user_id=self._user_id,
+                        workflow_run_id=run_id,
+                    ),
+                    provider_name=provider,
+                    operation="search",
+                    usage=response.usage,
+                    success=True,
+                    related_entity_type="workflow_run",
+                    related_entity_id=run_id,
                 )
                 found = []
                 for hit in response.results:
@@ -595,6 +609,18 @@ class JobDiscoveryService:
                     exc,
                 )
         return ordered
+
+    def _search_for_run(self, run_id: uuid.UUID) -> SearchProvider:
+        from packages.providers.composite_search import wrap_search_with_usage_logging
+
+        return wrap_search_with_usage_logging(
+            self._base_search,
+            usage=self._usage,
+            context=ProviderUsageContext(
+                user_id=self._user_id,
+                workflow_run_id=run_id,
+            ),
+        )
 
     def _ingest_url(self, url: str, run_id: uuid.UUID, result: DiscoveryResult) -> None:
         if is_likely_listing_page(url):

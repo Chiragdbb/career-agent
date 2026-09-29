@@ -120,3 +120,39 @@ def test_composite_search_dedupes_and_falls_back(monkeypatch: pytest.MonkeyPatch
 def test_serper_requires_key() -> None:
     with pytest.raises(Exception):
         SerperSearchProvider(api_key="")
+
+
+def test_wrap_search_logs_each_provider_attempt() -> None:
+    from packages.domain.provider_usage import ProviderUsageContext, ProviderUsageService
+    from packages.providers.composite_search import wrap_search_with_usage_logging
+
+    calls: list[str] = []
+
+    class TinySearch:
+        @property
+        def metadata(self):
+            m = MagicMock()
+            m.name = "tiny-search"
+            return m
+
+        def search(self, request: SearchRequest):
+            from packages.providers.base import UsageInfo
+            from packages.providers.search import SearchResponse
+
+            return SearchResponse(
+                results=[],
+                usage=UsageInfo(
+                    operation="search",
+                    unit_type="searches",
+                    units=1.0,
+                    provider="tiny-search",
+                ),
+            )
+
+    session = MagicMock()
+    usage = ProviderUsageService(session)
+    usage.record = MagicMock(side_effect=lambda **kw: calls.append(kw["provider_name"]))  # type: ignore[method-assign]
+    ctx = ProviderUsageContext(user_id=None, workflow_run_id=None)
+    wrapped = wrap_search_with_usage_logging(TinySearch(), usage=usage, context=ctx)  # type: ignore[arg-type]
+    wrapped.search(SearchRequest(query="test", max_results=3))
+    assert "tiny-search" in calls
