@@ -33,6 +33,7 @@ from packages.providers.people import PeopleProvider
 from packages.providers.scraper import ScraperProvider
 from packages.providers.scraper_fallback import FallbackScraperProvider
 from packages.providers.search import SearchProvider
+from packages.providers.serper_search import SerperSearchProvider
 from packages.providers.tavily_search import TavilySearchProvider
 
 logger = logging.getLogger("career.providers")
@@ -73,6 +74,7 @@ class ProviderSettings:
     extraction_llm_provider: str = ""
     extraction_llm_model: str = ""
     tavily_api_key: str = ""
+    serper_api_key: str = ""
     firecrawl_base_url: str = ""
     firecrawl_api_key: str = ""
     apollo_api_key: str = ""
@@ -108,6 +110,7 @@ class ProviderSettings:
             extraction_llm_provider=(os.getenv("EXTRACTION_LLM_PROVIDER") or "").strip().lower(),
             extraction_llm_model=(os.getenv("EXTRACTION_LLM_MODEL") or "").strip(),
             tavily_api_key=(os.getenv("TAVILY_API_KEY") or "").strip(),
+            serper_api_key=(os.getenv("SERPER_API_KEY") or "").strip(),
             firecrawl_base_url=(os.getenv("FIRECRAWL_BASE_URL") or "").strip().rstrip("/"),
             firecrawl_api_key=(os.getenv("FIRECRAWL_API_KEY") or "").strip(),
             apollo_api_key=(os.getenv("APOLLO_API_KEY") or "").strip(),
@@ -125,11 +128,18 @@ class ProviderSettings:
 
 def create_search_provider(settings: ProviderSettings | None = None) -> SearchProvider:
     settings = settings or ProviderSettings.from_env()
+    from packages.providers.composite_search import CompositeSearchProvider
+
+    chain: list[SearchProvider] = []
+    if settings.serper_api_key:
+        chain.append(SerperSearchProvider(api_key=settings.serper_api_key))
     if settings.tavily_api_key:
-        return TavilySearchProvider(api_key=settings.tavily_api_key)
+        chain.append(TavilySearchProvider(api_key=settings.tavily_api_key))
+    if chain:
+        return CompositeSearchProvider(chain)
     if mocks_allowed():
         return create_mock_providers().search
-    _require_live("search", ["TAVILY_API_KEY"])
+    _require_live("search", ["SERPER_API_KEY or TAVILY_API_KEY"])
 
 
 def _firecrawl_scraper_backends(settings: ProviderSettings) -> list[ScraperProvider]:
@@ -172,9 +182,15 @@ def _scrapling_scraper_backend(settings: ProviderSettings | None = None):
         "true",
         "yes",
     )
+    escalate = (os.getenv("SCRAPLING_ESCALATE") or "1").strip().lower() in ("1", "true", "yes")
     try:
-        from packages.providers.scrapling_scraper import ScraplingScraperProvider
+        from packages.providers.scrapling_scraper import (
+            EscalatingScraplingScraperProvider,
+            ScraplingScraperProvider,
+        )
 
+        if escalate:
+            return EscalatingScraplingScraperProvider()
         return ScraplingScraperProvider(fetcher=fetcher, adaptive=adaptive)
     except ProviderNotConfiguredError as exc:
         logger.info("scrapling_scraper_unavailable error=%s", exc)

@@ -104,6 +104,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(analytics_router, prefix=prefix)
     # QStash callbacks — not under /api/v1; auth is Upstash-Signature only.
     app.include_router(internal_qstash_router)
+    from app.routers.webhooks_resend import router as webhooks_resend_router
+
+    app.include_router(webhooks_resend_router, prefix=prefix)
 
     return app
 

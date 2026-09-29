@@ -118,6 +118,7 @@ class ProviderUsageService:
         tokens_input: int | None = None,
         tokens_output: int | None = None,
         error_code: str | None = None,
+        tier_reached: int | None = None,
     ) -> None:
         token_count: int | None = None
         if usage.unit_type == "tokens":
@@ -133,6 +134,10 @@ class ProviderUsageService:
             payload["request_id"] = request_id
         elif usage.extra.get("request_id"):
             payload["request_id"] = usage.extra["request_id"]
+        if tier_reached is not None:
+            payload["tier_reached"] = tier_reached
+        if usage.extra.get("provenance"):
+            payload["provenance"] = usage.extra["provenance"]
         payload["recorded_at"] = datetime.now(timezone.utc).isoformat()
 
         extra_tokens_in = tokens_input
@@ -160,6 +165,7 @@ class ProviderUsageService:
             success=success,
             error=error,
             error_code=error_code or (None if success else "provider_error"),
+            tier_reached=tier_reached,
             payload=payload,
         )
         self._session.add(row)
@@ -299,10 +305,24 @@ class ProviderUsageService:
             1
             for r in contact_lookups
             if r.success
-            and isinstance(r.payload, dict)
-            and r.payload.get("tier") == "cache"
-            and r.payload.get("cache_hit")
+            and (
+                r.tier_reached == -1
+                or (
+                    isinstance(r.payload, dict)
+                    and r.payload.get("tier") in ("cache", -1)
+                    and r.payload.get("cache_hit")
+                )
+            )
         )
+        contact_funnel: dict[str, int] = {}
+        for r in contact_lookups:
+            if not r.success:
+                continue
+            tier = r.tier_reached
+            if tier is None and isinstance(r.payload, dict):
+                tier = r.payload.get("tier_reached") or r.payload.get("tier")
+            key = str(tier) if tier is not None else "unknown"
+            contact_funnel[key] = contact_funnel.get(key, 0) + 1
         playwright_contacts = sum(
             1
             for r in contact_lookups
@@ -327,6 +347,15 @@ class ProviderUsageService:
         pw_jobs = sum(1 for r in job_extractions if "playwright" in (r.provider_name or ""))
         fc_jobs = sum(1 for r in job_extractions if "firecrawl" in (r.provider_name or ""))
         scraper_total = pw_jobs + fc_jobs
+        provenance_counts: dict[str, int] = {}
+        for r in job_extractions:
+            if not r.success:
+                continue
+            prov = None
+            if isinstance(r.payload, dict):
+                prov = r.payload.get("provenance") or r.payload.get("extraction_provenance")
+            if prov:
+                provenance_counts[str(prov)] = provenance_counts.get(str(prov), 0) + 1
 
         cost_rows = [r for r in rows if r.cost_estimate is not None]
         total_cost = sum(float(r.cost_estimate or 0) for r in cost_rows)
@@ -362,12 +391,31 @@ class ProviderUsageService:
                 ),
             }
 
+        from database.models.schema import Job as JobRow
+
+        avg_completeness = (
+            self._session.query(func.avg(JobRow.completeness_score))
+            .filter(JobRow.completeness_score.isnot(None))
+            .scalar()
+        )
+        from database.models.schema import ResumeVersion as RV
+
+        avg_ats = (
+            self._session.query(func.avg(RV.ats_score))
+            .filter(RV.ats_score.isnot(None))
+            .scalar()
+        )
+
         return {
             "since": since.isoformat(),
             "until": until.isoformat(),
             "contact_cache_hit_rate": cache_hit_rate,
+            "contact_funnel": contact_funnel,
             "contact_playwright_successes": playwright_contacts,
             "contact_paid_fallback_rate": paid_fallback_rate,
+            "scrape_provenance_distribution": provenance_counts,
+            "average_completeness_score": float(avg_completeness) if avg_completeness else None,
+            "average_ats_score": float(avg_ats) if avg_ats else None,
             "job_scraper_split": {
                 "playwright": pw_jobs,
                 "firecrawl": fc_jobs,

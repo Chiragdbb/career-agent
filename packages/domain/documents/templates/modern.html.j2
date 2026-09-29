@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>{{ resume.contact.full_name or 'Resume' }}</title>
+  <style>
+    body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 10.5pt; color: #1a1a1a; margin: 40px; }
+    h1 { font-size: 22pt; font-weight: 600; margin: 0; color: #0f172a; }
+    .meta { color: #64748b; margin: 8px 0 20px; }
+    h2 { font-size: 11pt; color: #2563eb; margin: 20px 0 8px; letter-spacing: 0.08em; text-transform: uppercase; }
+    ul { padding-left: 18px; }
+  </style>
+</head>
+<body>
+  <h1>{{ resume.contact.full_name or 'Candidate' }}</h1>
+  <div class="meta">{{ [resume.contact.email, resume.contact.location] | select | join(' · ') }}</div>
+  {% if resume.summary %}<h2>Profile</h2><p>{{ resume.summary }}</p>{% endif %}
+  {% if resume.skills %}<h2>Skills</h2><p>{{ resume.skills | join(' · ') }}</p>{% endif %}
+  {% if resume.experience %}
+  <h2>Experience</h2>
+  {% for exp in resume.experience %}
+  <p><strong>{{ exp.title }}</strong> @ {{ exp.company }}</p>
+  {% if exp.bullets %}<ul>{% for b in exp.bullets %}<li>{{ b }}</li>{% endfor %}</ul>{% endif %}
+  {% endfor %}
+  {% endif %}
+</body>
+</html>

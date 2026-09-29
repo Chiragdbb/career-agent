@@ -17,6 +17,7 @@ from app.routers.pipeline import interviews_router, offers_router
 from app.routers.preferences import router as preferences_router
 from app.routers.profile import router as profile_router
 from app.routers.resumes import router as resumes_router
+from app.routers.webhooks_resend import router as webhooks_resend_router
 from app.routers.workflows import router as workflows_router
 
 __all__ = [
@@ -42,5 +43,6 @@ __all__ = [
     "preferences_router",
     "profile_router",
     "resumes_router",
+    "webhooks_resend_router",
     "workflows_router",
 ]

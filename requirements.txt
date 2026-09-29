@@ -20,3 +20,4 @@ pytest-asyncio
 # Job re-scrape via Scrapling (optional if Firecrawl is configured)
 scrapling[fetchers]>=0.4
 markdownify>=0.14
+Jinja2>=3.1

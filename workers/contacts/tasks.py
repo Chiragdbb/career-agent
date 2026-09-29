@@ -34,14 +34,20 @@ def _run_people_research(user_id: uuid.UUID, company_id: uuid.UUID) -> dict:
         from packages.providers.factory import create_playwright_contacts_provider
 
         # Prefer tiered find_or_enrich_contact; fall back to bulk people research.
+        from packages.providers.factory import create_search_provider
+
         enrich = ContactEnrichmentService(
             session,
             user_id,
             people=create_people_provider(settings),
             email_finder=create_email_finder_provider(settings),
             playwright_contacts=create_playwright_contacts_provider(settings),
+            search=create_search_provider(settings),
         )
-        resolved = enrich.find_or_enrich_contact(company_id)
+        from database.models.schema import Job
+
+        job = session.query(Job).filter(Job.company_id == company_id).order_by(Job.updated_at.desc()).first()
+        resolved = enrich.find_or_enrich_contact(company_id, job=job)
         if resolved.contact is not None:
             session.commit()
             return {

@@ -68,6 +68,9 @@ class JobMatchDetail:
     last_scraped_at: datetime | None = None
     scraped_at: datetime | None = None
     job_status: str | None = None
+    completeness_score: int | None = None
+    missing_fields: list[str] | None = None
+    extraction_provenance: str | None = None
 
 
 @dataclass(frozen=True)
@@ -328,6 +331,9 @@ class JobListingService:
             last_scraped_at=job.last_scraped_at,
             scraped_at=job.scraped_at,
             job_status=job.status.value if hasattr(job.status, "value") else str(job.status),
+            completeness_score=job.completeness_score,
+            missing_fields=list(job.missing_fields or []) if job.missing_fields else [],
+            extraction_provenance=_as_str(job.extraction_provenance),
         )
 
 

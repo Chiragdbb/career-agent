@@ -121,12 +121,44 @@ def _make_resume_fn():
         except Exception:
             pass
 
+        html_ats_score = best_score.score
+        html_ats_issues: list[dict[str, Any]] = []
+        if best_version.sections and job is not None:
+            try:
+                from packages.domain.documents.ats_compatibility import AtsCompatibilityService
+                from packages.domain.documents.html_resume_renderer import HtmlResumeRenderer
+                from packages.domain.resume_models import StructuredResume
+
+                structured = StructuredResume.model_validate(best_version.sections)
+                renderer = HtmlResumeRenderer(template_id="classic")
+                rendered = renderer.render(
+                    structured,
+                    user_id=user_id,
+                    resume_version_id=best_version.id,
+                )
+                report = AtsCompatibilityService().check_ats_compatibility(
+                    resume_version=best_version,
+                    job=job,
+                    canonical=structured,
+                    pdf_bytes=rendered.pdf_bytes,
+                    source_html=rendered.html,
+                )
+                AtsCompatibilityService().persist_report(session, best_version, report)
+                best_version.render_engine = rendered.render_engine
+                best_version.html_path = rendered.storage_html_path
+                session.commit()
+                html_ats_score = report.score
+                html_ats_issues = [i.model_dump() for i in report.issues]
+            except Exception:
+                pass
+
         return {
             "resume_version_id": str(best_version.id),
             "customized": customized,
-            "ats_score": best_score.score,
+            "ats_score": html_ats_score,
             "ats_matched": best_score.matched,
             "ats_missing": best_score.missing,
+            "ats_issues": html_ats_issues,
         }
 
     return resume_fn

@@ -284,3 +284,30 @@ def rescrape_job(
         self.request.retries + 1,
     )
     return _run_rescrape(uid, run_id, mid)
+
+
+@celery_app.task(bind=True, name="re_enrich_incomplete_jobs", max_retries=1)
+def re_enrich_incomplete_jobs(self, limit: int = 25) -> dict:
+    """List low-completeness jobs for nightly re-enrichment (rescrape via existing flows)."""
+    from packages.domain.job_ingest.completeness import completeness_threshold
+    from packages.shared.env import load_project_env
+
+    load_project_env()
+    session = _session()
+    try:
+        from database.models.schema import Job
+
+        threshold = completeness_threshold()
+        rows = (
+            session.query(Job)
+            .filter(
+                (Job.completeness_score.is_(None)) | (Job.completeness_score < threshold),
+            )
+            .order_by(Job.updated_at.asc())
+            .limit(max(1, min(limit, 100)))
+            .all()
+        )
+        queued = [str(job.id) for job in rows if job.url]
+        return {"job_ids": queued, "count": len(queued), "threshold": threshold}
+    finally:
+        session.close()

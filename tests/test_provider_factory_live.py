@@ -27,13 +27,13 @@ def test_mocks_allowed_only_in_test_with_flag(monkeypatch: pytest.MonkeyPatch) -
     assert mocks_allowed() is True
 
 
-def test_create_search_raises_without_tavily(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_create_search_raises_without_keys(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("APP_ENV", "development")
     monkeypatch.delenv("ALLOW_MOCK_PROVIDERS", raising=False)
-    settings = ProviderSettings(tavily_api_key="")
+    settings = ProviderSettings(tavily_api_key="", serper_api_key="")
     with pytest.raises(ProviderNotConfiguredError) as exc:
         create_search_provider(settings)
-    assert "TAVILY_API_KEY" in str(exc.value)
+    assert "SERPER_API_KEY" in str(exc.value) or "TAVILY" in str(exc.value)
 
 
 def test_create_scraper_raises_without_firecrawl(monkeypatch: pytest.MonkeyPatch) -> None:
