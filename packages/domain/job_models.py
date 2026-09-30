@@ -56,3 +56,9 @@ class ExtractedJobListings(BaseModel):
     """Multiple jobs from one aggregator listing page."""
 
     jobs: list[ExtractedJob] = Field(default_factory=list, max_length=30)
+
+
+class AggregatorListingCardBatch(BaseModel):
+    """Card rows from one aggregator listing page."""
+
+    cards: list[dict] = Field(default_factory=list, max_length=30)

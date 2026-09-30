@@ -10,6 +10,18 @@ from database.models.schema import Job
 from packages.domain.job_posting import StructuredJobPosting
 
 DEFAULT_COMPLETENESS_THRESHOLD = 55
+DEFAULT_AGGREGATOR_LISTING_MAX_SCORE = 50
+
+
+def aggregator_listing_max_score() -> int:
+    raw = (
+        os.getenv("AGGREGATOR_LISTING_MAX_SCORE")
+        or str(DEFAULT_AGGREGATOR_LISTING_MAX_SCORE)
+    ).strip()
+    try:
+        return max(1, min(100, int(raw)))
+    except ValueError:
+        return DEFAULT_AGGREGATOR_LISTING_MAX_SCORE
 
 
 def completeness_threshold() -> int:
@@ -104,6 +116,10 @@ class JobCompletenessService:
         posting: StructuredJobPosting | None = None,
     ) -> JobCompletenessResult:
         result = self.score_posting(posting) if posting is not None else self.score_job(job)
+        if provenance == "aggregator_listing":
+            cap = aggregator_listing_max_score()
+            score = min(result.score, cap)
+            result = JobCompletenessResult(score=score, missing_fields=result.missing_fields)
         job.completeness_score = result.score
         job.missing_fields = result.missing_fields
         if provenance:

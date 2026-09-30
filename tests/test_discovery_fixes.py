@@ -64,7 +64,7 @@ def test_is_likely_listing_page_detects_board_aggregates(url: str) -> None:
 
 
 def test_non_aggregator_listing_not_treated_as_aggregator() -> None:
-    url = "https://builtin.com/jobs/as/india/bangalore/dev-engineering/search/web-developer"
+    url = "https://boards.greenhouse.io/acme"
     assert is_likely_listing_page(url) is True
     assert is_aggregator_listing_page(url) is False
 

@@ -5,19 +5,16 @@ from __future__ import annotations
 import re
 from urllib.parse import urlparse
 
-# Job aggregators — listing pages may yield multiple jobs via search/scrape preview.
-AGGREGATOR_HOST_SUFFIXES = (
-    "linkedin.com",
-    "naukri.com",
-    "indeed.com",
-    "glassdoor.com",
-    "ziprecruiter.com",
-    "monster.com",
-    "shine.com",
+from packages.domain.job_ingest.aggregator_registry import (
+    AGGREGATOR_HOST_SUFFIXES,
+    is_aggregator_host,
+    is_aggregator_job_detail_url,
+    is_employer_ats_board_listing,
+    is_employer_ats_single_job,
+    is_naukri_job_detail_url,
 )
 
-_GH_JOB_RE = re.compile(
-    r"/jobs/\d+(?:/|$|\?)",
+_GH_JOB_RE = re.compile(    r"/jobs/\d+(?:/|$|\?)",
     re.IGNORECASE,
 )
 _ASHBY_JOB_RE = re.compile(
@@ -49,13 +46,15 @@ _LISTING_QUERY_MARKERS = (
 )
 
 
-def is_aggregator_host(url: str) -> bool:
-    host = (urlparse(url).hostname or "").lower().removeprefix("www.")
-    return any(host == suffix or host.endswith(f".{suffix}") for suffix in AGGREGATOR_HOST_SUFFIXES)
-
-
 def is_aggregator_listing_page(url: str) -> bool:
-    return is_aggregator_host(url) and is_likely_listing_page(url)
+    """Search/listing on any third-party job aggregator (card ingest path)."""
+    if not is_likely_listing_page(url):
+        return False
+    if is_employer_ats_board_listing(url) or is_employer_ats_single_job(url):
+        return False
+    if is_aggregator_job_detail_url(url):
+        return False
+    return is_aggregator_host(url)
 
 
 def is_likely_listing_page(url: str) -> bool:
@@ -106,9 +105,23 @@ def is_likely_listing_page(url: str) -> bool:
     if "jobs.lever.co" in host and not _LEVER_JOB_RE.search(path):
         return True
 
-    # Naukri / ZipRecruiter search-style paths
-    if "naukri.com" in host and ("-jobs-in-" in path or "/job-listings" in path):
+    # Naukri city/search listing pages (detail postings use job-listings-…-{id})
+    if "naukri.com" in host:
+        if is_naukri_job_detail_url(url):
+            return False
+        if "-jobs-in-" in path or path.rstrip("/").endswith("/job-listings"):
+            return True
+
+    # Generic aggregator search (host heuristic applied in is_aggregator_listing_page)
+    if is_aggregator_host(url) and is_aggregator_job_detail_url(url):
+        return False
+    if is_aggregator_host(url) and (
+        any(marker in path for marker in _LISTING_PATH_MARKERS)
+        or ("/jobs" in path and any(marker in query for marker in _LISTING_QUERY_MARKERS))
+    ):
         return True
+
+    # ZipRecruiter / Indeed-style search paths
     if "ziprecruiter.com" in host and ("/jobs-search" in path or "/candidate/search" in path):
         return True
 

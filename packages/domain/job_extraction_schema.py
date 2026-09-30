@@ -54,18 +54,49 @@ def job_extraction_json_schema() -> dict[str, Any]:
     }
 
 
-def job_listings_extraction_json_schema() -> dict[str, Any]:
-    """Schema for extracting multiple job cards from an aggregator listing page."""
-    item = job_extraction_json_schema()
+def aggregator_listing_card_schema() -> dict[str, Any]:
+    """One visible job card on an aggregator listing page (summary fields only)."""
     return {
         "type": "object",
         "additionalProperties": False,
         "properties": {
-            "jobs": {
-                "type": "array",
-                "items": item,
-                "description": "Distinct job postings visible on the page (no duplicates).",
+            "title": {"type": "string"},
+            "company_name": {"type": ["string", "null"]},
+            "location": {"type": ["string", "null"]},
+            "snippet": {"type": ["string", "null"]},
+            "posted_at": {"type": ["string", "null"]},
+            "aggregator_job_id": {
+                "type": ["string", "null"],
+                "description": "Job id from card URL query/path when visible",
+            },
+            "card_url": {
+                "type": ["string", "null"],
+                "description": "Href on the card if present; do not invent LinkedIn view URLs",
             },
         },
-        "required": ["jobs"],
+        "required": [
+            "title",
+            "company_name",
+            "location",
+            "snippet",
+            "posted_at",
+            "aggregator_job_id",
+            "card_url",
+        ],
+    }
+
+
+def job_listings_extraction_json_schema() -> dict[str, Any]:
+    """Schema for extracting multiple job cards from an aggregator listing page."""
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "cards": {
+                "type": "array",
+                "items": aggregator_listing_card_schema(),
+                "description": "Distinct job cards on the listing page.",
+            },
+        },
+        "required": ["cards"],
     }

@@ -30,6 +30,19 @@ from packages.domain.exceptions import DiscoveryCancelledError, DomainError, Not
 from packages.domain.extraction_constants import extraction_prefilter_max_chars_for_provider
 from packages.domain.events import UserEventPublisher, UserEventType
 from packages.domain.job_match import JobMatchService
+from packages.domain.job_ingest.aggregator_listing import (
+    AggregatorListingCard,
+    aggregator_card_dedupe_id,
+    card_to_job_url,
+    company_domain_slug,
+    listing_page_access,
+    should_accept_card_job_url,
+)
+from packages.domain.job_ingest.aggregator_registry import (
+    extract_aggregator_job_id,
+    is_scrape_policy_blocked_url,
+)
+from packages.domain.job_ingest.completeness import JobCompletenessService
 from packages.domain.job_urls import (
     is_aggregator_listing_page,
     is_invalid_job_title,
@@ -57,7 +70,7 @@ from packages.providers.playwright_jobs import (
     PlaywrightJobsProvider,
     is_known_job_board,
 )
-from packages.providers.scraper import ScrapeRequest, ScraperProvider
+from packages.providers.scraper import ScrapeRequest, ScrapedPage, ScraperProvider
 from packages.providers.search import SearchProvider, SearchRequest
 from packages.providers.usage_logging import call_with_usage_log
 
@@ -651,6 +664,9 @@ class JobDiscoveryService:
         if is_aggregator_listing_page(url):
             self._ingest_aggregator_listing(url, run_id, result)
             return
+        if is_scrape_policy_blocked_url(url):
+            self._ingest_search_preview_only(url, run_id, result)
+            return
         if is_likely_listing_page(url):
             logger.info("SKIP listing page ingest url=%s", url)
             if self._file_log is not None:
@@ -939,114 +955,352 @@ class JobDiscoveryService:
             if self._file_log is not None:
                 self._file_log.log("ingest_failed", url=url, error=str(exc))
 
+    def _ingest_search_preview_only(
+        self,
+        url: str,
+        run_id: uuid.UUID,
+        result: DiscoveryResult,
+    ) -> None:
+        """LinkedIn detail and other policy-blocked URLs — search snippet only."""
+        ctx = self._url_context.get(url, {})
+        title = (ctx.get("title") or "").strip()
+        snippet = (ctx.get("snippet") or "").strip()
+        if not title or is_invalid_job_title(title):
+            result.skipped_invalid += 1
+            if self._file_log is not None:
+                self._file_log.log("url_skipped", url=url, reason="policy_blocked_no_preview")
+            return
+        ext_id = extract_aggregator_job_id(url)
+        extracted = ExtractedJob(
+            title=title,
+            description=snippet or title,
+            url=normalize_job_url(url),
+            external_id=ext_id,
+        )
+        job = self._persist_aggregator_card_from_extracted(
+            extracted,
+            run_id=run_id,
+            listing_page=url,
+        )
+        if job is not None:
+            result.created_jobs.append(job.id)
+            result.scrapes_fresh += 1
+
     def _ingest_aggregator_listing(
         self,
         url: str,
         run_id: uuid.UUID,
         result: DiscoveryResult,
     ) -> None:
-        """Use Scrapling/search preview data from aggregator listing pages; dedupe jobs."""
+        """Card-level extract from listing pages; no detail-page fetch."""
         max_jobs = int((os.getenv("AGGREGATOR_LISTING_MAX_JOBS") or "15").strip() or "15")
         ctx = self._url_context.get(url, {})
         task = self._start_task(run_id, "ingest_aggregator_listing", {"url": url})
         created_ids: list[str] = []
+        self._ingest_scrape_cache = {}
         try:
+            scraped = self._fetch_scraped_page(url)
             markdown = ""
-            try:
-                scraped = self._scraper.scrape_url(
-                    ScrapeRequest(url=url, formats=["markdown", "html"])
-                )
+            html = None
+            http_status = None
+            if scraped is not None:
                 markdown = (scraped.markdown or scraped.title or "").strip()
-            except Exception as exc:
-                logger.warning("AGGREGATOR_SCRAPE_FAILED url=%s error=%s", url, exc)
+                html = getattr(scraped, "html", None)
+                meta = getattr(scraped, "metadata", None) or {}
+                if isinstance(meta, dict) and meta.get("status"):
+                    try:
+                        http_status = int(meta["status"])
+                    except (TypeError, ValueError):
+                        http_status = None
 
-            extracted_jobs: list[ExtractedJob] = []
+            ok, gate_reason = listing_page_access(
+                url,
+                markdown=markdown,
+                html=html,
+                http_status=http_status,
+            )
+            if not ok:
+                if self._file_log is not None:
+                    self._file_log.log(
+                        "aggregator_listing_gated",
+                        url=url,
+                        reason=gate_reason,
+                    )
+                markdown = ""
+
+            cards: list[AggregatorListingCard] = []
             if markdown:
                 try:
-                    batch = self._llm_tasks.extract_job_listings(
+                    cards = self._llm_tasks.extract_aggregator_listing_cards(
                         page_url=url,
                         scraped_markdown=markdown,
                     )
-                    extracted_jobs = list(batch.jobs)
                 except Exception as exc:
                     logger.warning("AGGREGATOR_LIST_EXTRACT_FAILED url=%s error=%s", url, exc)
 
-            if not extracted_jobs:
+            if not cards:
                 title = (ctx.get("title") or "").strip()
                 snippet = (ctx.get("snippet") or "").strip()
                 if title and not is_invalid_job_title(title):
-                    extracted_jobs = [
-                        ExtractedJob(
+                    cards = [
+                        AggregatorListingCard(
                             title=title,
-                            description=snippet or title,
-                            url=url,
+                            company_name=None,
+                            location=None,
+                            snippet=snippet or title,
+                            posted_at=None,
+                            aggregator_job_id=None,
+                            card_url=url,
                         )
                     ]
 
-            seen_urls: set[str] = set()
-            for job in extracted_jobs[:max_jobs]:
-                job_url = normalize_job_url(job.url)
-                if not job_url:
-                    continue
-                if not job_url.startswith("http"):
-                    job_url = normalize_job_url(urljoin(url, job_url))
-                if job_url in seen_urls:
-                    continue
-                seen_urls.add(job_url)
-                if is_likely_listing_page(job_url) and not is_aggregator_listing_page(job_url):
-                    continue
-                normalized = job.model_copy(update={"url": job_url})
-                if is_invalid_job_title(normalized.title):
-                    continue
-                fp = job_fingerprint(normalized)
-                if fp in self._run_fingerprints:
-                    continue
-                existing = self._find_existing_job(job_url)
-                if existing is not None and self._is_scrape_fresh(existing):
-                    self._ensure_match(existing.id)
-                    result.duplicate_jobs.append(existing.id)
-                    self._run_fingerprints.add(fp)
-                    continue
-                persisted = self._persist_extracted(
-                    normalized,
+            seen_dedupe: set[str] = set()
+            for card in cards[:max_jobs]:
+                job = self._persist_aggregator_card(
+                    card,
                     run_id=run_id,
-                    existing=existing,
+                    listing_page=url,
+                    seen_dedupe=seen_dedupe,
+                    result=result,
                 )
-                self._run_fingerprints.add(fp)
-                result.created_jobs.append(persisted.id)
-                result.scrapes_fresh += 1
-                created_ids.append(str(persisted.id))
-                if self._file_log is not None:
-                    self._file_log.log(
-                        "job_created",
-                        url=job_url,
-                        job_id=str(persisted.id),
-                        title=persisted.title,
-                        company=normalized.company_name,
-                        content_source="aggregator_listing",
-                        listing_page=url,
-                    )
+                if job is not None:
+                    created_ids.append(str(job.id))
 
-            if not created_ids and not extracted_jobs:
+            if not created_ids and not cards:
                 result.skipped_invalid += 1
             self._complete_task(task, {"listing_url": url, "job_ids": created_ids})
         except Exception as exc:
             self._fail_task(task, str(exc))
             result.errors.append(f"aggregator:{url}:{exc}")
 
-    def _fetch_scraped_page(self, url: str):
+    def _persist_aggregator_card(
+        self,
+        card: AggregatorListingCard,
+        *,
+        run_id: uuid.UUID,
+        listing_page: str,
+        seen_dedupe: set[str],
+        result: DiscoveryResult,
+    ) -> Job | None:
+        if is_invalid_job_title(card.title):
+            return None
+        job_url = normalize_job_url(card_to_job_url(card, listing_page=listing_page))
+        if not job_url:
+            return None
+        if not should_accept_card_job_url(job_url):
+            return None
+
+        ext_id = card.aggregator_job_id or extract_aggregator_job_id(card.card_url or job_url)
+        dedupe_id = aggregator_card_dedupe_id(
+            aggregator_job_id=ext_id,
+            company_name=card.company_name,
+            title=card.title,
+            location=card.location,
+        )
+        if dedupe_id in seen_dedupe or dedupe_id in self._run_fingerprints:
+            return None
+        seen_dedupe.add(dedupe_id)
+        domain = company_domain_slug(card.company_name)
+
+        existing = None
+        if ext_id and domain:
+            existing = (
+                self._session.query(Job)
+                .filter(Job.external_id == ext_id, Job.company_domain == domain)
+                .one_or_none()
+            )
+        if existing is None and ext_id:
+            existing = (
+                self._session.query(Job)
+                .filter(Job.external_id == ext_id)
+                .one_or_none()
+            )
+        if existing is None:
+            existing = self._find_existing_job(job_url)
+        if existing is not None and self._is_scrape_fresh(existing):
+            self._ensure_match(existing.id)
+            result.duplicate_jobs.append(existing.id)
+            self._run_fingerprints.add(dedupe_id)
+            return None
+
+        extracted = ExtractedJob(
+            title=card.title,
+            company_name=card.company_name,
+            location=card.location,
+            description=card.snippet or card.title,
+            url=job_url,
+            external_id=ext_id or dedupe_id,
+            posted_at=card.posted_at,
+        )
+        return self._persist_aggregator_card_from_extracted(
+            extracted,
+            run_id=run_id,
+            listing_page=listing_page,
+            company_domain=domain,
+            dedupe_id=dedupe_id,
+            result=result,
+            existing=existing,
+        )
+
+    def _persist_aggregator_card_from_extracted(
+        self,
+        extracted: ExtractedJob,
+        *,
+        run_id: uuid.UUID,
+        listing_page: str,
+        company_domain: str | None = None,
+        dedupe_id: str | None = None,
+        result: DiscoveryResult | None = None,
+        existing: Job | None = None,
+    ) -> Job | None:
+        url = normalize_job_url(extracted.url)
+        if not url:
+            return None
+        dedupe_id = dedupe_id or aggregator_card_dedupe_id(
+            aggregator_job_id=extracted.external_id,
+            company_name=extracted.company_name,
+            title=extracted.title,
+            location=extracted.location,
+        )
+        if dedupe_id in self._run_fingerprints:
+            return None
+
+        now = datetime.now(timezone.utc)
+        domain = company_domain or company_domain_slug(extracted.company_name)
+        if existing is None:
+            if extracted.external_id and domain:
+                existing = (
+                    self._session.query(Job)
+                    .filter(Job.external_id == extracted.external_id, Job.company_domain == domain)
+                    .one_or_none()
+                )
+
+        if existing is not None:
+            company = self._get_or_create_company(extracted.company_name)
+            details = extracted.model_dump(mode="json")
+            details["listing_page"] = listing_page
+            details["location"] = extracted.location
+            existing.title = extracted.title or existing.title
+            existing.description = extracted.description or existing.description
+            existing.company_id = company.id
+            existing.details = details
+            existing.last_scraped_at = now
+            existing.scraped_at = now
+            if run_id is not None:
+                existing.discovery_run_id = run_id
+            JobCompletenessService().apply_to_job(
+                existing,
+                provenance="aggregator_listing",
+            )
+            self._session.flush()
+            self._ensure_match(existing.id)
+            self._run_fingerprints.add(dedupe_id)
+            if result is not None:
+                result.created_jobs.append(existing.id)
+                result.scrapes_fresh += 1
+            return existing
+
+        company = self._get_or_create_company(extracted.company_name)
+        details = extracted.model_dump(mode="json")
+        details["listing_page"] = listing_page
+        details["location"] = extracted.location
+        job = Job(
+            id=uuid.uuid4(),
+            company_id=company.id,
+            status=JobStatus.active,
+            title=extracted.title,
+            url=url,
+            external_id=extracted.external_id or dedupe_id,
+            source="aggregator_listing",
+            company_domain=domain,
+            description=extracted.description,
+            details=details,
+            last_scraped_at=now,
+            scraped_at=now,
+            discovery_run_id=run_id,
+        )
+        try:
+            with self._session.begin_nested():
+                self._session.add(job)
+                self._session.flush()
+        except IntegrityError:
+            row = (
+                self._session.query(Job)
+                .filter(Job.external_id == (extracted.external_id or dedupe_id))
+                .one_or_none()
+            )
+            if row is None:
+                return None
+            self._ensure_match(row.id)
+            return row
+
+        JobCompletenessService().apply_to_job(job, provenance="aggregator_listing")
+        self._run_fingerprints.add(dedupe_id)
+        if result is not None:
+            result.created_jobs.append(job.id)
+            result.scrapes_fresh += 1
+        if self._file_log is not None:
+            self._file_log.log(
+                "job_created",
+                url=url,
+                job_id=str(job.id),
+                title=job.title,
+                company=extracted.company_name,
+                content_source="aggregator_listing",
+                listing_page=listing_page,
+            )
+        self._ensure_match(job.id)
+        return job
+
+    def _fetch_scraped_page(self, url: str) -> ScrapedPage | None:
+        if is_scrape_policy_blocked_url(url):
+            return None
         cached = self._ingest_scrape_cache.get(url)
         if cached is not None:
             return cached
+        scraped: ScrapedPage | None = None
         try:
             scraped = self._scraper.scrape_url(
                 ScrapeRequest(url=url, formats=["markdown", "html"])
             )
         except Exception as exc:
-            logger.debug("SCRAPER_FETCH_FAILED url=%s error=%s", url, exc)
-            return None
-        self._ingest_scrape_cache[url] = scraped
-        return scraped
+            logger.debug("SCRAPLING_FETCH_FAILED url=%s error=%s", url, exc)
+
+        if scraped is not None:
+            markdown = (scraped.markdown or "").strip()
+            html = getattr(scraped, "html", None) or ""
+            meta = getattr(scraped, "metadata", None) or {}
+            status = int(meta.get("status") or 0) if isinstance(meta, dict) else 0
+            ok, _reason = listing_page_access(
+                url,
+                markdown=markdown,
+                html=html,
+                http_status=status or None,
+            )
+            if markdown and ok:
+                self._ingest_scrape_cache[url] = scraped
+                return scraped
+            scraped = None
+
+        if self._playwright_jobs is not None and hasattr(
+            self._playwright_jobs, "fetch_page_markdown"
+        ):
+            try:
+                markdown, html, title = self._playwright_jobs.fetch_page_markdown(url)
+                ok, _reason = listing_page_access(url, markdown=markdown, html=html)
+                if ok and markdown.strip():
+                    scraped = ScrapedPage(
+                        url=url,
+                        title=title,
+                        markdown=markdown,
+                        html=html,
+                        metadata={"scraper_backend": "playwright-backup"},
+                    )
+                    self._ingest_scrape_cache[url] = scraped
+                    return scraped
+            except Exception as exc:
+                logger.debug("PLAYWRIGHT_BACKUP_FETCH_FAILED url=%s error=%s", url, exc)
+        return None
 
     def _structured_from_scraper_fetch(
         self,
@@ -1097,12 +1351,15 @@ class JobDiscoveryService:
             )
             return normalize_job_posting(ats_posting)
 
-        scrapling_posting = self._structured_from_scraper_fetch(url, run_id)
-        if scrapling_posting is not None:
-            return scrapling_posting
+        if not is_scrape_policy_blocked_url(url):
+            scrapling_posting = self._structured_from_scraper_fetch(url, run_id)
+            if scrapling_posting is not None:
+                return scrapling_posting
 
-        if self._playwright_jobs is not None and (
-            self._playwright_jobs.can_handle(url) or is_known_job_board(url)
+        if (
+            self._playwright_jobs is not None
+            and not is_scrape_policy_blocked_url(url)
+            and (self._playwright_jobs.can_handle(url) or is_known_job_board(url))
         ):
             try:
                 pw_result = call_with_usage_log(
@@ -1164,6 +1421,12 @@ class JobDiscoveryService:
                     operation="scrape_url",
                 )
             markdown = scraped.markdown or scraped.title or ""
+            if self._is_snippet_only_fallback_content(markdown, url):
+                raise ProviderError(
+                    "gated or blocked page content",
+                    provider=scrape_provider,
+                    operation="scrape_url",
+                )
             logger.info(
                 "RECEIVED scrape provider=%s url=%s title=%r chars=%d",
                 scrape_provider,
@@ -1194,6 +1457,11 @@ class JobDiscoveryService:
             )
         markdown = f"# {title}\n\nSource: {url}\n\n{snippet}"
         return markdown, "search_snippet", None
+
+    @staticmethod
+    def _is_snippet_only_fallback_content(markdown: str, url: str) -> bool:
+        ok, reason = listing_page_access(url, markdown=markdown)
+        return not ok and reason in ("listing_login_gated", "http_blocked", "http_403")
 
     @staticmethod
     def _short_url(url: str) -> str:

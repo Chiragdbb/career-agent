@@ -270,6 +270,45 @@ class PlaywrightJobsProvider:
             ),
         )
 
+    def fetch_page_markdown(
+        self,
+        url: str,
+        *,
+        timeout_seconds: float = 30.0,
+    ) -> tuple[str, str | None, str | None]:
+        """Generic page fetch for backup scraping (policy-blocked URLs only)."""
+        from packages.domain.job_ingest.aggregator_registry import is_scrape_policy_blocked_url
+
+        if is_scrape_policy_blocked_url(url):
+            raise ProviderValidationError(
+                f"Playwright backup refuses policy-blocked URL: {url}",
+                provider=self._meta.name,
+                operation="fetch_page_markdown",
+            )
+        pw = self._sync_playwright().start()
+        try:
+            browser = pw.chromium.launch(headless=self._headless)
+            try:
+                page = browser.new_page()
+                page.set_default_timeout(int(timeout_seconds * 1000) or self._default_timeout_ms)
+                response = page.goto(url, wait_until="domcontentloaded")
+                status = response.status if response is not None else 0
+                if status >= 400:
+                    raise ProviderError(
+                        f"Playwright HTTP {status} for {url}",
+                        provider=self._meta.name,
+                        operation="fetch_page_markdown",
+                    )
+                title = (page.title() or "").strip() or None
+                html = page.content()
+                body = (page.locator("body").inner_text() or "").strip()
+                markdown = f"# {title}\n\n{body}" if title else body
+                return markdown, html, title
+            finally:
+                browser.close()
+        finally:
+            pw.stop()
+
     def _extract_fields(
         self,
         url: str,
