@@ -15,7 +15,7 @@ _GH_BOARD_RE = re.compile(
     re.IGNORECASE,
 )
 _LEVER_RE = re.compile(
-    r"https?://jobs\.lever\.co/([^/]+)/([0-9a-f-]{36})",
+    r"https?://jobs\.lever\.co/([^/]+)/([0-9a-f-]{36})(?:/apply)?/?",
     re.IGNORECASE,
 )
 _ASHBY_RE = re.compile(
@@ -53,6 +53,11 @@ def _greenhouse_api(board: str, job_id: str, *, url: str) -> StructuredJobPostin
     title = str(data.get("title") or "").strip()
     content = str(data.get("content") or "").strip()
     if not title or not content:
+        return None
+
+    from packages.domain.job_urls import is_invalid_job_title
+
+    if is_invalid_job_title(title):
         return None
 
     location_name = ""

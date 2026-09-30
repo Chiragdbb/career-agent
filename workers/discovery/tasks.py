@@ -14,8 +14,8 @@ from packages.providers.factory import (
     create_extraction_llm_provider,
     create_llm_provider,
     create_playwright_jobs_provider,
+    create_discovery_scraper_provider,
     create_rescrape_scraper_provider,
-    create_scraper_provider,
     create_search_provider,
 )
 from packages.providers.exceptions import ProviderRateLimitDeferError
@@ -60,7 +60,7 @@ def _run_discovery(user_id: uuid.UUID, workflow_run_id: uuid.UUID, max_results: 
                 session,
                 user_id,
                 search=create_search_provider(settings),
-                scraper=create_scraper_provider(settings),
+                scraper=create_discovery_scraper_provider(settings),
                 llm=create_llm_provider(settings),
                 extraction_llm=create_extraction_llm_provider(settings),
                 playwright_jobs=playwright_jobs,

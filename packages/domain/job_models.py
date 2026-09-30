@@ -50,3 +50,9 @@ class ExtractedJob(BaseModel):
         if value is not None and value < 0:
             raise ValueError("salary must be non-negative")
         return value
+
+
+class ExtractedJobListings(BaseModel):
+    """Multiple jobs from one aggregator listing page."""
+
+    jobs: list[ExtractedJob] = Field(default_factory=list, max_length=30)

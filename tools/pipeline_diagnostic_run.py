@@ -49,7 +49,7 @@ def main() -> int:
         create_people_provider,
         create_playwright_contacts_provider,
         create_playwright_jobs_provider,
-        create_scraper_provider,
+        create_discovery_scraper_provider,
         create_search_provider,
     )
 
@@ -75,20 +75,24 @@ def main() -> int:
         report["steps"].append({"playwright_jobs": f"unavailable: {exc}"})
 
     max_results = int(os.getenv("DIAGNOSTIC_MAX_RESULTS", "3"))
+    max_urls_raw = (os.getenv("DIAGNOSTIC_MAX_URLS") or os.getenv("DISCOVERY_MAX_URLS") or "").strip()
+    max_urls = int(max_urls_raw) if max_urls_raw.isdigit() else None
     service = JobDiscoveryService(
         session,
         user_id,
         search=create_search_provider(settings),
-        scraper=create_scraper_provider(settings),
+        scraper=create_discovery_scraper_provider(settings),
         llm=create_llm_provider(settings),
         extraction_llm=create_extraction_llm_provider(settings),
         playwright_jobs=playwright_jobs,
         max_results=max_results,
+        max_urls=max_urls,
         discovery_lock=None,
         cancellation=None,
     )
 
-    print(f"Starting discovery (max_results={max_results} per query)...")
+    cap_note = f", max_urls={max_urls}" if max_urls else ""
+    print(f"Starting discovery (max_results={max_results} per query{cap_note})...")
     try:
         result = service.run()
         session.commit()

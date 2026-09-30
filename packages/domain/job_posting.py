@@ -70,6 +70,18 @@ class StructuredJobPosting(BaseModel):
         text = text.split("/")[0].removeprefix("www.")
         return text or None
 
+    @field_validator("posted_at", mode="before")
+    @classmethod
+    def normalize_posted_at(cls, value: object) -> object:
+        if value is None:
+            return None
+        if isinstance(value, date):
+            return value
+        text = str(value).strip().lower()
+        if text in ("", "null", "none", "n/a", "na", "undefined"):
+            return None
+        return value
+
     @field_validator("seniority", "salary_currency", mode="before")
     @classmethod
     def blank_optional_str(cls, value: object) -> str | None:

@@ -52,3 +52,20 @@ def job_extraction_json_schema() -> dict[str, Any]:
             "posted_at",
         ],
     }
+
+
+def job_listings_extraction_json_schema() -> dict[str, Any]:
+    """Schema for extracting multiple job cards from an aggregator listing page."""
+    item = job_extraction_json_schema()
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "jobs": {
+                "type": "array",
+                "items": item,
+                "description": "Distinct job postings visible on the page (no duplicates).",
+            },
+        },
+        "required": ["jobs"],
+    }

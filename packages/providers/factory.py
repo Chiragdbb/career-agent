@@ -213,6 +213,13 @@ def create_scraper_provider(settings: ProviderSettings | None = None) -> Scraper
     return FallbackScraperProvider(scrapers)
 
 
+def create_discovery_scraper_provider(
+    settings: ProviderSettings | None = None,
+) -> ScraperProvider:
+    """Scraper chain for job discovery ingest (Scrapling first, then Firecrawl)."""
+    return create_rescrape_scraper_provider(settings)
+
+
 def create_rescrape_scraper_provider(settings: ProviderSettings | None = None) -> ScraperProvider:
     """Scraper chain for manual job re-scrape (Scrapling first, then Firecrawl)."""
     settings = settings or ProviderSettings.from_env()
@@ -258,10 +265,10 @@ def create_rescrape_scraper_provider(settings: ProviderSettings | None = None) -
 
 
 def create_playwright_jobs_provider(settings: ProviderSettings | None = None):
-    """Primary free job scraper for known boards.
+    """Backup job scraper for known boards when ATS API / Scrapling are insufficient.
 
     Returns None when Playwright cannot be initialized so discovery can continue
-    with Firecrawl-only scraping. Mocks are only used when ALLOW_MOCK_PROVIDERS
+    with Scrapling/Firecrawl. Mocks are only used when ALLOW_MOCK_PROVIDERS
     is set under APP_ENV=test.
     """
     _ = settings or ProviderSettings.from_env()

@@ -7,10 +7,11 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from urllib.parse import urlparse, urlunparse
+from urllib.parse import urljoin, urlparse, urlunparse
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -29,7 +30,11 @@ from packages.domain.exceptions import DiscoveryCancelledError, DomainError, Not
 from packages.domain.extraction_constants import extraction_prefilter_max_chars_for_provider
 from packages.domain.events import UserEventPublisher, UserEventType
 from packages.domain.job_match import JobMatchService
-from packages.domain.job_urls import is_likely_listing_page
+from packages.domain.job_urls import (
+    is_aggregator_listing_page,
+    is_invalid_job_title,
+    is_likely_listing_page,
+)
 from packages.domain.workflow_cancellation import WorkflowCancellation
 from packages.providers.base import UsageInfo
 from packages.providers.exceptions import ProviderError
@@ -87,6 +92,7 @@ class JobDiscoveryService:
         extraction_llm: LLMProvider | None = None,
         playwright_jobs: PlaywrightJobsProvider | MockPlaywrightJobsProvider | None = None,
         max_results: int = 5,
+        max_urls: int | None = None,
         events: UserEventPublisher | None = None,
         cancellation: WorkflowCancellation | None = None,
         discovery_lock: DiscoveryLock | None = None,
@@ -104,11 +110,14 @@ class JobDiscoveryService:
         self._playwright_jobs = playwright_jobs
         self._llm_tasks = LLMTaskService(llm, extraction_llm=self._extraction_llm)
         self._max_results = max_results
+        self._max_urls = max_urls
         self._events = events
         self._cancellation = cancellation
         self._discovery_lock = discovery_lock
         self._scrape_freshness_days = scrape_freshness_days
         self._url_context: dict[str, dict[str, str]] = {}
+        self._run_fingerprints: set[str] = set()
+        self._ingest_scrape_cache: dict[str, object] = {}
         self._file_log: DiscoveryRunLogger | None = None
         self._current_run_id: uuid.UUID | None = None
         self._usage = ProviderUsageService(session)
@@ -214,6 +223,7 @@ class JobDiscoveryService:
             max_results=self._max_results,
             config=self._file_log.config,
         )
+        self._run_fingerprints = set()
         try:
             queries = _build_queries(prefs)
             self._file_log.queries = list(queries)
@@ -236,6 +246,19 @@ class JobDiscoveryService:
                 message="Planning search queries from your preferences…",
             )
             urls = self._search_urls(queries, run.id, result)
+            cap = self._max_urls
+            if cap is None:
+                raw_cap = (os.getenv("DISCOVERY_MAX_URLS") or "").strip()
+                cap = int(raw_cap) if raw_cap.isdigit() else None
+            if cap is not None and len(urls) > cap:
+                if self._file_log is not None:
+                    self._file_log.log(
+                        "urls_truncated",
+                        before=len(urls),
+                        after=cap,
+                        reason="DISCOVERY_MAX_URLS",
+                    )
+                urls = urls[:cap]
             self._ensure_not_cancelled(run)
             self._update_run_metadata(
                 run,
@@ -535,7 +558,9 @@ class JobDiscoveryService:
                 for hit in response.results:
                     normalized = normalize_job_url(str(hit.url))
                     if normalized and normalized not in seen:
-                        if is_likely_listing_page(normalized):
+                        if is_likely_listing_page(normalized) and not is_aggregator_listing_page(
+                            normalized
+                        ):
                             logger.info("SKIP listing page url=%s", normalized)
                             if self._file_log is not None:
                                 self._file_log.bump("urls_skipped")
@@ -623,6 +648,9 @@ class JobDiscoveryService:
         )
 
     def _ingest_url(self, url: str, run_id: uuid.UUID, result: DiscoveryResult) -> None:
+        if is_aggregator_listing_page(url):
+            self._ingest_aggregator_listing(url, run_id, result)
+            return
         if is_likely_listing_page(url):
             logger.info("SKIP listing page ingest url=%s", url)
             if self._file_log is not None:
@@ -647,6 +675,7 @@ class JobDiscoveryService:
                 )
             return
 
+        self._ingest_scrape_cache = {}
         task = self._start_task(run_id, "ingest_url", {"url": url})
         scrape_provider = self._scraper.metadata.name
         ctx = self._url_context.get(url, {})
@@ -664,11 +693,15 @@ class JobDiscoveryService:
                 },
             )
 
-            # Tiered scrape: Playwright (known boards) → Firecrawl one-off → LLM on cleaned schema only.
+            # Tiered scrape: ATS → Scrapling (via scraper chain) → Playwright backup → LLM.
             if self._file_log is not None:
                 self._file_log.log("scrape_request", url=url, provider=scrape_provider)
             structured = self._try_structured_scrape(url, run_id)
             if structured is not None:
+                if is_invalid_job_title(structured.title):
+                    raise DomainError(
+                        f"Structured extract returned placeholder title: {structured.title!r}"
+                    )
                 job = persist_structured_job(
                     self._session,
                     structured,
@@ -819,6 +852,10 @@ class JobDiscoveryService:
                 url=url,
                 scraped_markdown=markdown,
             )
+            if is_invalid_job_title(extracted.title):
+                raise DomainError(
+                    f"Extracted placeholder or error title: {extracted.title!r}"
+                )
             if self._file_log is not None:
                 self._file_log.bump("extracts")
                 self._file_log.log(
@@ -902,12 +939,141 @@ class JobDiscoveryService:
             if self._file_log is not None:
                 self._file_log.log("ingest_failed", url=url, error=str(exc))
 
+    def _ingest_aggregator_listing(
+        self,
+        url: str,
+        run_id: uuid.UUID,
+        result: DiscoveryResult,
+    ) -> None:
+        """Use Scrapling/search preview data from aggregator listing pages; dedupe jobs."""
+        max_jobs = int((os.getenv("AGGREGATOR_LISTING_MAX_JOBS") or "15").strip() or "15")
+        ctx = self._url_context.get(url, {})
+        task = self._start_task(run_id, "ingest_aggregator_listing", {"url": url})
+        created_ids: list[str] = []
+        try:
+            markdown = ""
+            try:
+                scraped = self._scraper.scrape_url(
+                    ScrapeRequest(url=url, formats=["markdown", "html"])
+                )
+                markdown = (scraped.markdown or scraped.title or "").strip()
+            except Exception as exc:
+                logger.warning("AGGREGATOR_SCRAPE_FAILED url=%s error=%s", url, exc)
+
+            extracted_jobs: list[ExtractedJob] = []
+            if markdown:
+                try:
+                    batch = self._llm_tasks.extract_job_listings(
+                        page_url=url,
+                        scraped_markdown=markdown,
+                    )
+                    extracted_jobs = list(batch.jobs)
+                except Exception as exc:
+                    logger.warning("AGGREGATOR_LIST_EXTRACT_FAILED url=%s error=%s", url, exc)
+
+            if not extracted_jobs:
+                title = (ctx.get("title") or "").strip()
+                snippet = (ctx.get("snippet") or "").strip()
+                if title and not is_invalid_job_title(title):
+                    extracted_jobs = [
+                        ExtractedJob(
+                            title=title,
+                            description=snippet or title,
+                            url=url,
+                        )
+                    ]
+
+            seen_urls: set[str] = set()
+            for job in extracted_jobs[:max_jobs]:
+                job_url = normalize_job_url(job.url)
+                if not job_url:
+                    continue
+                if not job_url.startswith("http"):
+                    job_url = normalize_job_url(urljoin(url, job_url))
+                if job_url in seen_urls:
+                    continue
+                seen_urls.add(job_url)
+                if is_likely_listing_page(job_url) and not is_aggregator_listing_page(job_url):
+                    continue
+                normalized = job.model_copy(update={"url": job_url})
+                if is_invalid_job_title(normalized.title):
+                    continue
+                fp = job_fingerprint(normalized)
+                if fp in self._run_fingerprints:
+                    continue
+                existing = self._find_existing_job(job_url)
+                if existing is not None and self._is_scrape_fresh(existing):
+                    self._ensure_match(existing.id)
+                    result.duplicate_jobs.append(existing.id)
+                    self._run_fingerprints.add(fp)
+                    continue
+                persisted = self._persist_extracted(
+                    normalized,
+                    run_id=run_id,
+                    existing=existing,
+                )
+                self._run_fingerprints.add(fp)
+                result.created_jobs.append(persisted.id)
+                result.scrapes_fresh += 1
+                created_ids.append(str(persisted.id))
+                if self._file_log is not None:
+                    self._file_log.log(
+                        "job_created",
+                        url=job_url,
+                        job_id=str(persisted.id),
+                        title=persisted.title,
+                        company=normalized.company_name,
+                        content_source="aggregator_listing",
+                        listing_page=url,
+                    )
+
+            if not created_ids and not extracted_jobs:
+                result.skipped_invalid += 1
+            self._complete_task(task, {"listing_url": url, "job_ids": created_ids})
+        except Exception as exc:
+            self._fail_task(task, str(exc))
+            result.errors.append(f"aggregator:{url}:{exc}")
+
+    def _fetch_scraped_page(self, url: str):
+        cached = self._ingest_scrape_cache.get(url)
+        if cached is not None:
+            return cached
+        try:
+            scraped = self._scraper.scrape_url(
+                ScrapeRequest(url=url, formats=["markdown", "html"])
+            )
+        except Exception as exc:
+            logger.debug("SCRAPER_FETCH_FAILED url=%s error=%s", url, exc)
+            return None
+        self._ingest_scrape_cache[url] = scraped
+        return scraped
+
+    def _structured_from_scraper_fetch(
+        self,
+        url: str,
+        run_id: uuid.UUID,
+    ) -> StructuredJobPosting | None:
+        """Scrapling-first fetch (via discovery scraper chain) + JSON-LD when present."""
+        _ = run_id
+        scraped = self._fetch_scraped_page(url)
+        if scraped is None:
+            return None
+        html = getattr(scraped, "html", None) or ""
+        if not html:
+            return None
+        from packages.domain.job_ingest.json_ld import extract_job_posting_json_ld
+
+        json_posting = extract_job_posting_json_ld(html, url=url)
+        if json_posting is not None:
+            return normalize_job_posting(json_posting)
+        return None
+
     def _try_structured_scrape(
         self,
         url: str,
         run_id: uuid.UUID,
     ) -> StructuredJobPosting | None:
-        """ATS API → Playwright boards; Firecrawl for one-offs only."""
+        """ATS API → Scrapling fetch → Playwright backup → Firecrawl structured."""
         from packages.domain.job_ingest.ats_extractors import extract_from_ats_url
 
         context = ProviderUsageContext(user_id=self._user_id, workflow_run_id=run_id)
@@ -931,11 +1097,15 @@ class JobDiscoveryService:
             )
             return normalize_job_posting(ats_posting)
 
+        scrapling_posting = self._structured_from_scraper_fetch(url, run_id)
+        if scrapling_posting is not None:
+            return scrapling_posting
+
         if self._playwright_jobs is not None and (
             self._playwright_jobs.can_handle(url) or is_known_job_board(url)
         ):
             try:
-                result = call_with_usage_log(
+                pw_result = call_with_usage_log(
                     self._usage,
                     context=context,
                     provider=self._playwright_jobs.metadata.name,
@@ -943,11 +1113,10 @@ class JobDiscoveryService:
                     fn=lambda: self._playwright_jobs.scrape_job(url),
                     usage_from_result=lambda r: r.usage,
                 )
-                return normalize_job_posting(result.posting)
+                return normalize_job_posting(pw_result.posting)
             except Exception as exc:
                 logger.warning("PLAYWRIGHT_JOBS_FAILED url=%s error=%s", url, exc)
                 if is_known_job_board(url):
-                    # Known boards must not fall through to Firecrawl.
                     return None
 
         if is_known_job_board(url):
@@ -987,9 +1156,13 @@ class JobDiscoveryService:
         scrape_provider = self._scraper.metadata.name
         try:
             logger.info("FETCH scrape provider=%s url=%s", scrape_provider, url)
-            scraped = self._scraper.scrape_url(
-                ScrapeRequest(url=url, formats=["markdown", "html"])
-            )
+            scraped = self._fetch_scraped_page(url)
+            if scraped is None:
+                raise ProviderError(
+                    "scrape failed",
+                    provider=scrape_provider,
+                    operation="scrape_url",
+                )
             markdown = scraped.markdown or scraped.title or ""
             logger.info(
                 "RECEIVED scrape provider=%s url=%s title=%r chars=%d",

@@ -70,7 +70,7 @@ def test_discover_jobs_task_runs_with_mocks(worker_user, monkeypatch) -> None:
         ),
     )
     monkeypatch.setattr(
-        "workers.discovery.tasks.create_scraper_provider",
+        "workers.discovery.tasks.create_discovery_scraper_provider",
         lambda settings=None: MockScraperProvider(
             pages=[ScrapedPage(url=url, title="Worker", markdown="# Worker job")]
         ),

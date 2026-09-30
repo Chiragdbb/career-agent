@@ -183,6 +183,7 @@ class FirecrawlScraperProvider(ScraperProvider):
             )
         # Never leak raw HTML into the returned payload.
         cleaned = {k: v for k, v in extracted.items() if k != "html" and k != "rawHtml"}
+        cleaned = _sanitize_structured_extract(cleaned)
         cleaned.setdefault("source", "firecrawl")
         cleaned.setdefault("application_url", str(url))
         cleaned.setdefault("scraped_at", time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
@@ -256,6 +257,20 @@ def _normalize_page(raw: dict[str, Any], *, fallback_url: str) -> ScrapedPage:
         links=[str(link) for link in links],
         metadata=metadata,
     )
+
+
+def _sanitize_structured_extract(data: dict[str, Any]) -> dict[str, Any]:
+    """Coerce LLM/Firecrawl sentinel strings before Pydantic validation."""
+    out = dict(data)
+    for key in ("posted_at", "seniority", "salary_currency", "company_domain", "remote_type"):
+        val = out.get(key)
+        if isinstance(val, str) and val.strip().lower() in ("null", "none", "n/a", ""):
+            out[key] = None
+    for key in ("salary_min", "salary_max"):
+        val = out.get(key)
+        if isinstance(val, str) and val.strip().lower() in ("null", "none", ""):
+            out[key] = None
+    return out
 
 
 def _job_posting_extract_schema() -> dict[str, Any]:

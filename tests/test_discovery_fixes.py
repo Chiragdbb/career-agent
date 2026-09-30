@@ -9,7 +9,13 @@ from pathlib import Path
 import pytest
 
 from packages.domain.discovery_logger import discovery_log_enabled
-from packages.domain.job_urls import is_likely_listing_page
+from packages.domain.job_posting import StructuredJobPosting
+from packages.domain.job_urls import (
+    is_aggregator_listing_page,
+    is_invalid_job_title,
+    is_likely_listing_page,
+)
+from packages.providers.firecrawl_scraper import _sanitize_structured_extract
 from packages.providers.groq_models import DEFAULT_GROQ_MODEL, normalize_groq_model
 from packages.providers.scraper import MockScraperProvider, ScrapeRequest, ScrapedPage
 from packages.providers.scraper_fallback import FallbackScraperProvider
@@ -41,6 +47,55 @@ def test_is_likely_listing_page_allows_job_posting() -> None:
         )
         is False
     )
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://www.linkedin.com/jobs/remote-front-end-developer-jobs-worldwide",
+        "https://in.linkedin.com/jobs/frontend-developer-jobs-bengaluru",
+        "https://www.naukri.com/full-stack-developer-jobs-in-bangalore",
+        "https://www.ziprecruiter.com/jobs-search?search=developer",
+    ],
+)
+def test_is_likely_listing_page_detects_board_aggregates(url: str) -> None:
+    assert is_likely_listing_page(url) is True
+    assert is_aggregator_listing_page(url) is True
+
+
+def test_non_aggregator_listing_not_treated_as_aggregator() -> None:
+    url = "https://builtin.com/jobs/as/india/bangalore/dev-engineering/search/web-developer"
+    assert is_likely_listing_page(url) is True
+    assert is_aggregator_listing_page(url) is False
+
+
+def test_is_invalid_job_title() -> None:
+    assert is_invalid_job_title("Page not found") is True
+    assert is_invalid_job_title("Senior Frontend Engineer") is False
+
+
+def test_posted_at_null_string_coerced() -> None:
+    posting = StructuredJobPosting.model_validate(
+        {
+            "external_job_id": "1",
+            "source": "firecrawl",
+            "company_name": "Acme",
+            "title": "Engineer",
+            "description": "Build things.",
+            "application_url": "https://example.com/j/1",
+            "posted_at": "null",
+            "scraped_at": "2026-01-01T00:00:00Z",
+        }
+    )
+    assert posting.posted_at is None
+
+
+def test_firecrawl_sanitize_structured_extract() -> None:
+    cleaned = _sanitize_structured_extract(
+        {"posted_at": "null", "salary_min": "null", "title": "Dev"}
+    )
+    assert cleaned["posted_at"] is None
+    assert cleaned["salary_min"] is None
 
 
 def test_fallback_scraper_tries_next_provider() -> None:
