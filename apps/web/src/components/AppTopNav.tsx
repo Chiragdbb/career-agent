@@ -15,12 +15,18 @@ import {
   CircleUser,
   Loader2,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 
 import { CommandPalette } from "@/components/CommandPalette";
+import { NavLink } from "@/components/NavLink";
 import { NotificationBell } from "@/components/NotificationBell";
 import { TrailMark } from "@/components/ui/Illustrations";
-import { apiFetch } from "@/lib/api";
+import { isDraftedOutreachStatus } from "@/lib/outreach";
+import {
+  approvalsOutreachQueryOptions,
+  approvalsTasksQueryOptions,
+} from "@/lib/queries/options";
 import { cn } from "@/lib/cn";
 import { createClient } from "@/lib/supabase/client";
 
@@ -96,46 +102,29 @@ export function AppTopNav({ active, approvalCount }: AppTopNavProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [cmdOpen, setCmdOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [badgeCount, setBadgeCount] = useState(approvalCount ?? 0);
+  const outreachQuery = useQuery({
+    ...approvalsOutreachQueryOptions(),
+    enabled: approvalCount == null,
+  });
+  const tasksQuery = useQuery({
+    ...approvalsTasksQueryOptions(),
+    enabled: approvalCount == null,
+  });
+
+  const badgeCount = useMemo(() => {
+    if (approvalCount != null) return approvalCount;
+    const outreach = outreachQuery.data ?? [];
+    const tasks = tasksQuery.data ?? [];
+    const draftOutreach = outreach.filter((o) =>
+      isDraftedOutreachStatus(o.status),
+    ).length;
+    return draftOutreach + tasks.length;
+  }, [approvalCount, outreachQuery.data, tasksQuery.data]);
 
   useEffect(() => {
     setMobileOpen(false);
     setMenuOpen(false);
   }, [pathname]);
-
-  useEffect(() => {
-    if (approvalCount != null) {
-      setBadgeCount(approvalCount);
-      return;
-    }
-    let cancelled = false;
-    (async () => {
-      try {
-        const [outreachRes, tasksRes] = await Promise.all([
-          apiFetch("/api/v1/outreach"),
-          apiFetch("/api/v1/human-tasks?status=open"),
-        ]);
-        let count = 0;
-        if (outreachRes.ok) {
-          const data = (await outreachRes.json()) as { status?: string }[];
-          count += (Array.isArray(data) ? data : []).filter((o) => {
-            const s = (o.status ?? "").toLowerCase();
-            return s.includes("draft") || s === "pending_approval";
-          }).length;
-        }
-        if (tasksRes.ok) {
-          const data = (await tasksRes.json()) as unknown[];
-          count += Array.isArray(data) ? data.length : 0;
-        }
-        if (!cancelled) setBadgeCount(count);
-      } catch {
-        /* ignore */
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [approvalCount, pathname]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -186,15 +175,13 @@ export function AppTopNav({ active, approvalCount }: AppTopNavProps) {
             {primaryNav.map((item) => {
               const isActive = current === item.key;
               return (
-                <Link
+                <NavLink
                   key={item.href}
                   href={item.href}
-                  className={cn(
-                    "relative rounded-full px-3 py-1.5 text-[13px] font-semibold transition-colors",
-                    isActive
-                      ? "bg-lavender text-lavender-deep"
-                      : "text-text-muted hover:bg-paper hover:text-ink",
-                  )}
+                  className="relative block rounded-full px-3 py-1.5 text-[13px] font-semibold transition-colors"
+                  active={isActive}
+                  activeClassName="bg-lavender text-lavender-deep"
+                  inactiveClassName="text-text-muted hover:bg-paper hover:text-ink"
                 >
                   {item.label}
                   {item.badge && badgeCount > 0 ? (
@@ -202,7 +189,7 @@ export function AppTopNav({ active, approvalCount }: AppTopNavProps) {
                       {badgeCount} to check
                     </span>
                   ) : null}
-                </Link>
+                </NavLink>
               );
             })}
           </nav>

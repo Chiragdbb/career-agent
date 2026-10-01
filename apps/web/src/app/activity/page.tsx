@@ -10,7 +10,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { HeroBand } from "@/components/ui/HeroBand";
 import { SoftBadge } from "@/components/ui/SoftBadge";
 import { ListSkeleton } from "@/components/ui/Skeleton";
-import { useEventStream } from "@/lib/useEventStream";
+import { useStreamEvent } from "@/providers/EventStreamProvider";
 import { cn } from "@/lib/cn";
 import {
   ActivityRun,
@@ -172,11 +172,9 @@ export default function ActivityPage() {
     void load().finally(() => setLoading(false));
   }, [load]);
 
-  useEventStream({
-    onEvent: (event) => {
-      if (event.type === "heartbeat") return;
-      void load();
-    },
+  useStreamEvent((event) => {
+    if (event.type === "heartbeat") return;
+    void load();
   });
 
   const activeRuns = useMemo(

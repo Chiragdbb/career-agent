@@ -3,6 +3,8 @@ import { Fraunces, Plus_Jakarta_Sans } from "next/font/google";
 import { Suspense } from "react";
 import "./globals.css";
 
+import { RouteChrome } from "@/components/RouteChrome";
+
 const plusJakarta = Plus_Jakarta_Sans({
   subsets: ["latin"],
   weight: ["400", "500", "600", "700"],
@@ -40,7 +42,9 @@ export default function RootLayout({
       suppressHydrationWarning
     >
       <body className="min-h-screen bg-paper font-sans text-foreground antialiased">
-        <Suspense fallback={null}>{children}</Suspense>
+        <Suspense fallback={null}>
+          <RouteChrome>{children}</RouteChrome>
+        </Suspense>
       </body>
     </html>
   );

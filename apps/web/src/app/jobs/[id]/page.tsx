@@ -26,7 +26,7 @@ import { ScoreRing } from "@/components/ui/ScoreRing";
 import { apiFetch } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { createClient } from "@/lib/supabase/client";
-import { useEventStream } from "@/lib/useEventStream";
+import { useStreamEvent } from "@/providers/EventStreamProvider";
 import {
   cancelWorkflowRun,
   fetchWorkflowRun,
@@ -176,39 +176,37 @@ function RescrapeProgress({
     }
   }, [runId, appendLog, onFinished]);
 
-  useEventStream({
-    onEvent: (event) => {
-      if (event.type === "heartbeat") return;
-      const payload = event.payload;
-      if (payload?.workflow_run_id !== runId) return;
+  useStreamEvent((event) => {
+    if (event.type === "heartbeat") return;
+    const payload = event.payload;
+    if (payload?.workflow_run_id !== runId) return;
 
-      if (event.type === "workflow_cancelled") {
-        appendLog({
-          id: `evt-cancelled-${runId}`,
-          message: "Re-scrape cancelled",
-          phase: "error",
-        });
-      }
-      if (event.type === "workflow_progress" && payload.message) {
-        const data = (payload.data as Record<string, unknown>) || {};
-        const phase =
-          (payload.phase as LogEntry["phase"]) ||
-          (data.phase as LogEntry["phase"]) ||
-          "thinking";
-        const detailParts: string[] = [];
-        if (data.url) detailParts.push(`url: ${String(data.url)}`);
-        if (data.title) detailParts.push(`title: ${String(data.title)}`);
-        if (data.chars != null) detailParts.push(`chars: ${String(data.chars)}`);
-        if (data.error) detailParts.push(`error: ${String(data.error)}`);
-        appendLog({
-          id: `evt-${payload.step}-${payload.message}-${phase}`,
-          message: String(payload.message),
-          phase,
-          detail: detailParts.length ? detailParts.join(" · ") : null,
-        });
-      }
-      void refresh();
-    },
+    if (event.type === "workflow_cancelled") {
+      appendLog({
+        id: `evt-cancelled-${runId}`,
+        message: "Re-scrape cancelled",
+        phase: "error",
+      });
+    }
+    if (event.type === "workflow_progress" && payload.message) {
+      const data = (payload.data as Record<string, unknown>) || {};
+      const phase =
+        (payload.phase as LogEntry["phase"]) ||
+        (data.phase as LogEntry["phase"]) ||
+        "thinking";
+      const detailParts: string[] = [];
+      if (data.url) detailParts.push(`url: ${String(data.url)}`);
+      if (data.title) detailParts.push(`title: ${String(data.title)}`);
+      if (data.chars != null) detailParts.push(`chars: ${String(data.chars)}`);
+      if (data.error) detailParts.push(`error: ${String(data.error)}`);
+      appendLog({
+        id: `evt-${payload.step}-${payload.message}-${phase}`,
+        message: String(payload.message),
+        phase,
+        detail: detailParts.length ? detailParts.join(" · ") : null,
+      });
+    }
+    void refresh();
   });
 
   useEffect(() => {
