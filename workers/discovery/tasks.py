@@ -226,7 +226,9 @@ def _run_rescrape(
             sender = create_email_sender_provider()
         except Exception:
             sender = MockEmailSenderProvider()
-        notifications = NotificationService(session, user_id, email_sender=sender)
+        notifications = NotificationService(
+            session, user_id, email_sender=sender, events=events
+        )
         service = JobRescrapeService(
             session,
             user_id,
@@ -242,7 +244,16 @@ def _run_rescrape(
         )
         job = service.rescrape(match_id)
         resume_skills = load_resume_skills(session, user_id)
-        JobMatchService(session, user_id).upsert_match(job.id, resume_skills=resume_skills)
+        embedding = None
+        try:
+            from packages.providers.factory import create_embedding_provider
+
+            embedding = create_embedding_provider(settings)
+        except Exception:
+            embedding = None
+        JobMatchService(session, user_id, embedding=embedding).upsert_match(
+            job.id, resume_skills=resume_skills
+        )
         return {
             "workflow_run_id": str(workflow_run_id),
             "match_id": str(match_id),

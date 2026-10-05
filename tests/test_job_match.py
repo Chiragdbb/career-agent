@@ -211,6 +211,83 @@ def test_scores_use_job_columns_when_details_sparse(match_ctx) -> None:
     assert breakdown.skills > 0.5
 
 
+def test_empty_preferences_use_resume_fallback_and_diverge(match_ctx) -> None:
+    session, user, company = match_ctx
+    from database.models.schema import Resume, ResumeVersion, UserProfile
+    from database.models.enums import ResumeStatus, ResumeVersionStatus, UserProfileStatus
+
+    profile = UserProfile(
+        id=uuid.uuid4(),
+        user_id=user.id,
+        status=UserProfileStatus.active,
+        headline="Senior Backend Engineer",
+        location="Berlin",
+    )
+    resume = Resume(
+        id=uuid.uuid4(),
+        user_id=user.id,
+        status=ResumeStatus.active,
+        name="Primary",
+    )
+    version = ResumeVersion(
+        id=uuid.uuid4(),
+        resume_id=resume.id,
+        user_id=user.id,
+        status=ResumeVersionStatus.finalized,
+        plain_text="Senior Backend Engineer Python PostgreSQL FastAPI",
+        sections={
+            "skills": ["Python", "PostgreSQL", "FastAPI"],
+            "experience": [{"title": "Backend Engineer", "company": "Acme", "bullets": []}],
+            "parser_version": "test",
+        },
+    )
+    session.add_all([profile, resume, version])
+    good = _job(
+        company.id,
+        title="Backend Engineer",
+        location="Berlin",
+        work_arrangement="remote",
+        skills=["python", "postgresql", "fastapi"],
+        seniority="senior",
+        company_name="Acme",
+    )
+    bad = _job(
+        company.id,
+        title="Dental Hygienist",
+        location="Tokyo",
+        work_arrangement="on_site",
+        skills=["dentistry"],
+        seniority="entry",
+        company_name="Clinic",
+    )
+    session.add_all([good, bad])
+    session.commit()
+
+    empty = PreferenceSettings()
+    service = JobMatchService(session, user.id)
+    good_score = service.score_job(
+        good,
+        empty,
+        company_name="Acme",
+        resume_skills=["Python", "PostgreSQL", "FastAPI"],
+        profile=profile,
+        resume_version=version,
+    )
+    bad_score = service.score_job(
+        bad,
+        empty,
+        company_name="Clinic",
+        resume_skills=["Python", "PostgreSQL", "FastAPI"],
+        profile=profile,
+        resume_version=version,
+    )
+    assert "preferences_incomplete" in good_score.notes
+    assert good_score.total != pytest.approx(0.5, abs=0.01) or bad_score.total != pytest.approx(
+        0.5, abs=0.01
+    )
+    assert good_score.total > bad_score.total
+
+
 def test_upsert_persists_score(match_ctx) -> None:
     session, user, company = match_ctx
     job = _job(

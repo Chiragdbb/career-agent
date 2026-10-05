@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import logging
 from uuid import UUID
 
-from fastapi import APIRouter
+from fastapi import APIRouter, BackgroundTasks
 
 from app.dependencies import (
     CurrentUserIdDep,
@@ -32,7 +33,52 @@ from packages.domain.exceptions import DomainError
 from database.models.enums import JobMatchStatus
 from packages.providers.notification import MockNotificationProvider
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/jobs", tags=["jobs"])
+
+
+def _run_career_pipeline_background(
+    user_id: UUID,
+    match_id: UUID,
+    *,
+    force: bool,
+) -> None:
+    """Execute a prepared career pipeline outside the HTTP request."""
+    from app.database import get_session_factory, init_db
+    from app.redis import get_redis
+    from packages.domain.career_workflow_factory import build_career_workflow_service
+    from packages.domain.workflow_cancellation import WorkflowCancellation
+    from packages.providers.notification import MockNotificationProvider
+
+    init_db()
+    session = get_session_factory()()
+    try:
+        try:
+            redis_client = get_redis()
+        except Exception:
+            redis_client = None
+        cancellation = WorkflowCancellation(redis_client)
+        service = build_career_workflow_service(
+            session,
+            user_id,
+            notifications=MockNotificationProvider(),
+            cancellation=cancellation,
+        )
+        service.start_or_resume(
+            CareerWorkflowStart(
+                job_match_id=match_id,
+                permit_submit=False,
+                force=force,
+                execute=True,
+            )
+        )
+    except Exception:
+        logger.exception(
+            "background career pipeline failed user=%s match=%s", user_id, match_id
+        )
+    finally:
+        session.close()
 
 
 def _listing(session: DbSessionDep, user_id: CurrentUserIdDep) -> JobListingService:
@@ -57,6 +103,8 @@ def _to_summary(row) -> JobMatchSummaryResponse:
 
 
 def _to_detail(row) -> JobMatchDetailResponse:
+    from packages.domain.job_ingest.text_sanitize import strip_html_to_text
+
     breakdown = None
     if row.score_breakdown is not None:
         breakdown = ScoreBreakdownResponse(
@@ -69,6 +117,11 @@ def _to_detail(row) -> JobMatchDetailResponse:
             seniority=row.score_breakdown.seniority,
             notes=list(row.score_breakdown.notes),
         )
+    raw_desc = row.description
+    description = strip_html_to_text(raw_desc) if isinstance(raw_desc, str) else raw_desc
+    requirements = [
+        strip_html_to_text(str(r)) for r in (row.requirements or []) if r
+    ]
     return JobMatchDetailResponse(
         id=row.id,
         job_id=row.job_id,
@@ -79,7 +132,7 @@ def _to_detail(row) -> JobMatchDetailResponse:
         location=row.location,
         work_arrangement=row.work_arrangement,
         url=row.url,
-        description=row.description,
+        description=description,
         job_skills=row.job_skills,
         matched_skills=row.matched_skills,
         possible_matches=row.possible_matches,
@@ -96,7 +149,7 @@ def _to_detail(row) -> JobMatchDetailResponse:
         salary_min=row.salary_min,
         salary_max=row.salary_max,
         salary_currency=row.salary_currency,
-        requirements=row.requirements or [],
+        requirements=requirements,
         posted_at=row.posted_at,
         last_scraped_at=row.last_scraped_at,
         scraped_at=row.scraped_at,
@@ -177,7 +230,12 @@ def batch_job_actions(
     session: DbSessionDep,
     user_id: CurrentUserIdDep,
     events: EventPublisherDep,
+    redis_client: RedisDep,
+    background_tasks: BackgroundTasks,
 ) -> dict:
+    from database.models.schema import JobMatch
+    from packages.domain.workflow_cancellation import WorkflowCancellation
+
     service = _listing(session, user_id)
     if body.action == "save":
         updated = service.bulk_update_status(body.match_ids, JobMatchStatus.saved)
@@ -186,29 +244,83 @@ def batch_job_actions(
         updated = service.bulk_update_status(body.match_ids, JobMatchStatus.dismissed)
         return {"action": body.action, "updated": len(updated), "matches": [_to_summary(r) for r in updated]}
     if body.action == "start_pipeline":
-        workflow = build_career_workflow_service(
-            session,
-            user_id,
-            events=events,
-            notifications=MockNotificationProvider(),
-        )
+        cancellation = WorkflowCancellation(redis_client)
         results = []
         already_running: list[dict] = []
         errors: list[dict] = []
         for match_id in body.match_ids:
             try:
-                result = workflow.start_or_resume(
+                match = (
+                    session.query(JobMatch)
+                    .filter(JobMatch.id == match_id, JobMatch.user_id == user_id)
+                    .one_or_none()
+                )
+                if match is None:
+                    errors.append({"match_id": str(match_id), "error": "Job match not found"})
+                    continue
+                if match.status == JobMatchStatus.applied and not body.force:
+                    errors.append(
+                        {
+                            "match_id": str(match_id),
+                            "error": (
+                                "Already applied — return this job to the pile "
+                                "before starting a new application."
+                            ),
+                        }
+                    )
+                    continue
+                workflow = build_career_workflow_service(
+                    session,
+                    user_id,
+                    events=events,
+                    notifications=MockNotificationProvider(),
+                    cancellation=cancellation,
+                )
+                queued = workflow.start_or_resume(
                     CareerWorkflowStart(
                         job_match_id=match_id,
                         permit_submit=False,
                         force=body.force,
+                        execute=False,
                     )
                 )
-                dumped = result.model_dump(mode="json")
-                if result.already_running:
+                dumped = queued.model_dump(mode="json")
+                if queued.already_running or queued.paused:
                     already_running.append(dumped)
-                else:
-                    results.append(dumped)
+                    continue
+                enqueued = False
+                try:
+                    from workers.applications.tasks import run_career_workflow
+
+                    async_result = run_career_workflow.delay(
+                        str(user_id),
+                        str(match_id),
+                        False,
+                        bool(body.force),
+                    )
+                    from database.models.schema import WorkflowRun
+
+                    run_row = session.get(WorkflowRun, queued.workflow_run_id)
+                    if run_row is not None:
+                        meta = dict(run_row.metadata_json or {})
+                        meta["task_id"] = str(async_result.id)
+                        run_row.metadata_json = meta
+                        session.commit()
+                        dumped["task_id"] = str(async_result.id)
+                    enqueued = True
+                except Exception:
+                    logger.info(
+                        "celery enqueue unavailable; using BackgroundTasks match=%s",
+                        match_id,
+                    )
+                if not enqueued:
+                    background_tasks.add_task(
+                        _run_career_pipeline_background,
+                        user_id,
+                        match_id,
+                        force=bool(body.force),
+                    )
+                results.append(dumped)
             except DomainError as exc:
                 errors.append({"match_id": str(match_id), "error": str(exc)})
             except Exception as exc:  # noqa: BLE001

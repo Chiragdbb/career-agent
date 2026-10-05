@@ -231,14 +231,22 @@ class JobListingService:
         match, job, company = row
         resume_skills = load_resume_skills(self._session, self._user_id)
         prefs = PreferencesService(self._session, self._user_id).get_settings()
-        breakdown = JobMatchService(self._session, self._user_id).score_job(
+        embedding = None
+        try:
+            from packages.providers.factory import ProviderSettings, create_embedding_provider
+
+            embedding = create_embedding_provider(ProviderSettings.from_env())
+        except Exception:
+            embedding = None
+        matcher = JobMatchService(self._session, self._user_id, embedding=embedding)
+        breakdown = matcher.score_job(
             job,
             prefs,
             company_name=company.name if company else None,
             resume_skills=resume_skills,
         )
         job_skills = _job_skills(job)
-        live = SkillMatchService().align(job_skills, resume_skills)
+        live = SkillMatchService(embedding).align(job_skills, resume_skills)
         matched = live.matched
         possible = live.possible
         missing = live.missing
@@ -261,7 +269,14 @@ class JobListingService:
         if match is None:
             raise NotFoundError("Job not found")
         resume_skills = load_resume_skills(self._session, self._user_id)
-        JobMatchService(self._session, self._user_id).upsert_match(
+        embedding = None
+        try:
+            from packages.providers.factory import ProviderSettings, create_embedding_provider
+
+            embedding = create_embedding_provider(ProviderSettings.from_env())
+        except Exception:
+            embedding = None
+        JobMatchService(self._session, self._user_id, embedding=embedding).upsert_match(
             match.job_id,
             resume_skills=resume_skills,
         )

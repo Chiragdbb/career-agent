@@ -21,12 +21,12 @@ from packages.domain.notifications import (
 _BASELINE_MS = {
     "job_discovery": 180_000,
     "job_rescrape": 90_000,
-    "career_job_pipeline": 120_000,
+    "career_job_pipeline": 240_000,
 }
 _PER_UNIT_MS = {
     "job_discovery": 25_000,
     "job_rescrape": 60_000,
-    "career_job_pipeline": 8_000,
+    "career_job_pipeline": 25_000,
 }
 
 
@@ -102,16 +102,31 @@ class WorkflowProgressService:
         # single progress bar never restarts from zero for later steps.
         meta["completed_units"] = prior_completed
         meta["estimated_duration_ms"] = est
-        meta["eta_deadline_at"] = (now + timedelta(milliseconds=est)).isoformat()
+        started_raw = meta.get("pipeline_started_at")
+        if not started_raw:
+            meta["pipeline_started_at"] = now.isoformat()
+            started_at = now
+        else:
+            try:
+                started_at = datetime.fromisoformat(str(started_raw).replace("Z", "+00:00"))
+            except ValueError:
+                started_at = now
+                meta["pipeline_started_at"] = now.isoformat()
+        # Wall-clock deadline from original start — do not restart the timer on resume.
+        meta["eta_deadline_at"] = (started_at + timedelta(milliseconds=est)).isoformat()
         if prior_completed > 0 and planned_units > 0:
             ratio = min(1.0, prior_completed / planned_units)
             meta["progress_ratio"] = max(prior_ratio, ratio)
-            meta["eta_remaining_ms"] = max(0, int((1.0 - meta["progress_ratio"]) * est))
         else:
             meta["progress_ratio"] = prior_ratio if prior_ratio > 0 else 0.0
-            meta["eta_remaining_ms"] = max(
-                0, int((1.0 - float(meta["progress_ratio"])) * est)
-            )
+        remaining = int(
+            (
+                datetime.fromisoformat(str(meta["eta_deadline_at"]).replace("Z", "+00:00"))
+                - now
+            ).total_seconds()
+            * 1000
+        )
+        meta["eta_remaining_ms"] = max(0, remaining)
         run.metadata_json = meta
         self._session.flush()
 
@@ -140,7 +155,24 @@ class WorkflowProgressService:
             ratio = min(1.0, completed / planned)
             meta["progress_ratio"] = max(prior_ratio, ratio)
             est = int(meta.get("estimated_duration_ms") or 0)
-            meta["eta_remaining_ms"] = max(0, int((1.0 - meta["progress_ratio"]) * est))
+            deadline_raw = meta.get("eta_deadline_at")
+            if deadline_raw:
+                try:
+                    deadline = datetime.fromisoformat(
+                        str(deadline_raw).replace("Z", "+00:00")
+                    )
+                    remaining = int(
+                        (deadline - datetime.now(timezone.utc)).total_seconds() * 1000
+                    )
+                    meta["eta_remaining_ms"] = max(0, remaining)
+                except ValueError:
+                    meta["eta_remaining_ms"] = max(
+                        0, int((1.0 - meta["progress_ratio"]) * est)
+                    )
+            else:
+                meta["eta_remaining_ms"] = max(
+                    0, int((1.0 - meta["progress_ratio"]) * est)
+                )
         meta["current_step"] = step
         meta["status_message"] = message
         run.metadata_json = meta

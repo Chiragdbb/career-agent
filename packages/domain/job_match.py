@@ -25,7 +25,7 @@ from packages.domain.skill_match import SkillMatchService
 from packages.providers.embedding import EmbeddingProvider
 
 # Versioned hybrid algorithm: deterministic core + optional semantic blend.
-SCORING_ALGORITHM_VERSION = "v2.0-hybrid-semantic"
+SCORING_ALGORITHM_VERSION = "v2.1-resume-fallback"
 SEMANTIC_BLEND_WEIGHT = 0.15
 
 _NOTE_LABELS: dict[str, str] = {
@@ -39,6 +39,8 @@ _NOTE_LABELS: dict[str, str] = {
     "salary_currency_mismatch": "Salary currency does not match your preference",
     "currency_mismatch": "Salary currency does not match your preference",
     "missing_salary": "Job salary not specified",
+    "preferences_incomplete": "Preferences incomplete — score estimated from your resume",
+    "using_resume_fallback": "Using resume signals where preferences are empty",
 }
 
 
@@ -137,30 +139,74 @@ class JobMatchService:
         seniority = str(details.get("seniority") or job.seniority or "").lower()
         job_skills = _job_skills(job, details)
         salary_ceiling = _job_salary_ceiling(job, details)
+        resume_skills = resume_skills or []
+        resume_signals = _resume_signals(profile, resume_version)
 
         notes: list[str] = []
+        prefs_complete = preferences.has_scoring_signal
+        if not prefs_complete:
+            notes.append("preferences_incomplete")
+            notes.append("using_resume_fallback")
 
-        role_score = _role_score(title, preferences.target_roles)
-        location_score = _location_score(location, work, preferences.locations)
-        arrangement_score = _arrangement_score(work, preferences.work_arrangements)
+        # Role: preferences first; resume titles/headline as fallback.
+        if preferences.target_roles:
+            role_score: float | None = _role_score(title, preferences.target_roles)
+        elif resume_signals.titles:
+            role_score = _role_score(title, resume_signals.titles)
+            notes.append("using_resume_fallback")
+        else:
+            role_score = None
+
+        if preferences.locations:
+            location_score: float | None = _location_score(
+                location, work, preferences.locations
+            )
+        elif resume_signals.location:
+            location_score = _location_score(
+                location, work, [resume_signals.location]
+            )
+        else:
+            location_score = None
+
+        if preferences.work_arrangements:
+            arrangement_score: float | None = _arrangement_score(
+                work, preferences.work_arrangements
+            )
+        else:
+            arrangement_score = None
+
         job_currency = details.get("currency") or job.salary_currency
-        salary_score = _salary_score(
-            salary_ceiling,
-            preferences.minimum_salary,
-            str(job_currency) if job_currency is not None else None,
-            preferences.salary_currency,
-            notes,
-        )
-        skill_alignment = self._skill_matcher.align(job_skills, resume_skills or [])
+        if preferences.minimum_salary is not None:
+            salary_score: float | None = _salary_score(
+                salary_ceiling,
+                preferences.minimum_salary,
+                str(job_currency) if job_currency is not None else None,
+                preferences.salary_currency,
+                notes,
+            )
+        else:
+            salary_score = None
+
+        skill_alignment = self._skill_matcher.align(job_skills, resume_skills)
         skills_score = self._skill_matcher.skills_score(
             skill_alignment,
             possible_weight=self._skill_possible_weight,
         )
         if not job_skills:
             notes.append("missing_skills")
+            # Empty job skills should not force a fake 0.5 when other signals exist.
+            skills_component: float | None = None if (resume_skills or prefs_complete) else 0.5
+        else:
+            skills_component = skills_score
         if not resume_skills:
             notes.append("no_resume_skills")
-        seniority_score = _seniority_score(seniority, preferences.seniority)
+
+        if preferences.seniority:
+            seniority_score: float | None = _seniority_score(
+                seniority, preferences.seniority
+            )
+        else:
+            seniority_score = None
 
         if not location and not work:
             notes.append("missing_location")
@@ -168,14 +214,36 @@ class JobMatchService:
             notes.append("missing_company")
 
         w = self._weights
-        deterministic = (
-            role_score * w.role
-            + location_score * w.location
-            + arrangement_score * w.work_arrangement
-            + salary_score * w.salary
-            + skills_score * w.skills
-            + seniority_score * w.seniority
-        )
+        components: list[tuple[float, float]] = []
+        if role_score is not None:
+            components.append((role_score, w.role))
+        if location_score is not None:
+            components.append((location_score, w.location))
+        if arrangement_score is not None:
+            components.append((arrangement_score, w.work_arrangement))
+        if salary_score is not None:
+            components.append((salary_score, w.salary))
+        if skills_component is not None:
+            # When prefs are incomplete, lean harder on skills + role.
+            skill_w = w.skills * (1.4 if not prefs_complete else 1.0)
+            components.append((skills_component, skill_w))
+        if seniority_score is not None:
+            components.append((seniority_score, w.seniority))
+
+        if not components:
+            deterministic = 0.0
+            notes.append("preferences_incomplete")
+        else:
+            weight_sum = sum(wt for _, wt in components) or 1.0
+            deterministic = sum(score * wt for score, wt in components) / weight_sum
+
+        # Display fields keep 0.0 when excluded so breakdown stays complete.
+        role_out = role_score if role_score is not None else 0.0
+        location_out = location_score if location_score is not None else 0.0
+        arrangement_out = arrangement_score if arrangement_score is not None else 0.0
+        salary_out = salary_score if salary_score is not None else 0.0
+        skills_out = skills_component if skills_component is not None else skills_score
+        seniority_out = seniority_score if seniority_score is not None else 0.0
 
         semantic = 0.5
         blend = 0.0
@@ -193,19 +261,27 @@ class JobMatchService:
         else:
             notes.append("semantic_disabled")
 
+        # Deduplicate notes while preserving order.
+        seen_notes: set[str] = set()
+        unique_notes: list[str] = []
+        for n in notes:
+            if n not in seen_notes:
+                seen_notes.add(n)
+                unique_notes.append(n)
+
         total = deterministic * (1.0 - blend) + semantic * blend
         return ScoreBreakdown(
             total=round(total, 4),
-            role=role_score,
-            location=location_score,
-            work_arrangement=arrangement_score,
-            salary=salary_score,
-            skills=skills_score,
-            seniority=seniority_score,
+            role=role_out,
+            location=location_out,
+            work_arrangement=arrangement_out,
+            salary=salary_out,
+            skills=skills_out,
+            seniority=seniority_out,
             semantic=round(semantic, 4),
             deterministic_total=round(deterministic, 4),
             algorithm_version=SCORING_ALGORITHM_VERSION,
-            notes=tuple(notes),
+            notes=tuple(unique_notes),
         )
 
     def upsert_match(
@@ -231,6 +307,11 @@ class JobMatchService:
             .order_by(ResumeVersion.created_at.desc())
             .first()
         )
+        resume_skills = resume_skills
+        if resume_skills is None:
+            from packages.domain.jobs import load_resume_skills
+
+            resume_skills = load_resume_skills(self._session, self._user_id)
         breakdown = self.score_job(
             job,
             prefs,
@@ -287,6 +368,51 @@ class JobMatchService:
 
 def _job_location(job: Job, details: dict) -> str:
     return str(details.get("location") or "").lower()
+
+
+@dataclass(frozen=True)
+class _ResumeSignals:
+    titles: list[str]
+    location: str | None
+
+
+def _resume_signals(
+    profile: UserProfile | None,
+    resume_version: ResumeVersion | None,
+) -> _ResumeSignals:
+    titles: list[str] = []
+    seen: set[str] = set()
+    location: str | None = None
+
+    def _add_title(value: str | None) -> None:
+        cleaned = (value or "").strip()
+        if not cleaned:
+            return
+        key = cleaned.lower()
+        if key in seen:
+            return
+        seen.add(key)
+        titles.append(cleaned)
+
+    if profile is not None:
+        _add_title(profile.headline)
+        if profile.location:
+            location = profile.location.strip() or None
+
+    if resume_version is not None and isinstance(resume_version.sections, dict):
+        try:
+            from packages.domain.resume_models import StructuredResume
+
+            structured = StructuredResume.model_validate(resume_version.sections)
+        except Exception:
+            structured = None
+        if structured is not None:
+            if structured.contact and structured.contact.location and not location:
+                location = structured.contact.location.strip() or None
+            for exp in structured.experience:
+                _add_title(exp.title)
+
+    return _ResumeSignals(titles=titles, location=location)
 
 
 def _job_work_arrangement(job: Job, details: dict) -> str:

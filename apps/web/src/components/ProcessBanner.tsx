@@ -101,11 +101,14 @@ function ProcessBannerCard({
     (typeof meta.human_title === "string" && meta.human_title) ||
     (typeof meta.status_message === "string" && meta.status_message) ||
     formatWorkflowType(run.workflow_type);
-  const canCancel = isActiveWorkflow(run.status) && !needsUserAction(run);
+  const status = String(run.status || "").toLowerCase();
   const actionNeeded = needsUserAction(run);
+  // Keep Cancel while status is active/running, even if metadata wrongly
+  // flags needsUserAction without a real approval pause.
+  const canCancel = isActiveWorkflow(run.status);
   const finished =
     !isActiveWorkflow(run.status) &&
-    ["completed", "failed", "cancelled"].includes(String(run.status).toLowerCase());
+    ["completed", "failed", "cancelled"].includes(status);
   const href = runHref(run);
   const completed = Array.isArray(meta.completed_steps)
     ? (meta.completed_steps as string[])
@@ -148,7 +151,7 @@ function ProcessBannerCard({
             </p>
           ) : finished && appId ? (
             <p className="mt-1 text-sm text-ink">
-              Preparation finished. Continue in Approvals or open the application.
+              Preparation finished. Open the application for next steps.
             </p>
           ) : finished ? (
             <p className="mt-1 text-sm text-text-muted">
@@ -164,26 +167,18 @@ function ProcessBannerCard({
         <div className="flex shrink-0 flex-col items-end gap-2">
           {actionNeeded ? (
             <Link
-              href={href}
+              href={href.startsWith("/approvals") ? href : "/approvals"}
               className="inline-flex rounded-full bg-coral px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90"
             >
               Review &amp; approve
             </Link>
           ) : finished && appId ? (
-            <>
-              <Link
-                href={`/approvals?application=${appId}`}
-                className="inline-flex rounded-full bg-coral px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90"
-              >
-                Open approvals
-              </Link>
-              <Link
-                href={`/applications/${appId}`}
-                className="inline-flex rounded-full border border-line px-3 py-1.5 text-xs font-semibold text-ink hover:bg-paper"
-              >
-                View application
-              </Link>
-            </>
+            <Link
+              href={`/applications/${appId}`}
+              className="inline-flex rounded-full border border-line px-3 py-1.5 text-xs font-semibold text-ink hover:bg-paper"
+            >
+              View application
+            </Link>
           ) : (
             <Link
               href={href}
@@ -200,7 +195,7 @@ function ProcessBannerCard({
               className="rounded-full px-3 py-1.5 text-xs"
               onClick={() => void handleCancel()}
             >
-              {cancelling || run.status === "cancelling" ? "Cancelling…" : "Cancel"}
+              {cancelling || status === "cancelling" ? "Cancelling…" : "Cancel"}
             </Button>
           ) : null}
         </div>

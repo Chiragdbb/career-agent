@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from database.models.enums import HumanTaskStatus, NotificationStatus
 from database.models.schema import HumanTask, Notification, WorkflowRun
 from packages.domain.exceptions import DomainError, NotFoundError
+from packages.domain.events import UserEventPublisher, UserEventType
 from packages.providers.notification import (
     NotificationChannel,
     NotificationProvider,
@@ -72,10 +73,12 @@ class HumanTaskService:
         user_id: uuid.UUID,
         *,
         notifications: NotificationProvider | None = None,
+        events: UserEventPublisher | None = None,
     ) -> None:
         self._session = session
         self._user_id = user_id
         self._notifications = notifications
+        self._events = events
 
     def create(self, payload: HumanTaskCreate) -> HumanTaskView:
         task = HumanTask(
@@ -143,6 +146,29 @@ class HumanTaskService:
                 },
             )
             self._session.add(row)
+            if self._events is not None:
+                try:
+                    self._events.publish(
+                        self._user_id,
+                        UserEventType.notification_created,
+                        {
+                            "notification_id": str(row.id),
+                            "notification_type": "human_task",
+                            "title": title,
+                            "href": href,
+                        },
+                    )
+                    self._events.publish(
+                        self._user_id,
+                        UserEventType.human_task_created,
+                        {
+                            "human_task_id": str(task.id),
+                            "task_type": payload.task_type.value,
+                            "href": href,
+                        },
+                    )
+                except Exception:
+                    pass
 
         self._session.commit()
         self._session.refresh(task)

@@ -19,6 +19,7 @@ import { SoftBadge } from "@/components/ui/SoftBadge";
 import { Button, GhostButton, GoldButton } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { JobsListSkeleton } from "@/components/ui/Skeleton";
 import { useProcessActivity } from "@/hooks/useProcessActivity";
 import { apiFetch } from "@/lib/api";
 import { SegmentedTabs } from "@/components/ui/SegmentedTabs";
@@ -168,13 +169,21 @@ function JobsPageInner() {
 
   async function runBatchAction(action: "save" | "dismiss" | "start_pipeline") {
     if (selected.size === 0) return;
+    const matchIds =
+      action === "start_pipeline"
+        ? [...selected].filter((id) => {
+            const job = jobs.find((j) => j.id === id);
+            return job?.status !== "applied";
+          })
+        : [...selected];
+    if (matchIds.length === 0) return;
     setActing(true);
     setError(null);
     try {
       const response = await apiFetch("/api/v1/jobs/actions/batch", {
         method: "POST",
         body: JSON.stringify({
-          match_ids: [...selected],
+          match_ids: matchIds,
           action,
         }),
       });
@@ -193,9 +202,9 @@ function JobsPageInner() {
       const failCount = payload.errors?.length ?? 0;
       const already = payload.already_running ?? 0;
       if (action === "save") {
-        setMessage(`Saved ${payload.updated ?? selected.size} job(s).`);
+        setMessage(`Saved ${payload.updated ?? matchIds.length} job(s).`);
       } else if (action === "dismiss") {
-        setMessage(`Removed ${payload.updated ?? selected.size} job(s) from your list.`);
+        setMessage(`Removed ${payload.updated ?? matchIds.length} job(s) from your list.`);
       } else if (failCount > 0 && (payload.started ?? 0) === 0 && already === 0) {
         throw new Error(
           payload.errors?.[0]?.error ||
@@ -270,6 +279,23 @@ function JobsPageInner() {
     });
   }, [jobs, activeTab]);
 
+  const selectedStartableCount = useMemo(
+    () =>
+      [...selected].filter((id) => {
+        const job = jobs.find((j) => j.id === id);
+        return job != null && job.status !== "applied";
+      }).length,
+    [selected, jobs],
+  );
+
+  if (loading) {
+    return (
+      <AppShell active="jobs" wide>
+        <JobsListSkeleton />
+      </AppShell>
+    );
+  }
+
   return (
     <AppShell active="jobs" wide>
       <PageHeader
@@ -282,6 +308,14 @@ function JobsPageInner() {
           </GhostButton>
         }
       />
+
+      <p className="mb-4 text-sm text-text-muted">
+        Complete preferences for better match scores. Scores without preferences
+        are estimated from your resume.{" "}
+        <Link href="/preferences" className="font-medium text-coral hover:underline">
+          Open preferences
+        </Link>
+      </p>
 
       <ActionCard highlight className="mb-8">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -401,14 +435,16 @@ function JobsPageInner() {
             <Bookmark className="mr-1.5 h-3.5 w-3.5" />
             Save
           </Button>
-          <Button
-            disabled={acting}
-            className="!rounded-full px-3 py-1.5 text-xs"
-            onClick={() => void runBatchAction("start_pipeline")}
-          >
-            <Play className="mr-1.5 h-3.5 w-3.5" />
-            Start pipeline
-          </Button>
+          {selectedStartableCount > 0 ? (
+            <Button
+              disabled={acting}
+              className="!rounded-full px-3 py-1.5 text-xs"
+              onClick={() => void runBatchAction("start_pipeline")}
+            >
+              <Play className="mr-1.5 h-3.5 w-3.5" />
+              Start pipeline
+            </Button>
+          ) : null}
           <Button
             variant="secondary"
             disabled={acting}
@@ -421,9 +457,7 @@ function JobsPageInner() {
         </div>
       ) : null}
 
-      {loading ? (
-        <p className="py-8 text-sm text-text-muted">Loading…</p>
-      ) : filteredJobs.length === 0 ? (
+      {filteredJobs.length === 0 ? (
         <EmptyState
           icon={Briefcase}
           title="No opportunities yet"
@@ -437,6 +471,10 @@ function JobsPageInner() {
             const scorePct =
               job.score != null ? Math.round(job.score * 100) : null;
             const initial = (job.company_name || job.title || "?").charAt(0);
+            const isApplied = job.status === "applied";
+            const applicationHref = job.application_id
+              ? `/applications/${job.application_id}`
+              : "/applications";
             return (
               <li key={job.id}>
                 <ActionCard className="!rounded-2xl !p-5 shadow-card sm:!p-6">
@@ -503,18 +541,26 @@ function JobsPageInner() {
                       </div>
                     </div>
                     <div className="flex shrink-0 flex-wrap gap-2 sm:flex-col sm:items-stretch">
-                      <GoldButton
-                        disabled={acting}
-                        onClick={() => void singleAction(job.id, "start_pipeline")}
-                      >
-                        Start tailored pitch
-                      </GoldButton>
-                      <GhostButton
-                        disabled={acting}
-                        onClick={() => void singleAction(job.id, "save")}
-                      >
-                        Save for later
-                      </GhostButton>
+                      {isApplied ? (
+                        <GoldButton onClick={() => router.push(applicationHref)}>
+                          View application
+                        </GoldButton>
+                      ) : (
+                        <GoldButton
+                          disabled={acting}
+                          onClick={() => void singleAction(job.id, "start_pipeline")}
+                        >
+                          Start tailored pitch
+                        </GoldButton>
+                      )}
+                      {!isApplied ? (
+                        <GhostButton
+                          disabled={acting}
+                          onClick={() => void singleAction(job.id, "save")}
+                        >
+                          Save for later
+                        </GhostButton>
+                      ) : null}
                       <Link
                         href={`/jobs/${job.id}`}
                         className="text-center text-xs font-semibold text-coral"
@@ -535,7 +581,13 @@ function JobsPageInner() {
 
 export default function JobsPage() {
   return (
-    <Suspense fallback={<AppShell active="jobs" wide><p className="text-sm text-text-muted">Loading…</p></AppShell>}>
+    <Suspense
+      fallback={
+        <AppShell active="jobs" wide>
+          <JobsListSkeleton />
+        </AppShell>
+      }
+    >
       <JobsPageInner />
     </Suspense>
   );

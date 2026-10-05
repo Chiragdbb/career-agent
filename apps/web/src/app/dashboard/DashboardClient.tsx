@@ -158,6 +158,26 @@ export default function DashboardClient() {
         icon: Zap,
       });
     }
+    if ((summary.preparing_pipelines ?? 0) > 0) {
+      items.push({
+        id: "preparing",
+        title: `${summary.preparing_pipelines} application${(summary.preparing_pipelines ?? 0) > 1 ? "s" : ""} preparing`,
+        sub: "Your agent is still building the package — cancel from Activity if stuck.",
+        href: "/activity",
+        cta: "View progress",
+        icon: Timer,
+      });
+    }
+    if ((summary.failed_pipelines ?? 0) > 0) {
+      items.push({
+        id: "failed-pipelines",
+        title: `${summary.failed_pipelines} prep run${(summary.failed_pipelines ?? 0) > 1 ? "s" : ""} failed`,
+        sub: "Open Activity to retry or return the role to the pile.",
+        href: "/activity",
+        cta: "Recover",
+        icon: Zap,
+      });
+    }
     if (summary.open_follow_ups > 0) {
       items.push({
         id: "follow-ups",

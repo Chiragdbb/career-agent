@@ -50,6 +50,8 @@ class DashboardSummary(BaseModel):
     jobs_count: int = 0
     applications_count: int = 0
     open_human_tasks: int = 0
+    preparing_pipelines: int = 0
+    failed_pipelines: int = 0
     unread_notifications: int = 0
     upcoming_interviews: int = 0
     pending_offers: int = 0
@@ -102,8 +104,29 @@ class DashboardService:
         self._user_id = user_id
 
     def summary(self) -> DashboardSummary:
-        from database.models.enums import FollowUpStatus, NotificationStatus, OfferStatus
-        from database.models.schema import Notification
+        from database.models.enums import FollowUpStatus, NotificationStatus, OfferStatus, WorkflowRunStatus
+        from database.models.schema import Notification, WorkflowRun
+
+        preparing = (
+            self._session.query(WorkflowRun)
+            .filter(
+                WorkflowRun.user_id == self._user_id,
+                WorkflowRun.workflow_type == "career_job_pipeline",
+                WorkflowRun.status.in_(
+                    [WorkflowRunStatus.running, WorkflowRunStatus.queued]
+                ),
+            )
+            .count()
+        )
+        failed = (
+            self._session.query(WorkflowRun)
+            .filter(
+                WorkflowRun.user_id == self._user_id,
+                WorkflowRun.workflow_type == "career_job_pipeline",
+                WorkflowRun.status == WorkflowRunStatus.failed,
+            )
+            .count()
+        )
 
         return DashboardSummary(
             jobs_count=self._count(JobMatch),
@@ -114,6 +137,8 @@ class DashboardService:
                 HumanTask.status == HumanTaskStatus.open,
             )
             .count(),
+            preparing_pipelines=preparing,
+            failed_pipelines=failed,
             unread_notifications=self._session.query(Notification)
             .filter(
                 Notification.user_id == self._user_id,
@@ -334,12 +359,22 @@ class DashboardService:
         )
         contact_payload: list[dict[str, Any]] = []
         for contact, person in contacts:
+            email_row = (
+                self._session.query(EmailVerification)
+                .filter(
+                    EmailVerification.user_id == self._user_id,
+                    EmailVerification.contact_id == contact.id,
+                )
+                .order_by(EmailVerification.created_at.desc())
+                .first()
+            )
             contact_payload.append(
                 {
                     "id": str(contact.id),
                     "name": contact.name or (person.name if person else None) or "Contact",
                     "title": contact.title,
-                    "email": None,
+                    "email": email_row.email if email_row else None,
+                    "linkedin_url": person.linkedin_url if person else None,
                     "status": contact.status.value
                     if hasattr(contact.status, "value")
                     else str(contact.status),

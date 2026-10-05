@@ -91,6 +91,17 @@ class PreferenceSettings(BaseModel):
     email_notifications_enabled: bool = True
     notification_email: str | None = None
 
+    @property
+    def has_scoring_signal(self) -> bool:
+        """True when the user has set at least one preference that can drive scoring."""
+        return bool(
+            self.target_roles
+            or self.locations
+            or self.work_arrangements
+            or self.seniority
+            or self.minimum_salary is not None
+        )
+
     @field_validator("target_roles", "locations", "industries", mode="before")
     @classmethod
     def normalize_string_lists(cls, value: object) -> list[str]:

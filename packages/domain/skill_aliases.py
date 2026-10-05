@@ -15,8 +15,10 @@ _SKILL_GROUPS: dict[str, list[str]] = {
     "kubernetes": ["k8s"],
     "postgresql": ["postgres", "psql"],
     "react": ["reactjs", "react.js"],
+    "react native": ["react-native"],
     "machine learning": ["ml"],
     "artificial intelligence": ["ai"],
+    "large language models": ["llm", "llms", "generative ai", "genai"],
     "continuous integration": ["ci"],
     "continuous delivery": ["cd"],
     "ci/cd": ["cicd", "ci cd", "ci/cd pipelines"],
@@ -31,7 +33,7 @@ _SKILL_GROUPS: dict[str, list[str]] = {
     "graphql": [],
     "rest": ["restful", "rest api", "rest apis"],
     "java": [],
-    "golang": ["go lang"],
+    "golang": ["go lang", "go"],
     "rust": [],
     "c++": ["cpp"],
     "c#": ["csharp", "c sharp"],
@@ -42,6 +44,31 @@ _SKILL_GROUPS: dict[str, list[str]] = {
     "ansible": [],
     "linux": ["unix"],
     "git": ["github", "gitlab"],
+    "kafka": ["apache kafka"],
+    "spark": ["apache spark", "pyspark"],
+    "airflow": ["apache airflow"],
+    "pandas": [],
+    "numpy": [],
+    "pytorch": ["torch"],
+    "tensorflow": ["tf"],
+    "scikit-learn": ["sklearn", "scikit learn"],
+    "langchain": [],
+    "openai": ["gpt", "chatgpt"],
+    "supabase": [],
+    "firebase": [],
+    "tailwind": ["tailwindcss", "tailwind css"],
+    "figma": [],
+    "product management": ["product manager", "pm"],
+    "agile": ["scrum", "kanban"],
+    "system design": ["distributed systems"],
+    "microservices": ["microservice"],
+    "elasticsearch": ["elastic search", "opensearch"],
+    "rabbitmq": [],
+    "celery": [],
+    "pytest": [],
+    "jest": [],
+    "playwright": [],
+    "selenium": [],
 }
 
 _ALIAS_TO_CANONICAL: dict[str, str] = {}
@@ -52,7 +79,7 @@ for canonical, aliases in _SKILL_GROUPS.items():
 
 # Short tokens that need word-boundary matching only (avoid false positives).
 _SHORT_ALIAS_MIN_BOUNDARY = frozenset(
-    {"js", "ts", "py", "ml", "ai", "ci", "cd", "go", "k8s", "aws", "gcp"}
+    {"js", "ts", "py", "ml", "ai", "ci", "cd", "go", "k8s", "aws", "gcp", "pm", "tf"}
 )
 
 
@@ -108,6 +135,33 @@ def find_known_skills_in_text(text: str) -> list[str]:
         seen.add(canonical)
         found.append(_display_skill(canonical))
     return found
+
+
+def merge_harvested_skills(
+    existing: list[str] | None,
+    *text_parts: str | None,
+) -> list[str]:
+    """Merge explicit skills with phrases harvested from free text (never invent)."""
+    collected: list[str] = []
+    seen: set[str] = set()
+
+    def _add(skill: str) -> None:
+        cleaned = skill.strip()
+        if not cleaned:
+            return
+        key = cleaned.lower()
+        if key in seen:
+            return
+        seen.add(key)
+        collected.append(cleaned)
+
+    for skill in existing or []:
+        if isinstance(skill, str):
+            _add(skill)
+    blob = "\n".join(part for part in text_parts if isinstance(part, str) and part.strip())
+    for skill in find_known_skills_in_text(blob):
+        _add(skill)
+    return collected
 
 
 def _display_skill(canonical: str) -> str:

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Bell } from "lucide-react";
 
@@ -38,17 +38,20 @@ export function NotificationBell() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<Notification[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const hasLoadedRef = useRef(false);
 
   const refresh = useCallback(async () => {
-    setLoading(true);
+    const showLoading = !hasLoadedRef.current;
+    if (showLoading) setInitialLoading(true);
     try {
       const response = await apiFetch("/api/v1/notifications?status=unread");
       if (response.ok) {
         setItems((await response.json()) as Notification[]);
+        hasLoadedRef.current = true;
       }
     } finally {
-      setLoading(false);
+      if (showLoading) setInitialLoading(false);
     }
   }, []);
 
@@ -56,22 +59,34 @@ export function NotificationBell() {
     void refresh();
   }, [refresh]);
 
+  useEffect(() => {
+    if (open) void refresh();
+  }, [open, refresh]);
+
   useStreamEvent((event) => {
-    if (event.type === "notification_created") void refresh();
+    if (
+      event.type === "notification_created" ||
+      event.type === "human_task_created"
+    ) {
+      void refresh();
+    }
   });
 
   async function markAllRead() {
-    await apiFetch("/api/v1/notifications/read-all", { method: "POST" });
-    await refresh();
+    setItems([]);
+    void apiFetch("/api/v1/notifications/read-all", { method: "POST" }).catch(
+      () => null,
+    );
   }
 
-  async function openItem(item: Notification) {
+  function openItem(item: Notification) {
     const href = hrefFromNotification(item);
+    setItems((prev) => prev.filter((n) => n.id !== item.id));
     setOpen(false);
-    await apiFetch(`/api/v1/notifications/${item.id}/read`, {
+    router.push(href);
+    void apiFetch(`/api/v1/notifications/${item.id}/read`, {
       method: "POST",
     }).catch(() => null);
-    router.push(href);
   }
 
   const unreadCount = items.length;
@@ -105,7 +120,7 @@ export function NotificationBell() {
             </button>
           </div>
           <ul className="max-h-72 overflow-y-auto">
-            {loading ? (
+            {initialLoading ? (
               <li className="px-3 py-4 text-sm text-text-muted">Loading…</li>
             ) : items.length === 0 ? (
               <li className="px-3 py-4 text-sm text-text-muted">
@@ -120,7 +135,7 @@ export function NotificationBell() {
                       "w-full px-3 py-2.5 text-left text-sm hover:bg-paper",
                       item.status === "unread" && "bg-gold/5",
                     )}
-                    onClick={() => void openItem(item)}
+                    onClick={() => openItem(item)}
                   >
                     <p className="font-medium text-ink">{item.title}</p>
                     {item.body ? (

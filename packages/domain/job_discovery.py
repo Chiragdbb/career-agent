@@ -500,7 +500,14 @@ class JobDiscoveryService:
         if self._file_log is not None:
             self._file_log.log("score_started", job_count=len(job_ids))
         resume_skills = load_resume_skills(self._session, self._user_id)
-        matcher = JobMatchService(self._session, self._user_id)
+        embedding = None
+        try:
+            from packages.providers.factory import ProviderSettings, create_embedding_provider
+
+            embedding = create_embedding_provider(ProviderSettings.from_env())
+        except Exception:
+            embedding = None
+        matcher = JobMatchService(self._session, self._user_id, embedding=embedding)
         for job_id in job_ids:
             run = (
                 self._session.query(WorkflowRun)
@@ -1181,7 +1188,19 @@ class JobDiscoveryService:
             details["listing_page"] = listing_page
             details["location"] = extracted.location
             existing.title = extracted.title or existing.title
-            existing.description = extracted.description or existing.description
+            existing.description = (
+                self._plain_description(extracted.description) or existing.description
+            )
+            from packages.domain.skill_aliases import merge_harvested_skills
+
+            harvested = merge_harvested_skills(
+                list(extracted.skills) if extracted.skills else existing.skills,
+                existing.description,
+                extracted.title,
+            )
+            if harvested:
+                existing.skills = harvested
+                details["skills"] = harvested
             existing.company_id = company.id
             existing.details = details
             existing.last_scraped_at = now
@@ -1204,6 +1223,16 @@ class JobDiscoveryService:
         details = extracted.model_dump(mode="json")
         details["listing_page"] = listing_page
         details["location"] = extracted.location
+        description = self._plain_description(extracted.description)
+        from packages.domain.skill_aliases import merge_harvested_skills
+
+        harvested = merge_harvested_skills(
+            list(extracted.skills) if extracted.skills else None,
+            description,
+            extracted.title,
+        )
+        if harvested:
+            details["skills"] = harvested
         job = Job(
             id=uuid.uuid4(),
             company_id=company.id,
@@ -1213,8 +1242,9 @@ class JobDiscoveryService:
             external_id=extracted.external_id or dedupe_id,
             source="aggregator_listing",
             company_domain=domain,
-            description=extracted.description,
+            description=description,
             details=details,
+            skills=harvested or None,
             last_scraped_at=now,
             scraped_at=now,
             discovery_run_id=run_id,
@@ -1500,19 +1530,34 @@ class JobDiscoveryService:
             existing = self._find_job_by_fingerprint(fingerprint)
 
         description = self._plain_description(extracted.description)
+        req_text = ""
+        if isinstance(extracted.requirements, list):
+            req_text = "\n".join(str(r) for r in extracted.requirements if r)
+        from packages.domain.skill_aliases import merge_harvested_skills
+
+        harvested_skills = merge_harvested_skills(
+            list(extracted.skills) if extracted.skills else None,
+            description,
+            req_text,
+            extracted.title,
+        )
 
         if existing is not None:
             company = self._get_or_create_company(extracted.company_name)
             details = extracted.model_dump(mode="json")
             details["fingerprint"] = fingerprint
             details["description"] = description or details.get("description")
+            if harvested_skills:
+                details["skills"] = harvested_skills
             existing.title = extracted.title or existing.title
             existing.description = description or existing.description
             existing.company_id = company.id
             existing.details = details
             existing.last_scraped_at = now
             existing.scraped_at = now
-            if extracted.skills:
+            if harvested_skills:
+                existing.skills = harvested_skills
+            elif extracted.skills:
                 existing.skills = list(extracted.skills)
             if extracted.work_arrangement:
                 existing.remote_type = (
@@ -1548,6 +1593,8 @@ class JobDiscoveryService:
         details = extracted.model_dump(mode="json")
         details["fingerprint"] = fingerprint
         details["description"] = description or details.get("description")
+        if harvested_skills:
+            details["skills"] = harvested_skills
         remote = None
         if extracted.work_arrangement == "on_site":
             remote = "onsite"
@@ -1563,7 +1610,7 @@ class JobDiscoveryService:
             source="llm_extract",
             description=description,
             details=details,
-            skills=list(extracted.skills) or None,
+            skills=harvested_skills or (list(extracted.skills) if extracted.skills else None),
             remote_type=remote,
             employment_type=extracted.employment_type,
             seniority=extracted.seniority,

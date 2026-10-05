@@ -93,6 +93,8 @@ class CareerWorkflowStart(BaseModel):
     resume_version_id: uuid.UUID | None = None
     force: bool = False
     override_completeness: bool = False
+    # When False, only queue/prepare the run; a worker/background task executes steps.
+    execute: bool = True
 
 
 class CareerWorkflowResult(BaseModel):
@@ -130,6 +132,8 @@ class CareerWorkflowService:
         notifications: NotificationProvider | None = None,
         strategy_service: ApplicationStrategyService | None = None,
         progress: WorkflowProgressService | None = None,
+        cancellation: Any | None = None,
+        events: Any | None = None,
         research_fn: ResearchFn | None = None,
         people_fn: PeopleFn | None = None,
         resume_fn: ResumeFn | None = None,
@@ -140,10 +144,11 @@ class CareerWorkflowService:
         self._user_id = user_id
         self._notifications = notifications
         self._human_tasks = human_tasks or HumanTaskService(
-            session, user_id, notifications=notifications
+            session, user_id, notifications=notifications, events=events
         )
         self._strategy = strategy_service or ApplicationStrategyService()
-        self._progress = progress or WorkflowProgressService(session, user_id)
+        self._progress = progress or WorkflowProgressService(session, user_id, events=events)
+        self._cancellation = cancellation
         self._research_fn = research_fn
         self._people_fn = people_fn
         self._resume_fn = resume_fn
@@ -198,8 +203,9 @@ class CareerWorkflowService:
         # while preparation runs — users should never lose the trail mid-pipeline.
         self._ensure_application(match, meta)
         run.metadata_json = meta
-        if match.status not in (JobMatchStatus.applied, JobMatchStatus.dismissed):
-            match.status = JobMatchStatus.applied
+        # Do NOT mark applied until approval_pause succeeds (package ready).
+        if match.status == JobMatchStatus.new:
+            match.status = JobMatchStatus.saved
         self._session.commit()
 
         if meta.get("paused") and not payload.force:
@@ -257,12 +263,26 @@ class CareerWorkflowService:
         )
         self._session.commit()
 
+        if not payload.execute:
+            return CareerWorkflowResult(
+                workflow_run_id=run.id,
+                status=run.status.value,
+                paused=False,
+                already_running=False,
+                application_id=_uuid_or_none(meta.get("application_id")),
+                completed_steps=list(meta.get("completed_steps") or []),
+                current_step="starting",
+                outputs=dict(meta.get("outputs") or {}),
+                errors=list(meta.get("errors") or []),
+            )
+
         completed = list(meta.get("completed_steps") or [])
         outputs = dict(meta.get("outputs") or {})
         errors: list[str] = list(meta.get("errors") or [])
 
         try:
             for step in STEP_ORDER:
+                self._ensure_not_cancelled(run)
                 if step.value in completed:
                     continue
                 meta["current_step"] = step.value
@@ -325,15 +345,29 @@ class CareerWorkflowService:
                     meta["completed_steps"] = completed
                     meta["outputs"] = outputs
                     run.metadata_json = meta
-                    run.status = WorkflowRunStatus.failed
-                    run.error = str(exc)
+                    cancelled = (
+                        "cancelled" in str(exc).lower()
+                        or run.status
+                        in (WorkflowRunStatus.cancelled, WorkflowRunStatus.cancelling)
+                    )
+                    if cancelled:
+                        run.status = WorkflowRunStatus.cancelled
+                        meta["status_message"] = "Cancelled"
+                        run.metadata_json = meta
+                    else:
+                        run.status = WorkflowRunStatus.failed
+                        run.error = str(exc)
                     self._session.commit()
                     self._emit_step(
                         run,
                         step,
                         phase="error",
                         completed_units=len(completed),
-                        message=f"Failed at {STEP_LABELS.get(step.value, step.value)}",
+                        message=(
+                            "Cancelled"
+                            if cancelled
+                            else f"Failed at {STEP_LABELS.get(step.value, step.value)}"
+                        ),
                     )
                     return CareerWorkflowResult(
                         workflow_run_id=run.id,
@@ -548,6 +582,9 @@ class CareerWorkflowService:
             evidence["contacts_snapshot"] = people_out[:20]
             if app_row is not None:
                 app_row.submission_evidence = evidence
+            # Package is ready for review — only now count as applied in Opportunities.
+            if match.status != JobMatchStatus.dismissed:
+                match.status = JobMatchStatus.applied
             task = self._human_tasks.create(
                 HumanTaskCreate(
                     task_type=HumanTaskType.approval_required_application,
@@ -663,7 +700,7 @@ class CareerWorkflowService:
                 email_finder=create_email_finder_provider(settings),
                 email_verifier=create_email_verifier_provider(settings),
             )
-            result = service.research_for_job(job.id, enrich_emails=False)
+            result = service.research_for_job(job.id, enrich_emails=True)
             self._session.commit()
             people = [p.model_dump(mode="json") for p in result.people]
             return {
@@ -732,8 +769,7 @@ class CareerWorkflowService:
         self._session.add(app)
         self._session.flush()
         meta["application_id"] = str(app.id)
-        meta["href"] = f"/approvals?application={app.id}"
-        match.status = JobMatchStatus.applied
+        meta["href"] = f"/applications/{app.id}"
         return app.id
 
     def _default_resume_version_id(self) -> uuid.UUID | None:
@@ -815,6 +851,26 @@ class CareerWorkflowService:
             .first()
         )
         return row is not None
+
+    def _ensure_not_cancelled(self, run: WorkflowRun) -> None:
+        self._session.refresh(run)
+        if run.status in (WorkflowRunStatus.cancelled, WorkflowRunStatus.cancelling):
+            if run.status == WorkflowRunStatus.cancelling:
+                run.status = WorkflowRunStatus.cancelled
+                metadata = dict(run.metadata_json or {})
+                metadata["cancelled_at"] = datetime.now(timezone.utc).isoformat()
+                metadata["status_message"] = "Cancelled"
+                run.metadata_json = metadata
+                self._session.flush()
+            raise DomainError("Application pipeline cancelled")
+        if self._cancellation is not None and self._cancellation.is_cancelled(run.id):
+            run.status = WorkflowRunStatus.cancelled
+            metadata = dict(run.metadata_json or {})
+            metadata["cancelled_at"] = datetime.now(timezone.utc).isoformat()
+            metadata["status_message"] = "Cancelled"
+            run.metadata_json = metadata
+            self._session.flush()
+            raise DomainError("Application pipeline cancelled")
 
     def _begin_task(
         self, run_id: uuid.UUID, task_type: str, *, input_payload: dict[str, Any]

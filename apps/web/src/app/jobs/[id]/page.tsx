@@ -22,6 +22,7 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { SoftBadge } from "@/components/ui/SoftBadge";
 import { CollapsibleSection } from "@/components/ui/CollapsibleSection";
 import { ErrorBanner } from "@/components/ui/ErrorBanner";
+import { DetailPageSkeleton } from "@/components/ui/Skeleton";
 import { ScoreRing } from "@/components/ui/ScoreRing";
 import { apiFetch } from "@/lib/api";
 import { cn } from "@/lib/cn";
@@ -106,11 +107,15 @@ function formatSalary(
   return `Up to ${fmt(max!)}`;
 }
 
-function formatTimestamp(value: string | null | undefined): string {
+function formatPostedAt(value: string | null | undefined): string {
   if (!value) return "—";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString();
+  return date.toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
 }
 
 function JobField({ label, value }: { label: string; value: string }) {
@@ -184,7 +189,7 @@ function RescrapeProgress({
     if (event.type === "workflow_cancelled") {
       appendLog({
         id: `evt-cancelled-${runId}`,
-        message: "Re-scrape cancelled",
+        message: "Refresh cancelled",
         phase: "error",
       });
     }
@@ -229,11 +234,11 @@ function RescrapeProgress({
       setRun(updated);
       appendLog({
         id: `cancel-${runId}`,
-        message: "Re-scrape cancelled",
+        message: "Refresh cancelled",
         phase: "error",
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to cancel re-scrape");
+      setError(err instanceof Error ? err.message : "Failed to cancel refresh");
     } finally {
       setCancelling(false);
     }
@@ -242,7 +247,7 @@ function RescrapeProgress({
   return (
     <div className="mb-4 rounded-xl border border-line-soft bg-paper-raised">
       <div className="flex items-center justify-between gap-2 border-b border-line-soft px-3.5 py-2.5">
-        <p className="text-[12.5px] font-semibold text-ink">Re-scrape progress</p>
+        <p className="text-[12.5px] font-semibold text-ink">Refresh progress</p>
         {active ? (
           <Button
             type="button"
@@ -260,7 +265,7 @@ function RescrapeProgress({
         {!run && !error ? (
           <div className="flex items-center gap-2">
             <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
-            <p className="text-xs text-text-muted">Starting re-scrape…</p>
+            <p className="text-xs text-text-muted">Starting refresh…</p>
           </div>
         ) : log.length === 0 ? (
           <p className="text-xs text-text-muted">Waiting for activity…</p>
@@ -397,7 +402,7 @@ export default function JobDetailPage() {
       const body = (await response.json()) as { workflow_run_id: string };
       setRescrapeRunId(body.workflow_run_id);
     } catch (err) {
-      setRescrapeError(err instanceof Error ? err.message : "Re-scrape failed");
+      setRescrapeError(err instanceof Error ? err.message : "Refresh failed");
     }
   }
 
@@ -491,7 +496,7 @@ export default function JobDetailPage() {
       {actionError ? (
         <ErrorBanner message={actionError} onRetry={retryAction} />
       ) : null}
-      {loading ? <p className="text-sm text-text-muted">Loading…</p> : null}
+      {loading ? <DetailPageSkeleton /> : null}
       {job ? (
         <article className="max-w-[820px] space-y-6">
           <PageHeader
@@ -514,6 +519,13 @@ export default function JobDetailPage() {
                   >
                     View application
                   </GoldButton>
+                ) : job.status === "applied" ? (
+                  <GoldButton
+                    icon={ArrowRight}
+                    onClick={() => router.push("/applications")}
+                  >
+                    View application
+                  </GoldButton>
                 ) : (
                   <GoldButton
                     icon={Sparkles}
@@ -529,21 +541,6 @@ export default function JobDetailPage() {
             className="!pb-4"
           />
 
-          {job.completeness_score != null ? (
-            <p className="text-sm text-[var(--text-muted)]">
-              Listing quality:{" "}
-              <span className="font-medium text-[var(--text-primary)]">
-                {job.completeness_score}%
-              </span>
-              {job.extraction_provenance
-                ? ` · via ${job.extraction_provenance.replace(/_/g, " ")}`
-                : ""}
-              {job.missing_fields && job.missing_fields.length > 0
-                ? ` · missing ${job.missing_fields.slice(0, 4).join(", ")}`
-                : ""}
-            </p>
-          ) : null}
-
           <div className="flex flex-wrap items-center gap-2">
             <SoftBadge tone="lavender">{job.status}</SoftBadge>
             {hasApplication ? (
@@ -557,7 +554,7 @@ export default function JobDetailPage() {
           </div>
 
           <div className="flex min-h-[38px] flex-wrap items-center gap-2.5">
-            {!hasApplication ? (
+            {!hasApplication && job.status !== "applied" ? (
               <GhostButton
                 icon={Star}
                 disabled={saving || starting}
@@ -580,7 +577,7 @@ export default function JobDetailPage() {
                 onClick={() => void onRescrape()}
                 className="hover:underline"
               >
-                Re-scrape listing
+                Refresh listing
               </button>
               <button
                 type="button"
@@ -622,25 +619,15 @@ export default function JobDetailPage() {
             <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <JobField label="Title" value={displayValue(job.title)} />
               <JobField label="Company" value={displayValue(job.company_name)} />
-              <JobField label="Company domain" value={displayValue(job.company_domain)} />
               <JobField label="Location" value={displayValue(job.location)} />
               <JobField label="Work arrangement" value={displayValue(job.work_arrangement)} />
-              <JobField label="Remote type" value={displayValue(job.remote_type)} />
               <JobField label="Employment type" value={displayValue(job.employment_type)} />
               <JobField label="Seniority" value={displayValue(job.seniority)} />
               <JobField
                 label="Salary"
                 value={formatSalary(job.salary_min, job.salary_max, job.salary_currency)}
               />
-              <JobField label="Currency" value={displayValue(job.salary_currency)} />
-              <JobField label="Source" value={displayValue(job.source)} />
-              <JobField label="External ID" value={displayValue(job.external_id)} />
-              <JobField label="Listing status" value={displayValue(job.job_status)} />
-              <JobField label="Match status" value={displayValue(job.status)} />
-              <JobField label="Posted at" value={formatTimestamp(job.posted_at)} />
-              <JobField label="Last scraped" value={formatTimestamp(job.last_scraped_at)} />
-              <JobField label="Scraped at" value={formatTimestamp(job.scraped_at)} />
-              <JobField label="URL" value={displayValue(job.url)} />
+              <JobField label="Posted at" value={formatPostedAt(job.posted_at)} />
             </dl>
             <div className="mt-4">
               <p className="text-[11px] uppercase tracking-wide text-text-faint">Description</p>

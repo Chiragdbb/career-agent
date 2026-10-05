@@ -85,6 +85,11 @@ def parse_structured_resume(plain_text: str) -> StructuredResume:
     projects = _parse_projects(sections.get("projects", []))
     education = _parse_education(sections.get("education", []))
     skills = _parse_skills(sections.get("skills", []))
+    if not skills:
+        # Fallback: harvest known skill phrases from the full resume text.
+        from packages.domain.skill_aliases import find_known_skills_in_text
+
+        skills = find_known_skills_in_text(text)
     certifications = _parse_certifications(sections.get("certifications", []))
 
     return StructuredResume(

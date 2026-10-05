@@ -27,6 +27,7 @@ def build_career_workflow_service(
     *,
     events: UserEventPublisher | None = None,
     notifications: NotificationProvider | None = None,
+    cancellation: Any | None = None,
 ) -> CareerWorkflowService:
     progress = WorkflowProgressService(session, user_id, events=events)
     return CareerWorkflowService(
@@ -34,6 +35,8 @@ def build_career_workflow_service(
         user_id,
         notifications=notifications,
         progress=progress,
+        cancellation=cancellation,
+        events=events,
         people_fn=_make_people_fn(),
         content_fn=_make_content_fn(),
         resume_fn=_make_resume_fn(),
@@ -46,7 +49,15 @@ def _make_people_fn():
         session: Session, user_id: uuid.UUID, company_id: uuid.UUID
     ) -> dict[str, Any]:
         from packages.domain.contacts import ContactEnrichmentService
-        from packages.providers.factory import ProviderSettings, create_search_provider
+        from packages.domain.people_research import PeopleResearchService
+        from packages.providers.factory import (
+            ProviderSettings,
+            create_email_finder_provider,
+            create_email_verifier_provider,
+            create_people_provider,
+            create_search_provider,
+        )
+        from database.models.schema import EmailVerification, Person
 
         job = (
             session.query(Job)
@@ -57,11 +68,56 @@ def _make_people_fn():
         )
         settings = ProviderSettings.from_env()
         search = None
+        people_provider = None
+        email_finder = None
+        email_verifier = None
         try:
             search = create_search_provider(settings)
         except Exception:
             search = None
-        svc = ContactEnrichmentService(session, user_id, search=search)
+        try:
+            people_provider = create_people_provider(settings)
+        except Exception:
+            people_provider = None
+        try:
+            email_finder = create_email_finder_provider(settings)
+        except Exception:
+            email_finder = None
+        try:
+            email_verifier = create_email_verifier_provider(settings)
+        except Exception:
+            email_verifier = None
+
+        note = None
+        if job is not None and people_provider is not None:
+            try:
+                research = PeopleResearchService(
+                    session,
+                    user_id,
+                    people=people_provider,
+                    email_finder=email_finder,
+                    email_verifier=email_verifier,
+                    enrich_emails=True,
+                )
+                result = research.research_for_job(job.id, enrich_emails=True)
+                session.commit()
+                people = [p.model_dump(mode="json") for p in result.people]
+                return {
+                    "people": people,
+                    "contact_count": len(people),
+                    "company_id": str(company_id),
+                    "company_name": result.company_name,
+                }
+            except Exception as exc:  # noqa: BLE001
+                note = f"people_research_failed: {exc}"
+
+        svc = ContactEnrichmentService(
+            session,
+            user_id,
+            search=search,
+            people=people_provider,
+            email_finder=email_finder,
+        )
         try:
             svc.find_or_enrich_contact(company_id, job=job)
             session.commit()
@@ -70,30 +126,45 @@ def _make_people_fn():
                 "people": [],
                 "contact_count": 0,
                 "company_id": str(company_id),
-                "note": f"contact_enrichment_failed: {exc}",
+                "note": note or f"contact_enrichment_failed: {exc}",
             }
 
         rows = (
-            session.query(Contact)
+            session.query(Contact, Person)
+            .outerjoin(Person, Person.id == Contact.people_id)
             .filter(Contact.user_id == user_id, Contact.company_id == company_id)
             .order_by(Contact.created_at.desc())
             .limit(20)
             .all()
         )
-        people = [
-            {
-                "contact_id": str(c.id),
-                "name": c.name,
-                "title": c.title,
-                "source": c.source,
-            }
-            for c in rows
-            if c.name
-        ]
+        people = []
+        for contact, person in rows:
+            if not contact.name and not (person and person.name):
+                continue
+            email = (
+                session.query(EmailVerification)
+                .filter(
+                    EmailVerification.user_id == user_id,
+                    EmailVerification.contact_id == contact.id,
+                )
+                .order_by(EmailVerification.created_at.desc())
+                .first()
+            )
+            people.append(
+                {
+                    "contact_id": str(contact.id),
+                    "name": contact.name or (person.name if person else None),
+                    "title": contact.title,
+                    "email": email.email if email else None,
+                    "linkedin_url": person.linkedin_url if person else None,
+                    "source": contact.source,
+                }
+            )
         return {
             "people": people,
             "contact_count": len(people),
             "company_id": str(company_id),
+            "note": note,
         }
 
     return people_fn

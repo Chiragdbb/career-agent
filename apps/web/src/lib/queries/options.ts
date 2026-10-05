@@ -6,6 +6,8 @@ export type DashboardSummary = {
   jobs_count: number;
   applications_count: number;
   open_human_tasks: number;
+  preparing_pipelines?: number;
+  failed_pipelines?: number;
   unread_notifications: number;
   upcoming_interviews: number;
   pending_offers: number;
@@ -23,6 +25,7 @@ export type JobMatchSummary = {
   work_arrangement: string | null;
   url: string | null;
   is_new?: boolean;
+  application_id?: string | null;
   rationale?: string | null;
 };
 
