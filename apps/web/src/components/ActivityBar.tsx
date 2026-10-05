@@ -14,7 +14,7 @@ import {
 import { Button } from "@/components/ui/Button";
 import { useProcessActivity } from "@/hooks/useProcessActivity";
 import { cn } from "@/lib/cn";
-import { useEventStream } from "@/lib/useEventStream";
+import { useStreamEvent } from "@/providers/EventStreamProvider";
 import {
   cancelWorkflowRun,
   fetchWorkflowRun,
@@ -153,37 +153,35 @@ function WorkflowRunDetail({ runId }: { runId: string }) {
     }
   }, [runId, appendLog]);
 
-  useEventStream({
-    onEvent: (event) => {
-      if (event.type === "heartbeat") return;
-      const payload = event.payload;
-      if (payload?.workflow_run_id !== runId) return;
+  useStreamEvent((event) => {
+    if (event.type === "heartbeat") return;
+    const payload = event.payload;
+    if (payload?.workflow_run_id !== runId) return;
 
-      if (event.type === "workflow_cancelled") {
-        appendLog({
-          id: `evt-cancelled-${runId}`,
-          message: "Discovery cancelled",
-          phase: "error",
-          step: "cancelled",
-        });
-      }
+    if (event.type === "workflow_cancelled") {
+      appendLog({
+        id: `evt-cancelled-${runId}`,
+        message: "Discovery cancelled",
+        phase: "error",
+        step: "cancelled",
+      });
+    }
 
-      if (event.type === "workflow_progress" && payload.message) {
-        const data = (payload.data as Record<string, unknown>) || {};
-        const phase =
-          (payload.phase as LogEntry["phase"]) ||
-          (data.phase as LogEntry["phase"]) ||
-          "thinking";
-        appendLog({
-          id: `evt-${payload.step}-${payload.message}-${phase}`,
-          message: String(payload.message),
-          phase,
-          step: String(payload.step || ""),
-          detail: data,
-        });
-      }
-      void refresh();
-    },
+    if (event.type === "workflow_progress" && payload.message) {
+      const data = (payload.data as Record<string, unknown>) || {};
+      const phase =
+        (payload.phase as LogEntry["phase"]) ||
+        (data.phase as LogEntry["phase"]) ||
+        "thinking";
+      appendLog({
+        id: `evt-${payload.step}-${payload.message}-${phase}`,
+        message: String(payload.message),
+        phase,
+        step: String(payload.step || ""),
+        detail: data,
+      });
+    }
+    void refresh();
   });
 
   useEffect(() => {

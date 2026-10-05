@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { Bell } from "lucide-react";
 
 import { apiFetch } from "@/lib/api";
-import { useEventStream } from "@/lib/useEventStream";
+import { useStreamEvent } from "@/providers/EventStreamProvider";
 import { cn } from "@/lib/cn";
 
 type Notification = {
@@ -56,10 +56,8 @@ export function NotificationBell() {
     void refresh();
   }, [refresh]);
 
-  useEventStream({
-    onEvent: (event) => {
-      if (event.type === "notification_created") void refresh();
-    },
+  useStreamEvent((event) => {
+    if (event.type === "notification_created") void refresh();
   });
 
   async function markAllRead() {

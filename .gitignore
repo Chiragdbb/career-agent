@@ -67,10 +67,19 @@ Desktop.ini
 *.swo
 *~
 
-# Cursor (local agent state; keep project rules if you add them)
+# Cursor (local IDE/agent config; commit only shared rules under .cursor/rules/)
 .cursor/
 !.cursor/rules/
 !.cursor/rules/**
+
+# Agent skills (install locally: `npx skills add …`, Cursor marketplace, or ~/.cursor/skills)
+.agents/
+skills-lock.json
+.claude/skills/
+.codex/skills/
+
+# Generated design-system output (ui-ux-pro-max --persist, etc.)
+design-system/
 
 # Local notes and scratch
 *.local

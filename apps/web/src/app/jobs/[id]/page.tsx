@@ -23,11 +23,10 @@ import { SoftBadge } from "@/components/ui/SoftBadge";
 import { CollapsibleSection } from "@/components/ui/CollapsibleSection";
 import { ErrorBanner } from "@/components/ui/ErrorBanner";
 import { ScoreRing } from "@/components/ui/ScoreRing";
-import { DetailPageSkeleton } from "@/components/ui/Skeleton";
 import { apiFetch } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { createClient } from "@/lib/supabase/client";
-import { useEventStream } from "@/lib/useEventStream";
+import { useStreamEvent } from "@/providers/EventStreamProvider";
 import {
   cancelWorkflowRun,
   fetchWorkflowRun,
@@ -177,39 +176,37 @@ function RescrapeProgress({
     }
   }, [runId, appendLog, onFinished]);
 
-  useEventStream({
-    onEvent: (event) => {
-      if (event.type === "heartbeat") return;
-      const payload = event.payload;
-      if (payload?.workflow_run_id !== runId) return;
+  useStreamEvent((event) => {
+    if (event.type === "heartbeat") return;
+    const payload = event.payload;
+    if (payload?.workflow_run_id !== runId) return;
 
-      if (event.type === "workflow_cancelled") {
-        appendLog({
-          id: `evt-cancelled-${runId}`,
-          message: "Refresh cancelled",
-          phase: "error",
-        });
-      }
-      if (event.type === "workflow_progress" && payload.message) {
-        const data = (payload.data as Record<string, unknown>) || {};
-        const phase =
-          (payload.phase as LogEntry["phase"]) ||
-          (data.phase as LogEntry["phase"]) ||
-          "thinking";
-        const detailParts: string[] = [];
-        if (data.url) detailParts.push(`url: ${String(data.url)}`);
-        if (data.title) detailParts.push(`title: ${String(data.title)}`);
-        if (data.chars != null) detailParts.push(`chars: ${String(data.chars)}`);
-        if (data.error) detailParts.push(`error: ${String(data.error)}`);
-        appendLog({
-          id: `evt-${payload.step}-${payload.message}-${phase}`,
-          message: String(payload.message),
-          phase,
-          detail: detailParts.length ? detailParts.join(" · ") : null,
-        });
-      }
-      void refresh();
-    },
+    if (event.type === "workflow_cancelled") {
+      appendLog({
+        id: `evt-cancelled-${runId}`,
+        message: "Re-scrape cancelled",
+        phase: "error",
+      });
+    }
+    if (event.type === "workflow_progress" && payload.message) {
+      const data = (payload.data as Record<string, unknown>) || {};
+      const phase =
+        (payload.phase as LogEntry["phase"]) ||
+        (data.phase as LogEntry["phase"]) ||
+        "thinking";
+      const detailParts: string[] = [];
+      if (data.url) detailParts.push(`url: ${String(data.url)}`);
+      if (data.title) detailParts.push(`title: ${String(data.title)}`);
+      if (data.chars != null) detailParts.push(`chars: ${String(data.chars)}`);
+      if (data.error) detailParts.push(`error: ${String(data.error)}`);
+      appendLog({
+        id: `evt-${payload.step}-${payload.message}-${phase}`,
+        message: String(payload.message),
+        phase,
+        detail: detailParts.length ? detailParts.join(" · ") : null,
+      });
+    }
+    void refresh();
   });
 
   useEffect(() => {
@@ -232,11 +229,11 @@ function RescrapeProgress({
       setRun(updated);
       appendLog({
         id: `cancel-${runId}`,
-        message: "Refresh cancelled",
+        message: "Re-scrape cancelled",
         phase: "error",
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to cancel refresh");
+      setError(err instanceof Error ? err.message : "Failed to cancel re-scrape");
     } finally {
       setCancelling(false);
     }
@@ -245,7 +242,7 @@ function RescrapeProgress({
   return (
     <div className="mb-4 rounded-xl border border-line-soft bg-paper-raised">
       <div className="flex items-center justify-between gap-2 border-b border-line-soft px-3.5 py-2.5">
-        <p className="text-[12.5px] font-semibold text-ink">Refreshing listing</p>
+        <p className="text-[12.5px] font-semibold text-ink">Re-scrape progress</p>
         {active ? (
           <Button
             type="button"
@@ -263,7 +260,7 @@ function RescrapeProgress({
         {!run && !error ? (
           <div className="flex items-center gap-2">
             <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
-            <p className="text-xs text-text-muted">Starting refresh…</p>
+            <p className="text-xs text-text-muted">Starting re-scrape…</p>
           </div>
         ) : log.length === 0 ? (
           <p className="text-xs text-text-muted">Waiting for activity…</p>
@@ -400,7 +397,7 @@ export default function JobDetailPage() {
       const body = (await response.json()) as { workflow_run_id: string };
       setRescrapeRunId(body.workflow_run_id);
     } catch (err) {
-      setRescrapeError(err instanceof Error ? err.message : "Refresh failed");
+      setRescrapeError(err instanceof Error ? err.message : "Re-scrape failed");
     }
   }
 
@@ -494,7 +491,7 @@ export default function JobDetailPage() {
       {actionError ? (
         <ErrorBanner message={actionError} onRetry={retryAction} />
       ) : null}
-      {loading ? <DetailPageSkeleton /> : null}
+      {loading ? <p className="text-sm text-text-muted">Loading…</p> : null}
       {job ? (
         <article className="max-w-[820px] space-y-6">
           <PageHeader
@@ -532,13 +529,18 @@ export default function JobDetailPage() {
             className="!pb-4"
           />
 
-          {job.completeness_score != null && job.completeness_score < 70 ? (
+          {job.completeness_score != null ? (
             <p className="text-sm text-[var(--text-muted)]">
-              Listing details look incomplete
-              {job.missing_fields && job.missing_fields.length > 0
-                ? ` (missing ${job.missing_fields.slice(0, 4).join(", ")})`
+              Listing quality:{" "}
+              <span className="font-medium text-[var(--text-primary)]">
+                {job.completeness_score}%
+              </span>
+              {job.extraction_provenance
+                ? ` · via ${job.extraction_provenance.replace(/_/g, " ")}`
                 : ""}
-              . Refresh the listing to fill gaps before applying.
+              {job.missing_fields && job.missing_fields.length > 0
+                ? ` · missing ${job.missing_fields.slice(0, 4).join(", ")}`
+                : ""}
             </p>
           ) : null}
 
@@ -578,7 +580,7 @@ export default function JobDetailPage() {
                 onClick={() => void onRescrape()}
                 className="hover:underline"
               >
-                Refresh listing
+                Re-scrape listing
               </button>
               <button
                 type="button"
@@ -586,7 +588,7 @@ export default function JobDetailPage() {
                 disabled={rescoring}
                 className="hover:underline disabled:opacity-50"
               >
-                {rescoring ? "Updating match…" : "Update match score"}
+                {rescoring ? "Re-scoring…" : "Re-score match"}
               </button>
               <Link href="/applications" className="hover:underline">
                 All applications
@@ -631,9 +633,13 @@ export default function JobDetailPage() {
                 value={formatSalary(job.salary_min, job.salary_max, job.salary_currency)}
               />
               <JobField label="Currency" value={displayValue(job.salary_currency)} />
+              <JobField label="Source" value={displayValue(job.source)} />
+              <JobField label="External ID" value={displayValue(job.external_id)} />
               <JobField label="Listing status" value={displayValue(job.job_status)} />
               <JobField label="Match status" value={displayValue(job.status)} />
               <JobField label="Posted at" value={formatTimestamp(job.posted_at)} />
+              <JobField label="Last scraped" value={formatTimestamp(job.last_scraped_at)} />
+              <JobField label="Scraped at" value={formatTimestamp(job.scraped_at)} />
               <JobField label="URL" value={displayValue(job.url)} />
             </dl>
             <div className="mt-4">
