@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 
 from database.models.enums import JobMatchStatus, ResumeVersionStatus, WorkflowRunStatus
-from database.models.schema import Company, Job, JobMatch, Resume, ResumeVersion, WorkflowRun
+from database.models.schema import Application, Company, Job, JobMatch, Resume, ResumeVersion, WorkflowRun
 from packages.domain.discovery_lock import DiscoveryLock
 from packages.domain.exceptions import ConflictError, DomainError, NotFoundError
 from packages.domain.job_match import JobMatchService, ScoreBreakdown, format_fit_summary
@@ -32,6 +32,8 @@ class JobMatchSummary:
     work_arrangement: str | None
     url: str | None
     is_new: bool = False
+    application_id: uuid.UUID | None = None
+    rationale: str | None = None
 
 
 @dataclass(frozen=True)
@@ -108,12 +110,38 @@ class JobListingService:
         rows = query.order_by(
             JobMatch.score.desc().nullslast(), JobMatch.created_at.desc()
         ).all()
+        job_ids = [job.id for _, job, _ in rows]
+        app_by_job: dict[uuid.UUID, uuid.UUID] = {}
+        if job_ids:
+            apps = (
+                self._session.query(Application)
+                .filter(
+                    Application.user_id == self._user_id,
+                    Application.job_id.in_(job_ids),
+                )
+                .order_by(Application.created_at.desc())
+                .all()
+            )
+            for app in apps:
+                # Prefer the newest non-withdrawn application per job.
+                if app.job_id in app_by_job:
+                    continue
+                status_val = (
+                    app.status.value if hasattr(app.status, "value") else str(app.status)
+                )
+                if status_val == "withdrawn":
+                    continue
+                app_by_job[app.job_id] = app.id
+            for app in apps:
+                if app.job_id not in app_by_job:
+                    app_by_job[app.job_id] = app.id
         return [
             self._to_summary(
                 match,
                 job,
                 company,
                 latest_run_id=latest_run.id if is_new_run and latest_run else None,
+                application_id=app_by_job.get(job.id),
             )
             for match, job, company in rows
         ]
@@ -246,6 +274,7 @@ class JobListingService:
         company: Company,
         *,
         latest_run_id: uuid.UUID | None = None,
+        application_id: uuid.UUID | None = None,
     ) -> JobMatchSummary:
         details = job.details if isinstance(job.details, dict) else {}
         is_new = (
@@ -253,6 +282,18 @@ class JobListingService:
             and job.discovery_run_id is not None
             and job.discovery_run_id == latest_run_id
         )
+        if application_id is None:
+            app = (
+                self._session.query(Application)
+                .filter(
+                    Application.user_id == self._user_id,
+                    Application.job_id == job.id,
+                )
+                .order_by(Application.created_at.desc())
+                .first()
+            )
+            if app is not None:
+                application_id = app.id
         return JobMatchSummary(
             id=match.id,
             job_id=match.job_id,
@@ -264,6 +305,8 @@ class JobListingService:
             work_arrangement=_as_str(details.get("work_arrangement")),
             url=job.url,
             is_new=is_new,
+            application_id=application_id,
+            rationale=match.fit_summary,
         )
 
     def _to_detail(

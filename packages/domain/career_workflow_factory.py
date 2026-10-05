@@ -34,10 +34,69 @@ def build_career_workflow_service(
         user_id,
         notifications=notifications,
         progress=progress,
+        people_fn=_make_people_fn(),
         content_fn=_make_content_fn(),
         resume_fn=_make_resume_fn(),
         outreach_fn=_make_outreach_fn(notifications),
     )
+
+
+def _make_people_fn():
+    def people_fn(
+        session: Session, user_id: uuid.UUID, company_id: uuid.UUID
+    ) -> dict[str, Any]:
+        from packages.domain.contacts import ContactEnrichmentService
+        from packages.providers.factory import ProviderSettings, create_search_provider
+
+        job = (
+            session.query(Job)
+            .join(JobMatch, JobMatch.job_id == Job.id)
+            .filter(JobMatch.user_id == user_id, Job.company_id == company_id)
+            .order_by(JobMatch.updated_at.desc())
+            .first()
+        )
+        settings = ProviderSettings.from_env()
+        search = None
+        try:
+            search = create_search_provider(settings)
+        except Exception:
+            search = None
+        svc = ContactEnrichmentService(session, user_id, search=search)
+        try:
+            svc.find_or_enrich_contact(company_id, job=job)
+            session.commit()
+        except Exception as exc:  # noqa: BLE001
+            return {
+                "people": [],
+                "contact_count": 0,
+                "company_id": str(company_id),
+                "note": f"contact_enrichment_failed: {exc}",
+            }
+
+        rows = (
+            session.query(Contact)
+            .filter(Contact.user_id == user_id, Contact.company_id == company_id)
+            .order_by(Contact.created_at.desc())
+            .limit(20)
+            .all()
+        )
+        people = [
+            {
+                "contact_id": str(c.id),
+                "name": c.name,
+                "title": c.title,
+                "source": c.source,
+            }
+            for c in rows
+            if c.name
+        ]
+        return {
+            "people": people,
+            "contact_count": len(people),
+            "company_id": str(company_id),
+        }
+
+    return people_fn
 
 
 def _make_resume_fn():

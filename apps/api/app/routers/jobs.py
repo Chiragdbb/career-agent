@@ -51,6 +51,8 @@ def _to_summary(row) -> JobMatchSummaryResponse:
         work_arrangement=row.work_arrangement,
         url=row.url,
         is_new=row.is_new,
+        application_id=getattr(row, "application_id", None),
+        rationale=getattr(row, "rationale", None),
     )
 
 
@@ -196,7 +198,11 @@ def batch_job_actions(
         for match_id in body.match_ids:
             try:
                 result = workflow.start_or_resume(
-                    CareerWorkflowStart(job_match_id=match_id, permit_submit=False)
+                    CareerWorkflowStart(
+                        job_match_id=match_id,
+                        permit_submit=False,
+                        force=body.force,
+                    )
                 )
                 dumped = result.model_dump(mode="json")
                 if result.already_running:

@@ -88,6 +88,8 @@ class WorkflowProgressService:
 
     def seed_eta(self, run: WorkflowRun, *, planned_units: int) -> None:
         meta = dict(run.metadata_json or {})
+        prior_completed = int(meta.get("completed_units") or 0)
+        prior_ratio = float(meta.get("progress_ratio") or 0.0)
         est = estimate_duration_ms(
             self._session,
             self._user_id,
@@ -96,11 +98,20 @@ class WorkflowProgressService:
         )
         now = datetime.now(timezone.utc)
         meta["planned_units"] = planned_units
-        meta["completed_units"] = int(meta.get("completed_units") or 0)
+        # Preserve progress when reseeding (resume / mid-run refresh) so the
+        # single progress bar never restarts from zero for later steps.
+        meta["completed_units"] = prior_completed
         meta["estimated_duration_ms"] = est
         meta["eta_deadline_at"] = (now + timedelta(milliseconds=est)).isoformat()
-        meta["eta_remaining_ms"] = est
-        meta["progress_ratio"] = 0.0
+        if prior_completed > 0 and planned_units > 0:
+            ratio = min(1.0, prior_completed / planned_units)
+            meta["progress_ratio"] = max(prior_ratio, ratio)
+            meta["eta_remaining_ms"] = max(0, int((1.0 - meta["progress_ratio"]) * est))
+        else:
+            meta["progress_ratio"] = prior_ratio if prior_ratio > 0 else 0.0
+            meta["eta_remaining_ms"] = max(
+                0, int((1.0 - float(meta["progress_ratio"])) * est)
+            )
         run.metadata_json = meta
         self._session.flush()
 
@@ -118,15 +129,18 @@ class WorkflowProgressService:
         meta = dict(run.metadata_json or {})
         if planned_units is not None:
             meta["planned_units"] = planned_units
+        prior_completed = int(meta.get("completed_units") or 0)
+        prior_ratio = float(meta.get("progress_ratio") or 0.0)
         if completed_units is not None:
-            meta["completed_units"] = completed_units
+            # Never let progress go backwards across steps.
+            meta["completed_units"] = max(prior_completed, int(completed_units))
         planned = int(meta.get("planned_units") or 0)
         completed = int(meta.get("completed_units") or 0)
         if planned > 0:
             ratio = min(1.0, completed / planned)
-            meta["progress_ratio"] = ratio
+            meta["progress_ratio"] = max(prior_ratio, ratio)
             est = int(meta.get("estimated_duration_ms") or 0)
-            meta["eta_remaining_ms"] = max(0, int((1.0 - ratio) * est))
+            meta["eta_remaining_ms"] = max(0, int((1.0 - meta["progress_ratio"]) * est))
         meta["current_step"] = step
         meta["status_message"] = message
         run.metadata_json = meta

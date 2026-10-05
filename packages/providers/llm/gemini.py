@@ -37,6 +37,19 @@ _PROVIDER_NAME = "gemini-llm"
 logger = logging.getLogger("career.providers.gemini")
 
 
+def _gemini_json_schema(schema: dict[str, Any]) -> dict[str, Any]:
+    """Developer API rejects additionalProperties; strip recursively."""
+
+    def walk(node: Any) -> Any:
+        if isinstance(node, dict):
+            return {k: walk(v) for k, v in node.items() if k != "additionalProperties"}
+        if isinstance(node, list):
+            return [walk(item) for item in node]
+        return node
+
+    return walk(schema)
+
+
 def _extract_status_code(exc: Exception) -> int | None:
     for attr in ("code", "status_code"):
         value = getattr(exc, attr, None)
@@ -165,7 +178,7 @@ def _build_config(request: LLMRequest) -> types.GenerateContentConfig:
         if request.response_schema_model is not None:
             config_kwargs["response_schema"] = request.response_schema_model
         elif request.json_schema is not None:
-            config_kwargs["response_json_schema"] = request.json_schema
+            config_kwargs["response_json_schema"] = _gemini_json_schema(request.json_schema)
 
     return types.GenerateContentConfig(**config_kwargs)
 

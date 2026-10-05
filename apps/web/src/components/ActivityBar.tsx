@@ -45,7 +45,6 @@ function formatDetail(data: Record<string, unknown>): string | null {
   if (data.url) parts.push(`url: ${String(data.url)}`);
   if (data.title) parts.push(`title: ${String(data.title)}`);
   if (data.company) parts.push(`company: ${String(data.company)}`);
-  if (data.content_source) parts.push(`source: ${String(data.content_source)}`);
   if (data.fallback) parts.push(`fallback: ${String(data.fallback)}`);
   if (data.result_count != null) parts.push(`results: ${String(data.result_count)}`);
   if (Array.isArray(data.urls) && data.urls.length > 0) {

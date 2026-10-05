@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/Button";
@@ -40,7 +40,8 @@ function runHref(run: WorkflowRun): string {
   if (run.workflow_type === "career_job_pipeline") {
     const paused = Boolean(meta.paused);
     if (paused) return "/approvals";
-    return "/activity";
+    if (typeof appId === "string" && appId) return `/applications/${appId}`;
+    return "/applications";
   }
   return "/activity";
 }
@@ -48,6 +49,19 @@ function runHref(run: WorkflowRun): string {
 function needsUserAction(run: WorkflowRun): boolean {
   const meta = run.metadata || {};
   return Boolean(meta.paused) || String(meta.current_step || "") === "approval_pause";
+}
+
+function progressRatio(run: WorkflowRun): number {
+  const meta = run.metadata || {};
+  const fromMeta = Number(meta.progress_ratio ?? 0);
+  const completed = Array.isArray(meta.completed_steps)
+    ? (meta.completed_steps as string[]).length
+    : Number(meta.completed_units ?? 0);
+  const planned = Number(meta.planned_units ?? 0);
+  const fromUnits = planned > 0 ? completed / planned : 0;
+  const ratio = Math.max(fromMeta, fromUnits);
+  if (!Number.isFinite(ratio) || ratio < 0) return 0;
+  return Math.min(1, ratio);
 }
 
 function dedupeRuns(runs: WorkflowRun[]): WorkflowRun[] {
@@ -73,8 +87,12 @@ function ProcessBannerCard({
 }) {
   const [cancelling, setCancelling] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
+  const maxRatioRef = useRef(0);
   const meta = run.metadata || {};
-  const ratio = Number(meta.progress_ratio ?? 0);
+  const rawRatio = progressRatio(run);
+  // Single continuous bar: never drop when a new step begins.
+  const ratio = Math.max(maxRatioRef.current, rawRatio);
+  maxRatioRef.current = ratio;
   const remainingMs = meta.eta_remaining_ms;
   const eta =
     (typeof meta.eta_label === "string" && meta.eta_label) ||
@@ -83,13 +101,17 @@ function ProcessBannerCard({
     (typeof meta.human_title === "string" && meta.human_title) ||
     (typeof meta.status_message === "string" && meta.status_message) ||
     formatWorkflowType(run.workflow_type);
-  const canCancel = isActiveWorkflow(run.status);
+  const canCancel = isActiveWorkflow(run.status) && !needsUserAction(run);
   const actionNeeded = needsUserAction(run);
+  const finished =
+    !isActiveWorkflow(run.status) &&
+    ["completed", "failed", "cancelled"].includes(String(run.status).toLowerCase());
   const href = runHref(run);
   const completed = Array.isArray(meta.completed_steps)
     ? (meta.completed_steps as string[])
     : [];
   const current = typeof meta.current_step === "string" ? meta.current_step : null;
+  const appId = typeof meta.application_id === "string" ? meta.application_id : null;
 
   const handleCancel = async () => {
     if (cancelling) return;
@@ -117,10 +139,20 @@ function ProcessBannerCard({
             <span className="text-xs text-text-muted">{statusLabel(run.status)}</span>
           </div>
           <p className="text-[15px] font-bold leading-snug text-ink">{title}</p>
-          <p className="mt-1 text-sm font-semibold text-coral">{eta}</p>
+          {!actionNeeded && !finished ? (
+            <p className="mt-1 text-sm font-semibold text-coral">{eta}</p>
+          ) : null}
           {actionNeeded ? (
             <p className="mt-1 text-sm text-ink">
-              Next: review the draft and Finalize.
+              Ready for your review — open Approvals to finalize.
+            </p>
+          ) : finished && appId ? (
+            <p className="mt-1 text-sm text-ink">
+              Preparation finished. Continue in Approvals or open the application.
+            </p>
+          ) : finished ? (
+            <p className="mt-1 text-sm text-text-muted">
+              Process finished. Check Applications or Activity for next steps.
             </p>
           ) : (
             <p className="mt-1 text-sm text-text-muted">
@@ -137,6 +169,21 @@ function ProcessBannerCard({
             >
               Review &amp; approve
             </Link>
+          ) : finished && appId ? (
+            <>
+              <Link
+                href={`/approvals?application=${appId}`}
+                className="inline-flex rounded-full bg-coral px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90"
+              >
+                Open approvals
+              </Link>
+              <Link
+                href={`/applications/${appId}`}
+                className="inline-flex rounded-full border border-line px-3 py-1.5 text-xs font-semibold text-ink hover:bg-paper"
+              >
+                View application
+              </Link>
+            </>
           ) : (
             <Link
               href={href}
@@ -164,8 +211,13 @@ function ProcessBannerCard({
 
       <div className="mt-3.5 h-1.5 overflow-hidden rounded-full bg-muted">
         <div
-          className="h-full rounded-full bg-coral transition-[width] duration-500"
-          style={{ width: `${Math.max(4, Math.min(100, ratio * 100))}%` }}
+          className="h-full rounded-full bg-coral transition-[width] duration-500 ease-out"
+          style={{
+            width: `${Math.max(
+              finished || actionNeeded ? 100 : 4,
+              Math.min(100, (finished || actionNeeded ? 1 : ratio) * 100),
+            )}%`,
+          }}
         />
       </div>
 
@@ -207,8 +259,48 @@ function ProcessBannerCard({
 }
 
 export function ProcessBanner({ className }: { className?: string }) {
-  const { activeRuns, refresh } = useProcessActivity();
-  const runs = useMemo(() => dedupeRuns(activeRuns), [activeRuns]);
+  const { activeRuns, recentRuns, refresh } = useProcessActivity();
+  const [stickyIds, setStickyIds] = useState<Set<string>>(new Set());
+
+  // Keep recently finished career pipelines visible briefly so the next step
+  // (Approvals / Application) doesn't vanish with the progress card.
+  useEffect(() => {
+    const finished = recentRuns.filter((run) => {
+      const status = String(run.status).toLowerCase();
+      if (!["completed", "failed", "cancelled"].includes(status)) return false;
+      if (run.workflow_type !== "career_job_pipeline") return false;
+      return true;
+    });
+    if (finished.length === 0) return;
+    setStickyIds((prev) => {
+      const next = new Set(prev);
+      for (const run of finished) next.add(run.id);
+      return next;
+    });
+    const timers = finished.map((run) =>
+      window.setTimeout(() => {
+        setStickyIds((prev) => {
+          const next = new Set(prev);
+          next.delete(run.id);
+          return next;
+        });
+      }, 120_000),
+    );
+    return () => {
+      for (const t of timers) window.clearTimeout(t);
+    };
+  }, [recentRuns]);
+
+  const runs = useMemo(() => {
+    const byId = new Map<string, WorkflowRun>();
+    for (const run of activeRuns) byId.set(run.id, run);
+    for (const run of recentRuns) {
+      if (stickyIds.has(run.id) && !byId.has(run.id)) {
+        byId.set(run.id, run);
+      }
+    }
+    return dedupeRuns([...byId.values()]);
+  }, [activeRuns, recentRuns, stickyIds]);
 
   if (runs.length === 0) return null;
 

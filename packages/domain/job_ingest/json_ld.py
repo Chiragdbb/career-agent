@@ -8,6 +8,7 @@ from datetime import date, datetime, timezone
 from typing import Any
 
 from packages.domain.job_posting import StructuredJobPosting
+from packages.domain.job_ingest.text_sanitize import strip_html_to_text
 
 _JOB_POSTING_TYPES = frozenset({"JobPosting", "jobposting"})
 
@@ -158,6 +159,10 @@ def _text(value: Any) -> str | None:
     if isinstance(value, dict):
         return _text(value.get("name") or value.get("@value"))
     cleaned = str(value).strip()
+    if not cleaned:
+        return None
+    if "<" in cleaned and ">" in cleaned:
+        cleaned = strip_html_to_text(cleaned)
     return cleaned or None
 
 

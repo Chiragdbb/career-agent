@@ -29,6 +29,8 @@ class JobMatchSummaryResponse(BaseModel):
     work_arrangement: str | None = None
     url: str | None = None
     is_new: bool = False
+    application_id: UUID | None = None
+    rationale: str | None = None
 
 
 class JobMatchDetailResponse(JobMatchSummaryResponse):
@@ -128,3 +130,4 @@ class JobMatchUpdateRequest(BaseModel):
 class JobBatchActionRequest(BaseModel):
     match_ids: list[UUID] = Field(min_length=1, max_length=50)
     action: Literal["save", "dismiss", "start_pipeline"]
+    force: bool = False

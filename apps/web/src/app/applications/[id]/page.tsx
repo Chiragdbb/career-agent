@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Card, CardTitle } from "@/components/ui/Card";
 import { GhostButton, GoldButton } from "@/components/ui/Button";
 import { PageHeader } from "@/components/ui/PageHeader";
-import { ListSkeleton } from "@/components/ui/Skeleton";
+import { DetailPageSkeleton } from "@/components/ui/Skeleton";
 import { apiFetch } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { createClient } from "@/lib/supabase/client";
@@ -36,6 +36,13 @@ type ApplicationDetail = {
     round?: number | null;
   }[];
   offers: { id: string; status: string; details: Record<string, unknown> }[];
+  contacts: {
+    id: string;
+    name: string;
+    title: string | null;
+    email: string | null;
+    status: string;
+  }[];
 };
 
 const ENGINE_LABELS: Record<string, string> = {
@@ -212,7 +219,7 @@ export default function ApplicationDetailPage() {
         <ArrowLeft className="h-3.5 w-3.5" /> Back to applications
       </Link>
       {error ? <p className="mb-4 text-sm text-destructive">{error}</p> : null}
-      {!detail && !error ? <ListSkeleton rows={4} /> : null}
+      {!detail && !error ? <DetailPageSkeleton /> : null}
       {detail ? (
         <article className="space-y-6">
           <PageHeader
@@ -411,6 +418,32 @@ export default function ApplicationDetailPage() {
                       {d.filename || "Untitled document"}
                     </Link>
                     <span className="text-text-muted">{formatStatus(d.status)}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Section>
+
+          <Section title="Contacts">
+            {(detail.contacts || []).length === 0 ? (
+              <SectionHint href="/outreach" linkLabel="Outreach hub">
+                No contacts found yet. Run the application pipeline or enrich contacts from
+                outreach.
+              </SectionHint>
+            ) : (
+              <ul className="space-y-2 text-sm">
+                {(detail.contacts || []).map((c) => (
+                  <li key={c.id || c.name} className="flex justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-ink">{c.name}</p>
+                      {c.title ? (
+                        <p className="text-xs text-text-muted">{c.title}</p>
+                      ) : null}
+                      {c.email ? (
+                        <p className="text-xs text-text-faint">{c.email}</p>
+                      ) : null}
+                    </div>
+                    <span className="shrink-0 text-text-muted">{formatStatus(c.status)}</span>
                   </li>
                 ))}
               </ul>

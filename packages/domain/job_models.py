@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field, field_validator
 
+from packages.domain.job_ingest.aggregator_listing import AggregatorListingCard
+
 
 class ExtractedJob(BaseModel):
     """Validated structured job extracted from untrusted scraped content."""
@@ -61,4 +63,4 @@ class ExtractedJobListings(BaseModel):
 class AggregatorListingCardBatch(BaseModel):
     """Card rows from one aggregator listing page."""
 
-    cards: list[dict] = Field(default_factory=list, max_length=30)
+    cards: list[AggregatorListingCard] = Field(default_factory=list, max_length=30)

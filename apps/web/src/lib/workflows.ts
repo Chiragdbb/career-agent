@@ -78,7 +78,6 @@ export function formatEventDetail(payload?: Record<string, unknown>): string | n
   if (data.url) parts.push(`url: ${String(data.url)}`);
   if (data.title) parts.push(`title: ${String(data.title)}`);
   if (data.company) parts.push(`company: ${String(data.company)}`);
-  if (data.content_source) parts.push(`source: ${String(data.content_source)}`);
   if (data.fallback) parts.push(`fallback: ${String(data.fallback)}`);
   if (data.error) parts.push(`error: ${String(data.error)}`);
   if (data.created_count != null) parts.push(`new: ${String(data.created_count)}`);
@@ -107,8 +106,8 @@ export function workflowStatusVariant(
 export function formatWorkflowType(type: string | null | undefined): string {
   if (!type) return "Workflow";
   if (type === "job_discovery") return "Discovery";
-  if (type === "job_rescrape") return "Rescrape";
-  if (type === "career_job_pipeline") return "Pipeline";
+  if (type === "job_rescrape") return "Listing refresh";
+  if (type === "career_job_pipeline") return "Application prep";
   return type.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 

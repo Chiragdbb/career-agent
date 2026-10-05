@@ -194,10 +194,13 @@ class CareerWorkflowService:
         run = self._find_or_create_run(match, payload)
         meta = dict(run.metadata_json or {})
 
-        # Leave discovery once a pipeline is bound to this match.
+        # Create the application dossier immediately so it appears in Applications
+        # while preparation runs — users should never lose the trail mid-pipeline.
+        self._ensure_application(match, meta)
+        run.metadata_json = meta
         if match.status not in (JobMatchStatus.applied, JobMatchStatus.dismissed):
             match.status = JobMatchStatus.applied
-            self._session.commit()
+        self._session.commit()
 
         if meta.get("paused") and not payload.force:
             return CareerWorkflowResult(
@@ -442,6 +445,8 @@ class CareerWorkflowService:
             )
             if isinstance(out, dict):
                 out = {**out, "contact_count": count}
+            if isinstance(people, list) and people:
+                self._sync_contacts_snapshot(match, people)
             return out
 
         if step == CareerWorkflowStep.strategy:
@@ -673,6 +678,26 @@ class CareerWorkflowService:
                 "contact_count": 0,
                 "note": f"Contacts unavailable: {exc}",
             }
+
+    def _sync_contacts_snapshot(self, match: JobMatch, people: list[Any]) -> None:
+        app = (
+            self._session.query(Application)
+            .filter(
+                Application.user_id == self._user_id,
+                Application.job_id == match.job_id,
+            )
+            .one_or_none()
+        )
+        if app is None:
+            return
+        evidence = (
+            dict(app.submission_evidence)
+            if isinstance(app.submission_evidence, dict)
+            else {}
+        )
+        evidence["contacts_snapshot"] = people[:20]
+        app.submission_evidence = evidence
+        self._session.flush()
 
     def _ensure_application(self, match: JobMatch, meta: dict[str, Any]) -> uuid.UUID:
         existing_id = _uuid_or_none(meta.get("application_id"))

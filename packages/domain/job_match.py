@@ -132,29 +132,18 @@ class JobMatchService:
     ) -> ScoreBreakdown:
         details = job.details if isinstance(job.details, dict) else {}
         title = (job.title or "").lower()
-        location = str(details.get("location") or "").lower()
-        work = str(details.get("work_arrangement") or "").lower()
-        seniority = str(details.get("seniority") or "").lower()
-        job_skills = [
-            str(s).strip()
-            for s in (details.get("skills") or [])
-            if isinstance(s, str) and s.strip()
-        ]
-        salary_max = details.get("salary_max")
-        salary_min = details.get("salary_min")
-        try:
-            salary_ceiling = int(salary_max) if salary_max is not None else (
-                int(salary_min) if salary_min is not None else None
-            )
-        except (TypeError, ValueError):
-            salary_ceiling = None
+        location = _job_location(job, details)
+        work = _job_work_arrangement(job, details)
+        seniority = str(details.get("seniority") or job.seniority or "").lower()
+        job_skills = _job_skills(job, details)
+        salary_ceiling = _job_salary_ceiling(job, details)
 
         notes: list[str] = []
 
         role_score = _role_score(title, preferences.target_roles)
         location_score = _location_score(location, work, preferences.locations)
         arrangement_score = _arrangement_score(work, preferences.work_arrangements)
-        job_currency = details.get("currency")
+        job_currency = details.get("currency") or job.salary_currency
         salary_score = _salary_score(
             salary_ceiling,
             preferences.minimum_salary,
@@ -189,7 +178,9 @@ class JobMatchService:
         )
 
         semantic = 0.5
+        blend = 0.0
         if self._embedding is not None:
+            blend = self._semantic_blend
             embed_svc = EmbeddingService(self._session, self._embedding)
             semantic = embed_svc.similarity_against_profile(
                 job, profile, resume_version=resume_version
@@ -202,7 +193,6 @@ class JobMatchService:
         else:
             notes.append("semantic_disabled")
 
-        blend = self._semantic_blend
         total = deterministic * (1.0 - blend) + semantic * blend
         return ScoreBreakdown(
             total=round(total, 4),
@@ -250,11 +240,7 @@ class JobMatchService:
             resume_version=resume_version,
         )
         details = job.details if isinstance(job.details, dict) else {}
-        job_skills = [
-            str(s).strip()
-            for s in (details.get("skills") or [])
-            if isinstance(s, str) and s.strip()
-        ]
+        job_skills = _job_skills(job, details)
         skill_alignment = self._skill_matcher.align(job_skills, resume_skills or [])
         alignment_payload = {
             "matched": skill_alignment.matched,
@@ -297,6 +283,45 @@ class JobMatchService:
         self._session.commit()
         self._session.refresh(row)
         return row
+
+
+def _job_location(job: Job, details: dict) -> str:
+    return str(details.get("location") or "").lower()
+
+
+def _job_work_arrangement(job: Job, details: dict) -> str:
+    work = str(details.get("work_arrangement") or "").lower()
+    if work:
+        return work
+    remote = (job.remote_type or "").lower()
+    if remote == "onsite":
+        return "on_site"
+    if remote in ("remote", "hybrid"):
+        return remote
+    return ""
+
+
+def _job_skills(job: Job, details: dict) -> list[str]:
+    raw = details.get("skills")
+    if not isinstance(raw, list) or not raw:
+        raw = job.skills or []
+    return [str(s).strip() for s in raw if isinstance(s, str) and str(s).strip()]
+
+
+def _job_salary_ceiling(job: Job, details: dict) -> int | None:
+    salary_max = details.get("salary_max")
+    salary_min = details.get("salary_min")
+    if salary_max is None and salary_min is None:
+        salary_max = job.salary_max
+        salary_min = job.salary_min
+    try:
+        if salary_max is not None:
+            return int(salary_max)
+        if salary_min is not None:
+            return int(salary_min)
+    except (TypeError, ValueError):
+        return None
+    return None
 
 
 def _role_score(title: str, target_roles: list[str]) -> float:

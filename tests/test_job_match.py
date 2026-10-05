@@ -184,6 +184,33 @@ def test_currency_mismatch_is_neutral(match_ctx) -> None:
     assert "currency_mismatch" in breakdown.notes
 
 
+def test_scores_use_job_columns_when_details_sparse(match_ctx) -> None:
+    session, user, company = match_ctx
+    job = Job(
+        id=uuid.uuid4(),
+        company_id=company.id,
+        status=JobStatus.active,
+        title="Backend Engineer",
+        url=f"https://example.com/{uuid.uuid4()}",
+        description="desc",
+        details={},
+        remote_type="remote",
+        skills=["python", "postgres"],
+        seniority="senior",
+        salary_min=160000,
+        salary_max=180000,
+        salary_currency="USD",
+    )
+    session.add(job)
+    session.commit()
+    breakdown = JobMatchService(session, user.id).score_job(
+        job, _prefs(), company_name="Acme", resume_skills=["python", "postgres"]
+    )
+    assert breakdown.total >= 0.85
+    assert breakdown.work_arrangement == 1.0
+    assert breakdown.skills > 0.5
+
+
 def test_upsert_persists_score(match_ctx) -> None:
     session, user, company = match_ctx
     job = _job(

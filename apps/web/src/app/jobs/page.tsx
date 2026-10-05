@@ -37,6 +37,7 @@ type JobMatchSummary = {
   url: string | null;
   is_new?: boolean;
   rationale?: string | null;
+  application_id?: string | null;
 };
 
 const tabs = ["All", "Saved", "New", "High Match", "Applied", "Dismissed"] as const;
@@ -205,7 +206,10 @@ function JobsPageInner() {
     }
   }
 
-  async function runBatchAction(action: "save" | "dismiss" | "start_pipeline") {
+  async function runBatchAction(
+    action: "save" | "dismiss" | "start_pipeline",
+    opts?: { force?: boolean },
+  ) {
     if (selected.size === 0) return;
     setActing(true);
     setError(null);
@@ -215,6 +219,7 @@ function JobsPageInner() {
         body: JSON.stringify({
           match_ids: [...selected],
           action,
+          force: Boolean(opts?.force),
         }),
       });
       if (!response.ok) {
@@ -226,6 +231,7 @@ function JobsPageInner() {
         started?: number;
         already_running?: number;
         errors?: { match_id?: string; error?: string }[];
+        workflows?: { application_id?: string }[];
       };
       setSelected(new Set());
       await refreshJobs();
@@ -242,6 +248,7 @@ function JobsPageInner() {
         );
       } else if (action === "start_pipeline") {
         const started = payload.started ?? 0;
+        const appId = payload.workflows?.[0]?.application_id;
         const parts: string[] = [];
         if (started > 0) {
           parts.push(
@@ -257,6 +264,9 @@ function JobsPageInner() {
           parts.push(`${failCount} need attention.`);
         }
         setMessage(parts.join(" ") || "Moved to Applications — watch progress above.");
+        if (appId) {
+          setActiveTab("Applied");
+        }
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Action failed");
@@ -265,29 +275,55 @@ function JobsPageInner() {
     }
   }
 
-  async function singleAction(id: string, action: "save" | "start_pipeline") {
+  async function singleAction(
+    id: string,
+    action: "save" | "start_pipeline",
+    opts?: { force?: boolean },
+  ) {
     setActing(true);
     setError(null);
     try {
       const response = await apiFetch("/api/v1/jobs/actions/batch", {
         method: "POST",
-        body: JSON.stringify({ match_ids: [id], action }),
+        body: JSON.stringify({
+          match_ids: [id],
+          action,
+          force: Boolean(opts?.force),
+        }),
       });
       if (!response.ok) {
         const body = await response.json().catch(() => null);
         throw new Error(body?.error?.message || `API ${response.status}`);
       }
+      const payload = (await response.json()) as {
+        workflows?: { application_id?: string }[];
+      };
       await refreshJobs();
-      setMessage(
-        action === "save"
-          ? "Saved."
-          : "We’re preparing this application — watch progress above. You’ll approve when ready.",
-      );
+      if (action === "start_pipeline") {
+        setActiveTab("Applied");
+        setMessage(
+          "We’re preparing this application — watch progress above. You’ll approve when ready.",
+        );
+        const appId = payload.workflows?.[0]?.application_id;
+        if (appId) {
+          // Soft handoff: user can stay on Applied or jump when ready.
+        }
+      } else {
+        setMessage("Saved.");
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Action failed");
     } finally {
       setActing(false);
     }
+  }
+
+  function forceReapply(job: JobMatchSummary) {
+    const ok = window.confirm(
+      `Start a new preparation for “${job.title}”? This re-runs the pipeline for a role you’ve already sent.`,
+    );
+    if (!ok) return;
+    void singleAction(job.id, "start_pipeline", { force: true });
   }
 
   const filteredJobs = useMemo(() => {
@@ -431,23 +467,27 @@ function JobsPageInner() {
       {selected.size > 0 ? (
         <div className="mb-4 flex flex-wrap items-center gap-2 rounded-2xl border border-line bg-white px-4 py-3 shadow-soft">
           <span className="text-sm text-ink">{selected.size} selected</span>
-          <Button
-            variant="secondary"
-            disabled={acting}
-            className="!rounded-full px-3 py-1.5 text-xs"
-            onClick={() => void runBatchAction("save")}
-          >
-            <Bookmark className="mr-1.5 h-3.5 w-3.5" />
-            Save
-          </Button>
-          <Button
-            disabled={acting}
-            className="!rounded-full px-3 py-1.5 text-xs"
-            onClick={() => void runBatchAction("start_pipeline")}
-          >
-            <Play className="mr-1.5 h-3.5 w-3.5" />
-            Start pipeline
-          </Button>
+          {activeTab !== "Applied" ? (
+            <>
+              <Button
+                variant="secondary"
+                disabled={acting}
+                className="!rounded-full px-3 py-1.5 text-xs"
+                onClick={() => void runBatchAction("save")}
+              >
+                <Bookmark className="mr-1.5 h-3.5 w-3.5" />
+                Save
+              </Button>
+              <Button
+                disabled={acting}
+                className="!rounded-full px-3 py-1.5 text-xs"
+                onClick={() => void runBatchAction("start_pipeline")}
+              >
+                <Play className="mr-1.5 h-3.5 w-3.5" />
+                Start pipeline
+              </Button>
+            </>
+          ) : null}
           <Button
             variant="secondary"
             disabled={acting}
@@ -537,29 +577,65 @@ function JobsPageInner() {
                           </p>
                         </div>
                         <div className="mt-3 flex flex-wrap gap-2">
-                          <SoftBadge tone="white">{job.status}</SoftBadge>
+                          <SoftBadge
+                            tone={job.status === "applied" ? "mint" : "white"}
+                          >
+                            {job.status === "applied" ? "Applied" : job.status}
+                          </SoftBadge>
                         </div>
                       </div>
                     </div>
                     <div className="flex shrink-0 flex-wrap gap-2 sm:flex-col sm:items-stretch">
-                      <GoldButton
-                        disabled={acting}
-                        onClick={() => void singleAction(job.id, "start_pipeline")}
-                      >
-                        Start tailored pitch
-                      </GoldButton>
-                      <GhostButton
-                        disabled={acting}
-                        onClick={() => void singleAction(job.id, "save")}
-                      >
-                        Save for later
-                      </GhostButton>
-                      <Link
-                        href={`/jobs/${job.id}`}
-                        className="text-center text-xs font-semibold text-coral"
-                      >
-                        Review dossier →
-                      </Link>
+                      {job.status === "applied" ? (
+                        <>
+                          {job.application_id ? (
+                            <GoldButton
+                              onClick={() =>
+                                router.push(`/applications/${job.application_id}`)
+                              }
+                            >
+                              View application
+                            </GoldButton>
+                          ) : (
+                            <GoldButton onClick={() => router.push("/applications")}>
+                              Open applications
+                            </GoldButton>
+                          )}
+                          <GhostButton
+                            disabled={acting}
+                            onClick={() => forceReapply(job)}
+                          >
+                            Re-prepare (force)
+                          </GhostButton>
+                          <Link
+                            href={`/jobs/${job.id}`}
+                            className="text-center text-xs font-semibold text-coral"
+                          >
+                            Review dossier →
+                          </Link>
+                        </>
+                      ) : (
+                        <>
+                          <GoldButton
+                            disabled={acting}
+                            onClick={() => void singleAction(job.id, "start_pipeline")}
+                          >
+                            Start tailored pitch
+                          </GoldButton>
+                          <GhostButton
+                            disabled={acting}
+                            onClick={() => void singleAction(job.id, "save")}
+                          >
+                            Save for later
+                          </GhostButton>
+                          <Link
+                            href={`/jobs/${job.id}`}
+                            className="text-center text-xs font-semibold text-coral"
+                          >
+                            Review dossier →
+                          </Link>
+                        </>
+                      )}
                     </div>
                   </div>
                 </ActionCard>

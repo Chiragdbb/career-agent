@@ -274,9 +274,9 @@ function ApprovalsPageInner() {
         const body = await response.json().catch(() => null);
         throw new Error(body?.error?.message || `API ${response.status}`);
       }
-      setMessage("Re-scrape queued — check Activity for progress.");
+      setMessage("Listing refresh queued — check Activity for progress.");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to re-scrape");
+      setError(err instanceof Error ? err.message : "Failed to refresh listing");
     } finally {
       setBusyId(null);
     }
@@ -615,12 +615,12 @@ function ApprovalsPageInner() {
                                       }
                                     >
                                       {busyId === `rescrape-${appId}`
-                                        ? "Re-scraping…"
-                                        : "Scrape thoroughly again"}
+                                        ? "Refreshing…"
+                                        : "Refresh listing details"}
                                     </GhostButton>
                                     <p className="sm:col-span-2 text-xs text-text-muted">
-                                      No contacts yet — apply on the posting, or dig
-                                      deeper for people. We never invent emails.
+                                      No contacts yet — apply on the posting, or refresh
+                                      the listing for more people. We never invent emails.
                                     </p>
                                   </div>
                                 ) : (

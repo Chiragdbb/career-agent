@@ -115,9 +115,9 @@ def _greenhouse_api(board: str, job_id: str, *, url: str) -> StructuredJobPostin
 
 
 def _strip_html(html: str) -> str:
-    text = re.sub(r"<[^>]+>", " ", html)
-    text = re.sub(r"\s+", " ", text)
-    return text.strip()
+    from packages.domain.job_ingest.text_sanitize import strip_html_to_text
+
+    return strip_html_to_text(html)
 
 
 def _infer_remote(location: str, body: str) -> str | None:

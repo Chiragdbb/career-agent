@@ -152,6 +152,7 @@ def test_career_workflow_pauses_for_approval_then_resumes(wf_ctx) -> None:
             job_match_id=match.id,
             resume_version_id=version.id,
             permit_submit=False,
+            override_completeness=True,
         )
     )
     assert result.paused is True
@@ -175,6 +176,7 @@ def test_career_workflow_pauses_for_approval_then_resumes(wf_ctx) -> None:
             job_match_id=match.id,
             resume_version_id=version.id,
             permit_submit=False,
+            override_completeness=True,
         )
     )
     assert again.already_running is True
@@ -198,6 +200,7 @@ def test_career_workflow_pauses_for_approval_then_resumes(wf_ctx) -> None:
             resume_version_id=version.id,
             permit_submit=False,
             force=True,
+            override_completeness=True,
         )
     )
     assert resumed.paused is False
@@ -217,12 +220,20 @@ def test_career_workflow_idempotent_completed_steps(wf_ctx) -> None:
     session, user, match, version, notif = wf_ctx
     svc = CareerWorkflowService(session, user.id, notifications=notif)
     first = svc.start_or_resume(
-        CareerWorkflowStart(job_match_id=match.id, resume_version_id=version.id)
+        CareerWorkflowStart(
+            job_match_id=match.id,
+            resume_version_id=version.id,
+            override_completeness=True,
+        )
     )
     assert first.paused is True
     # Second call without force returns paused state (idempotent).
     second = svc.start_or_resume(
-        CareerWorkflowStart(job_match_id=match.id, resume_version_id=version.id)
+        CareerWorkflowStart(
+            job_match_id=match.id,
+            resume_version_id=version.id,
+            override_completeness=True,
+        )
     )
     assert second.paused is True
     assert second.workflow_run_id == first.workflow_run_id

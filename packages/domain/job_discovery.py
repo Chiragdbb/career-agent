@@ -1474,6 +1474,12 @@ class JobDiscoveryService:
         except Exception:
             return url[:60]
 
+    @staticmethod
+    def _plain_description(raw: str | None) -> str:
+        from packages.domain.job_ingest.text_sanitize import strip_html_to_text
+
+        return strip_html_to_text(raw) if raw else ""
+
     def _persist_extracted(
         self,
         extracted: ExtractedJob,
@@ -1493,12 +1499,15 @@ class JobDiscoveryService:
         if existing is None:
             existing = self._find_job_by_fingerprint(fingerprint)
 
+        description = self._plain_description(extracted.description)
+
         if existing is not None:
             company = self._get_or_create_company(extracted.company_name)
             details = extracted.model_dump(mode="json")
             details["fingerprint"] = fingerprint
+            details["description"] = description or details.get("description")
             existing.title = extracted.title or existing.title
-            existing.description = extracted.description or existing.description
+            existing.description = description or existing.description
             existing.company_id = company.id
             existing.details = details
             existing.last_scraped_at = now
@@ -1538,6 +1547,7 @@ class JobDiscoveryService:
         company = self._get_or_create_company(extracted.company_name)
         details = extracted.model_dump(mode="json")
         details["fingerprint"] = fingerprint
+        details["description"] = description or details.get("description")
         remote = None
         if extracted.work_arrangement == "on_site":
             remote = "onsite"
@@ -1551,7 +1561,7 @@ class JobDiscoveryService:
             url=url,
             external_id=extracted.external_id or fingerprint,
             source="llm_extract",
-            description=extracted.description,
+            description=description,
             details=details,
             skills=list(extracted.skills) or None,
             remote_type=remote,
@@ -1763,12 +1773,17 @@ class JobDiscoveryService:
             if "url" in (display or {}) and ("company" in display or "title" in display):
                 display.pop("url", None)
         if run is not None:
+            completed = None
+            if phase in ("result", "error"):
+                meta = dict(run.metadata_json or {})
+                completed = int(meta.get("completed_units") or 0) + 1
             self._progress.record_progress(
                 run,
                 step=step,
                 message=message,
                 phase=phase,
                 display=display,
+                completed_units=completed,
             )
             return
         payload_data = dict(data or {})

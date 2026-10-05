@@ -16,6 +16,7 @@ from packages.domain.exceptions import DomainError
 from packages.domain.job_models import ExtractedJob
 from packages.domain.job_posting import StructuredJobPosting
 from packages.domain.job_ingest.completeness import JobCompletenessService
+from packages.domain.job_ingest.text_sanitize import strip_html_to_text
 
 
 def normalize_job_posting(raw: dict[str, Any] | StructuredJobPosting) -> StructuredJobPosting:
@@ -53,9 +54,11 @@ def structured_to_extracted(posting: StructuredJobPosting) -> ExtractedJob:
 
 
 def _compose_description(posting: StructuredJobPosting) -> str:
-    parts = [posting.description.strip()]
+    parts = [strip_html_to_text(posting.description)]
     if posting.requirements:
-        parts.append("Requirements:\n- " + "\n- ".join(posting.requirements))
+        req_lines = [strip_html_to_text(r) for r in posting.requirements if r]
+        if req_lines:
+            parts.append("Requirements:\n- " + "\n- ".join(req_lines))
     return "\n\n".join(p for p in parts if p)
 
 
