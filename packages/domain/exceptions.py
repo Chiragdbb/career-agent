@@ -23,6 +23,10 @@ class DiscoveryCancelledError(DomainError):
     """Discovery workflow was cancelled by the user."""
 
 
+class WorkflowCancelledError(DomainError):
+    """Workflow run was cancelled by the user (cooperative stop)."""
+
+
 class ConflictError(DomainError):
     """Request conflicts with current state (e.g. discovery already running)."""
 

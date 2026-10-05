@@ -288,31 +288,37 @@ def batch_job_actions(
                 if queued.already_running or queued.paused:
                     already_running.append(dumped)
                     continue
+                # Only enqueue Celery when that is the configured backend. In
+                # QStash/inline production there is often no Celery worker, so
+                # .delay() would leave the run queued forever with no executor.
                 enqueued = False
-                try:
-                    from workers.applications.tasks import run_career_workflow
+                from app.config import get_settings
 
-                    async_result = run_career_workflow.delay(
-                        str(user_id),
-                        str(match_id),
-                        False,
-                        bool(body.force),
-                    )
-                    from database.models.schema import WorkflowRun
+                if get_settings().resolved_task_backend() == "celery":
+                    try:
+                        from workers.applications.tasks import run_career_workflow
 
-                    run_row = session.get(WorkflowRun, queued.workflow_run_id)
-                    if run_row is not None:
-                        meta = dict(run_row.metadata_json or {})
-                        meta["task_id"] = str(async_result.id)
-                        run_row.metadata_json = meta
-                        session.commit()
-                        dumped["task_id"] = str(async_result.id)
-                    enqueued = True
-                except Exception:
-                    logger.info(
-                        "celery enqueue unavailable; using BackgroundTasks match=%s",
-                        match_id,
-                    )
+                        async_result = run_career_workflow.delay(
+                            str(user_id),
+                            str(match_id),
+                            False,
+                            bool(body.force),
+                        )
+                        from database.models.schema import WorkflowRun
+
+                        run_row = session.get(WorkflowRun, queued.workflow_run_id)
+                        if run_row is not None:
+                            meta = dict(run_row.metadata_json or {})
+                            meta["task_id"] = str(async_result.id)
+                            run_row.metadata_json = meta
+                            session.commit()
+                            dumped["task_id"] = str(async_result.id)
+                        enqueued = True
+                    except Exception:
+                        logger.info(
+                            "celery enqueue unavailable; using BackgroundTasks match=%s",
+                            match_id,
+                        )
                 if not enqueued:
                     background_tasks.add_task(
                         _run_career_pipeline_background,

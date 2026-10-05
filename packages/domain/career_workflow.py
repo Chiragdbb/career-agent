@@ -36,7 +36,7 @@ from packages.domain.application_strategy import (
     ApplicationStrategyService,
     StrategyInput,
 )
-from packages.domain.exceptions import DomainError, NotFoundError
+from packages.domain.exceptions import DomainError, NotFoundError, WorkflowCancelledError
 from packages.domain.human_tasks import (
     HumanTaskCreate,
     HumanTaskService,
@@ -428,7 +428,17 @@ class CareerWorkflowService:
                 outputs=outputs,
                 errors=errors,
             )
+        except WorkflowCancelledError:
+            # Cancel already finalized the run — do not overwrite to failed / retry.
+            return self._finalize_cancelled(run)
         except Exception as exc:  # noqa: BLE001
+            # Preserve an explicit cancel that raced with this failure path.
+            self._session.refresh(run)
+            if run.status in (
+                WorkflowRunStatus.cancelled,
+                WorkflowRunStatus.cancelling,
+            ) or "cancelled" in str(exc).lower():
+                return self._finalize_cancelled(run)
             run.status = WorkflowRunStatus.failed
             run.error = str(exc)
             self._session.commit()
@@ -852,6 +862,30 @@ class CareerWorkflowService:
         )
         return row is not None
 
+    def _finalize_cancelled(self, run: WorkflowRun) -> CareerWorkflowResult:
+        self._session.refresh(run)
+        meta = dict(run.metadata_json or {})
+        run.status = WorkflowRunStatus.cancelled
+        meta["current_step"] = "cancelled"
+        meta["status_message"] = "Cancelled"
+        meta["paused"] = False
+        meta.setdefault("cancelled_at", datetime.now(timezone.utc).isoformat())
+        run.metadata_json = meta
+        run.error = None
+        self._session.commit()
+        if self._cancellation is not None:
+            self._cancellation.clear(run.id)
+        return CareerWorkflowResult(
+            workflow_run_id=run.id,
+            status=WorkflowRunStatus.cancelled.value,
+            paused=False,
+            application_id=_uuid_or_none(meta.get("application_id")),
+            completed_steps=list(meta.get("completed_steps") or []),
+            current_step="cancelled",
+            outputs=dict(meta.get("outputs") or {}),
+            errors=list(meta.get("errors") or []),
+        )
+
     def _ensure_not_cancelled(self, run: WorkflowRun) -> None:
         self._session.refresh(run)
         if run.status in (WorkflowRunStatus.cancelled, WorkflowRunStatus.cancelling):
@@ -859,18 +893,22 @@ class CareerWorkflowService:
                 run.status = WorkflowRunStatus.cancelled
                 metadata = dict(run.metadata_json or {})
                 metadata["cancelled_at"] = datetime.now(timezone.utc).isoformat()
+                metadata["current_step"] = "cancelled"
                 metadata["status_message"] = "Cancelled"
+                metadata["paused"] = False
                 run.metadata_json = metadata
                 self._session.flush()
-            raise DomainError("Application pipeline cancelled")
+            raise WorkflowCancelledError("Application pipeline cancelled")
         if self._cancellation is not None and self._cancellation.is_cancelled(run.id):
             run.status = WorkflowRunStatus.cancelled
             metadata = dict(run.metadata_json or {})
             metadata["cancelled_at"] = datetime.now(timezone.utc).isoformat()
+            metadata["current_step"] = "cancelled"
             metadata["status_message"] = "Cancelled"
+            metadata["paused"] = False
             run.metadata_json = metadata
             self._session.flush()
-            raise DomainError("Application pipeline cancelled")
+            raise WorkflowCancelledError("Application pipeline cancelled")
 
     def _begin_task(
         self, run_id: uuid.UUID, task_type: str, *, input_payload: dict[str, Any]

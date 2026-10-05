@@ -47,6 +47,7 @@ function runHref(run: WorkflowRun): string {
 }
 
 function needsUserAction(run: WorkflowRun): boolean {
+  if (!isActiveWorkflow(run.status)) return false;
   const meta = run.metadata || {};
   return Boolean(meta.paused) || String(meta.current_step || "") === "approval_pause";
 }
@@ -149,6 +150,14 @@ function ProcessBannerCard({
             <p className="mt-1 text-sm text-ink">
               Ready for your review — open Approvals to finalize.
             </p>
+          ) : status === "cancelled" ? (
+            <p className="mt-1 text-sm text-text-muted">
+              Cancelled. Nothing else will run for this process.
+            </p>
+          ) : status === "failed" ? (
+            <p className="mt-1 text-sm text-text-muted">
+              This process failed. Check Activity for details, or start again.
+            </p>
           ) : finished && appId ? (
             <p className="mt-1 text-sm text-ink">
               Preparation finished. Open the application for next steps.
@@ -209,8 +218,19 @@ function ProcessBannerCard({
           className="h-full rounded-full bg-coral transition-[width] duration-500 ease-out"
           style={{
             width: `${Math.max(
-              finished || actionNeeded ? 100 : 4,
-              Math.min(100, (finished || actionNeeded ? 1 : ratio) * 100),
+              status === "cancelled" || status === "failed"
+                ? Math.max(4, ratio * 100)
+                : finished || actionNeeded
+                  ? 100
+                  : 4,
+              Math.min(
+                100,
+                (status === "cancelled" || status === "failed"
+                  ? ratio
+                  : finished || actionNeeded
+                    ? 1
+                    : ratio) * 100,
+              ),
             )}%`,
           }}
         />
@@ -257,12 +277,13 @@ export function ProcessBanner({ className }: { className?: string }) {
   const { activeRuns, recentRuns, refresh } = useProcessActivity();
   const [stickyIds, setStickyIds] = useState<Set<string>>(new Set());
 
-  // Keep recently finished career pipelines visible briefly so the next step
-  // (Approvals / Application) doesn't vanish with the progress card.
+  // Keep recently completed/paused career pipelines visible briefly so the next
+  // step (Approvals / Application) doesn't vanish with the progress card.
+  // Cancelled/failed should not linger as if they are still in flight.
   useEffect(() => {
     const finished = recentRuns.filter((run) => {
       const status = String(run.status).toLowerCase();
-      if (!["completed", "failed", "cancelled"].includes(status)) return false;
+      if (status !== "completed") return false;
       if (run.workflow_type !== "career_job_pipeline") return false;
       return true;
     });

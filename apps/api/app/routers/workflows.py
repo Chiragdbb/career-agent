@@ -136,6 +136,30 @@ def get_workflow_progress(
     )
 
 
+def _revoke_queued_task(task_id: str) -> None:
+    """Stop a still-queued broker task (QStash message or Celery id)."""
+    tid = str(task_id or "").strip()
+    if not tid or tid.startswith("inline-"):
+        return
+    if tid.startswith("msg_"):
+        try:
+            from app.config import get_settings
+            from packages.providers.qstash import cancel_message
+
+            token = (get_settings().qstash_token or "").strip()
+            if token:
+                cancel_message(token=token, message_id=tid)
+        except Exception:
+            pass
+        return
+    try:
+        from workers.celery_app import celery_app
+
+        celery_app.control.revoke(tid, terminate=True)
+    except Exception:
+        pass
+
+
 @router.post("/{run_id}/cancel", response_model=WorkflowRunResponse)
 def cancel_workflow_run(
     run_id: UUID,
@@ -150,13 +174,8 @@ def cancel_workflow_run(
 
     metadata = dict(run.metadata_json or {})
     task_id = metadata.get("task_id")
-    if task_id and not str(task_id).startswith("inline-"):
-        try:
-            from workers.celery_app import celery_app
-
-            celery_app.control.revoke(str(task_id), terminate=True)
-        except Exception:
-            pass
+    if task_id:
+        _revoke_queued_task(str(task_id))
 
     events.publish(
         user_id,

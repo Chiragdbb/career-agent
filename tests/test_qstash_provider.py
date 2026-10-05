@@ -10,7 +10,12 @@ from unittest.mock import MagicMock, patch
 import jwt
 import pytest
 
-from packages.providers.qstash import publish_json, verify_upstash_signature
+from packages.providers.qstash import (
+    cancel_all_messages,
+    cancel_message,
+    publish_json,
+    verify_upstash_signature,
+)
 
 
 def _make_upstash_signature(
@@ -66,6 +71,56 @@ def test_publish_json_posts_to_qstash(mock_client_cls: MagicMock) -> None:
 def test_publish_json_requires_token() -> None:
     with pytest.raises(ValueError, match="QSTASH_TOKEN"):
         publish_json(token="  ", destination_url="https://example.com/x", body={})
+
+
+@patch("packages.providers.qstash.httpx.Client")
+def test_cancel_message_deletes_pending(mock_client_cls: MagicMock) -> None:
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.raise_for_status = MagicMock()
+
+    mock_client = MagicMock()
+    mock_client.__enter__ = MagicMock(return_value=mock_client)
+    mock_client.__exit__ = MagicMock(return_value=False)
+    mock_client.delete.return_value = mock_resp
+    mock_client_cls.return_value = mock_client
+
+    assert cancel_message(token="tok", message_id="msg_abc") is True
+    mock_client.delete.assert_called_once()
+    args, kwargs = mock_client.delete.call_args
+    assert args[0] == "https://qstash.upstash.io/v2/messages/msg_abc"
+    assert kwargs["headers"]["Authorization"] == "Bearer tok"
+
+
+@patch("packages.providers.qstash.httpx.Client")
+def test_cancel_message_missing_returns_false(mock_client_cls: MagicMock) -> None:
+    mock_resp = MagicMock()
+    mock_resp.status_code = 404
+
+    mock_client = MagicMock()
+    mock_client.__enter__ = MagicMock(return_value=mock_client)
+    mock_client.__exit__ = MagicMock(return_value=False)
+    mock_client.delete.return_value = mock_resp
+    mock_client_cls.return_value = mock_client
+
+    assert cancel_message(token="tok", message_id="msg_missing") is False
+
+
+@patch("packages.providers.qstash.httpx.Client")
+def test_cancel_all_messages_returns_count(mock_client_cls: MagicMock) -> None:
+    mock_resp = MagicMock()
+    mock_resp.status_code = 202
+    mock_resp.content = b'{"cancelled":3}'
+    mock_resp.json.return_value = {"cancelled": 3}
+    mock_resp.raise_for_status = MagicMock()
+
+    mock_client = MagicMock()
+    mock_client.__enter__ = MagicMock(return_value=mock_client)
+    mock_client.__exit__ = MagicMock(return_value=False)
+    mock_client.delete.return_value = mock_resp
+    mock_client_cls.return_value = mock_client
+
+    assert cancel_all_messages(token="tok") == 3
 
 
 def test_verify_rejects_empty_signature() -> None:

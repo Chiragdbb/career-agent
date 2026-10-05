@@ -31,10 +31,19 @@ def _run_career_workflow(
 ) -> dict:
     session = _session()
     try:
+        cancellation = None
+        try:
+            from app.redis import get_redis
+            from packages.domain.workflow_cancellation import WorkflowCancellation
+
+            cancellation = WorkflowCancellation(get_redis())
+        except Exception:
+            logger.warning("career_workflow_cancellation_unavailable", exc_info=True)
         service = build_career_workflow_service(
             session,
             user_id,
             notifications=MockNotificationProvider(),
+            cancellation=cancellation,
         )
         result = service.start_or_resume(
             CareerWorkflowStart(

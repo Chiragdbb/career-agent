@@ -37,6 +37,49 @@ def publish_json(*, token: str, destination_url: str, body: dict[str, Any]) -> s
     return str(message_id)
 
 
+def cancel_message(*, token: str, message_id: str) -> bool:
+    """Cancel a pending QStash message. Returns True if cancelled, False if missing."""
+    if not token.strip():
+        raise ValueError("QSTASH_TOKEN is required")
+    mid = (message_id or "").strip()
+    if not mid:
+        raise ValueError("message_id is required")
+
+    url = f"https://qstash.upstash.io/v2/messages/{mid}"
+    with httpx.Client(timeout=15.0) as client:
+        resp = client.delete(
+            url,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    if resp.status_code == 404:
+        return False
+    resp.raise_for_status()
+    return True
+
+
+def cancel_all_messages(*, token: str) -> int:
+    """Cancel all pending QStash messages. Returns cancelled count when provided."""
+    if not token.strip():
+        raise ValueError("QSTASH_TOKEN is required")
+
+    url = "https://qstash.upstash.io/v2/messages"
+    with httpx.Client(timeout=30.0) as client:
+        resp = client.delete(
+            url,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        resp.raise_for_status()
+        if not resp.content:
+            return 0
+        data = resp.json()
+    if isinstance(data, dict) and "cancelled" in data:
+        try:
+            return int(data["cancelled"])
+        except (TypeError, ValueError):
+            return 0
+    return 0
+
+
 def _body_hash_matches(claim: str, body: bytes) -> bool:
     claim_stripped = claim.rstrip("=")
     digest = hashlib.sha256(body).digest()
