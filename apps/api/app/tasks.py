@@ -27,6 +27,16 @@ class DiscoveryTaskClient(Protocol):
         match_id: uuid.UUID,
     ) -> str: ...
 
+    def enqueue_career_workflow(
+        self,
+        *,
+        user_id: uuid.UUID,
+        workflow_run_id: uuid.UUID,
+        match_id: uuid.UUID,
+        permit_submit: bool = False,
+        force: bool = False,
+    ) -> str: ...
+
 
 class CeleryDiscoveryTaskClient:
     def enqueue_discover_jobs(
@@ -60,6 +70,25 @@ class CeleryDiscoveryTaskClient:
             str(match_id),
         )
         return async_result.id
+
+    def enqueue_career_workflow(
+        self,
+        *,
+        user_id: uuid.UUID,
+        workflow_run_id: uuid.UUID,
+        match_id: uuid.UUID,
+        permit_submit: bool = False,
+        force: bool = False,
+    ) -> str:
+        from workers.applications.tasks import run_career_workflow
+
+        async_result = run_career_workflow.delay(
+            str(user_id),
+            str(match_id),
+            bool(permit_submit),
+            bool(force),
+        )
+        return str(async_result.id)
 
 
 class InlineDiscoveryTaskClient:
@@ -114,6 +143,40 @@ class InlineDiscoveryTaskClient:
         thread.start()
         return task_id
 
+    def enqueue_career_workflow(
+        self,
+        *,
+        user_id: uuid.UUID,
+        workflow_run_id: uuid.UUID,
+        match_id: uuid.UUID,
+        permit_submit: bool = False,
+        force: bool = False,
+    ) -> str:
+        from workers.applications.tasks import _run_career_workflow
+
+        task_id = f"inline-{workflow_run_id}"
+
+        def _run() -> None:
+            try:
+                _run_career_workflow(
+                    user_id,
+                    match_id,
+                    permit_submit=permit_submit,
+                    force=force,
+                )
+            except Exception:
+                logger.exception(
+                    "inline career workflow failed user=%s match=%s",
+                    user_id,
+                    match_id,
+                )
+
+        thread = threading.Thread(
+            target=_run, daemon=True, name=f"career-{workflow_run_id}"
+        )
+        thread.start()
+        return task_id
+
 
 class QStashDiscoveryTaskClient:
     def __init__(self, *, token: str, callback_base_url: str) -> None:
@@ -155,5 +218,29 @@ class QStashDiscoveryTaskClient:
                 "user_id": str(user_id),
                 "workflow_run_id": str(workflow_run_id),
                 "match_id": str(match_id),
+            },
+        )
+
+    def enqueue_career_workflow(
+        self,
+        *,
+        user_id: uuid.UUID,
+        workflow_run_id: uuid.UUID,
+        match_id: uuid.UUID,
+        permit_submit: bool = False,
+        force: bool = False,
+    ) -> str:
+        """Enqueue career/pitch pipeline via QStash (works on Free Render — no Celery)."""
+        from packages.providers.qstash import publish_json
+
+        return publish_json(
+            token=self._token,
+            destination_url=f"{self._base}/internal/qstash/career-workflow",
+            body={
+                "user_id": str(user_id),
+                "workflow_run_id": str(workflow_run_id),
+                "match_id": str(match_id),
+                "permit_submit": bool(permit_submit),
+                "force": bool(force),
             },
         )

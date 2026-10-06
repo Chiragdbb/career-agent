@@ -32,16 +32,21 @@ def _run_career_workflow(
     session = _session()
     try:
         cancellation = None
+        events = None
         try:
             from app.redis import get_redis
+            from packages.domain.events import RedisEventBus, UserEventPublisher
             from packages.domain.workflow_cancellation import WorkflowCancellation
 
-            cancellation = WorkflowCancellation(get_redis())
+            redis_client = get_redis()
+            cancellation = WorkflowCancellation(redis_client)
+            events = UserEventPublisher(RedisEventBus(redis_client))
         except Exception:
-            logger.warning("career_workflow_cancellation_unavailable", exc_info=True)
+            logger.warning("career_workflow_redis_unavailable", exc_info=True)
         service = build_career_workflow_service(
             session,
             user_id,
+            events=events,
             notifications=MockNotificationProvider(),
             cancellation=cancellation,
         )
@@ -50,6 +55,7 @@ def _run_career_workflow(
                 job_match_id=job_match_id,
                 permit_submit=permit_submit,
                 force=force,
+                execute=True,
             )
         )
         return result.model_dump(mode="json")

@@ -121,9 +121,12 @@ Copy from [`.env.example`](../.env.example) for each environment. Never commit r
 `SUPABASE_SERVICE_ROLE_KEY`, `NEXT_PUBLIC_SUPABASE_URL`,
 `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `NEXT_PUBLIC_API_BASE_URL`, `CORS_ALLOW_ORIGINS`.
 
-**Production discovery (QStash):** `TASK_BACKEND=qstash`, `QSTASH_TOKEN`,
+**Production discovery / pitch (QStash):** `TASK_BACKEND=qstash`, `QSTASH_TOKEN`,
 `QSTASH_CURRENT_SIGNING_KEY`, `QSTASH_CALLBACK_BASE_URL` (public API HTTPS origin,
-no trailing slash).
+no trailing slash). Same backend also enqueues career/pitch pipelines to
+`/internal/qstash/career-workflow` — no Celery worker required on Free Render.
+Long callbacks may retry if the Free dyno is cold; set `JOB_RESCRAPE_SCRAPER=scrapling`
+when Firecrawl credits are exhausted.
 
 **Providers (as needed):** `LLM_PROVIDER` + keys, `TAVILY_API_KEY`,
 `FIRECRAWL_*`, `RESEND_*`, `SUPABASE_STORAGE_BUCKET`.

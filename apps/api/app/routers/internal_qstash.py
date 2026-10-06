@@ -34,6 +34,14 @@ class RescrapeJobBody(BaseModel):
     match_id: uuid.UUID
 
 
+class CareerWorkflowBody(BaseModel):
+    user_id: uuid.UUID
+    workflow_run_id: uuid.UUID
+    match_id: uuid.UUID
+    permit_submit: bool = False
+    force: bool = False
+
+
 class ScheduledDiscoverBody(BaseModel):
     max_users: int = Field(default=50, ge=1, le=500)
 
@@ -147,6 +155,45 @@ def rescrape_job(raw: bytes = Depends(_require_qstash)) -> dict[str, Any]:
             payload.match_id,
         )
         raise HTTPException(status_code=500, detail="rescrape_job failed") from None
+    return {"ok": True, "result": result}
+
+
+@router.post("/career-workflow")
+def career_workflow(raw: bytes = Depends(_require_qstash)) -> dict[str, Any]:
+    """Execute a queued career/pitch pipeline (Free Render–friendly via QStash)."""
+    payload = _parse_body(raw, CareerWorkflowBody)
+    assert isinstance(payload, CareerWorkflowBody)
+    logger.info(
+        "qstash_career_workflow user=%s run=%s match=%s",
+        payload.user_id,
+        payload.workflow_run_id,
+        payload.match_id,
+    )
+    try:
+        from workers.applications.tasks import _run_career_workflow
+
+        result = _run_career_workflow(
+            payload.user_id,
+            payload.match_id,
+            permit_submit=payload.permit_submit,
+            force=payload.force,
+        )
+    except DomainError as exc:
+        logger.info(
+            "qstash_career_skipped user=%s run=%s reason=%s",
+            payload.user_id,
+            payload.workflow_run_id,
+            exc,
+        )
+        return {"ok": True, "skipped": True, "reason": str(exc)[:200]}
+    except Exception:
+        logger.exception(
+            "qstash_career_failed user=%s run=%s match=%s",
+            payload.user_id,
+            payload.workflow_run_id,
+            payload.match_id,
+        )
+        raise HTTPException(status_code=500, detail="career_workflow failed") from None
     return {"ok": True, "result": result}
 
 

@@ -1531,8 +1531,12 @@ class JobDiscoveryService:
 
         description = self._plain_description(extracted.description)
         req_text = ""
-        if isinstance(extracted.requirements, list):
-            req_text = "\n".join(str(r) for r in extracted.requirements if r)
+        # ExtractedJob historically had no requirements field; tolerate extras/legacy.
+        requirements = getattr(extracted, "requirements", None)
+        if isinstance(requirements, list):
+            req_text = "\n".join(str(r) for r in requirements if r)
+        elif isinstance(requirements, str) and requirements.strip():
+            req_text = requirements.strip()
         from packages.domain.skill_aliases import merge_harvested_skills
 
         harvested_skills = merge_harvested_skills(

@@ -48,6 +48,7 @@ def _run_career_pipeline_background(
     from app.database import get_session_factory, init_db
     from app.redis import get_redis
     from packages.domain.career_workflow_factory import build_career_workflow_service
+    from packages.domain.events import RedisEventBus, UserEventPublisher
     from packages.domain.workflow_cancellation import WorkflowCancellation
     from packages.providers.notification import MockNotificationProvider
 
@@ -59,9 +60,16 @@ def _run_career_pipeline_background(
         except Exception:
             redis_client = None
         cancellation = WorkflowCancellation(redis_client)
+        events = None
+        if redis_client is not None:
+            try:
+                events = UserEventPublisher(RedisEventBus(redis_client))
+            except Exception:
+                logger.warning("career_pipeline_events_unavailable", exc_info=True)
         service = build_career_workflow_service(
             session,
             user_id,
+            events=events,
             notifications=MockNotificationProvider(),
             cancellation=cancellation,
         )
@@ -232,6 +240,7 @@ def batch_job_actions(
     events: EventPublisherDep,
     redis_client: RedisDep,
     background_tasks: BackgroundTasks,
+    task_client: DiscoveryTaskClientDep,
 ) -> dict:
     from database.models.schema import JobMatch
     from packages.domain.workflow_cancellation import WorkflowCancellation
@@ -288,13 +297,14 @@ def batch_job_actions(
                 if queued.already_running or queued.paused:
                     already_running.append(dumped)
                     continue
-                # Only enqueue Celery when that is the configured backend. In
-                # QStash/inline production there is often no Celery worker, so
-                # .delay() would leave the run queued forever with no executor.
+                # Prefer durable queue backends. On Free Render there is no Celery
+                # worker — QStash callbacks into the API (same pattern as discovery).
                 enqueued = False
                 from app.config import get_settings
+                from database.models.schema import WorkflowRun
 
-                if get_settings().resolved_task_backend() == "celery":
+                backend = get_settings().resolved_task_backend()
+                if backend == "celery":
                     try:
                         from workers.applications.tasks import run_career_workflow
 
@@ -304,8 +314,6 @@ def batch_job_actions(
                             False,
                             bool(body.force),
                         )
-                        from database.models.schema import WorkflowRun
-
                         run_row = session.get(WorkflowRun, queued.workflow_run_id)
                         if run_row is not None:
                             meta = dict(run_row.metadata_json or {})
@@ -316,7 +324,29 @@ def batch_job_actions(
                         enqueued = True
                     except Exception:
                         logger.info(
-                            "celery enqueue unavailable; using BackgroundTasks match=%s",
+                            "celery enqueue unavailable; falling back match=%s",
+                            match_id,
+                        )
+                if not enqueued and backend == "qstash":
+                    try:
+                        task_id = task_client.enqueue_career_workflow(
+                            user_id=user_id,
+                            workflow_run_id=queued.workflow_run_id,
+                            match_id=match_id,
+                            permit_submit=False,
+                            force=bool(body.force),
+                        )
+                        run_row = session.get(WorkflowRun, queued.workflow_run_id)
+                        if run_row is not None:
+                            meta = dict(run_row.metadata_json or {})
+                            meta["task_id"] = str(task_id)
+                            run_row.metadata_json = meta
+                            session.commit()
+                            dumped["task_id"] = str(task_id)
+                        enqueued = True
+                    except Exception:
+                        logger.exception(
+                            "qstash career enqueue failed; using BackgroundTasks match=%s",
                             match_id,
                         )
                 if not enqueued:
@@ -327,6 +357,21 @@ def batch_job_actions(
                         force=bool(body.force),
                     )
                 results.append(dumped)
+                events.publish(
+                    user_id,
+                    UserEventType.workflow_progress,
+                    {
+                        "workflow_run_id": str(queued.workflow_run_id),
+                        "workflow_type": "career_job_pipeline",
+                        "step": "queued",
+                        "message": "Application prep queued",
+                        "data": {
+                            "status": queued.status,
+                            "job_match_id": str(match_id),
+                            "task_id": dumped.get("task_id"),
+                        },
+                    },
+                )
             except DomainError as exc:
                 errors.append({"match_id": str(match_id), "error": str(exc)})
             except Exception as exc:  # noqa: BLE001

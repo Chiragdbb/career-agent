@@ -24,6 +24,7 @@ import { CollapsibleSection } from "@/components/ui/CollapsibleSection";
 import { ErrorBanner } from "@/components/ui/ErrorBanner";
 import { DetailPageSkeleton } from "@/components/ui/Skeleton";
 import { ScoreRing } from "@/components/ui/ScoreRing";
+import { useProcessActivity } from "@/hooks/useProcessActivity";
 import { apiFetch } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { createClient } from "@/lib/supabase/client";
@@ -316,6 +317,7 @@ export default function JobDetailPage() {
   const router = useRouter();
   const params = useParams<{ id: string }>();
   const matchId = params.id;
+  const { refresh: refreshActivity } = useProcessActivity();
 
   const [loading, setLoading] = useState(true);
   const [rescoring, setRescoring] = useState(false);
@@ -452,6 +454,22 @@ export default function JobDetailPage() {
         const body = await response.json().catch(() => null);
         throw new Error(body?.error?.message || `API ${response.status}`);
       }
+      const payload = (await response.json()) as {
+        started?: number;
+        already_running?: number;
+        errors?: { match_id?: string; error?: string }[];
+      };
+      const failCount = payload.errors?.length ?? 0;
+      const started = payload.started ?? 0;
+      const already = payload.already_running ?? 0;
+      if (failCount > 0 && started === 0 && already === 0) {
+        throw new Error(
+          payload.errors?.[0]?.error ||
+            "Could not start this application. Upload a resume first if you haven’t.",
+        );
+      }
+      await refreshActivity();
+      window.dispatchEvent(new CustomEvent("activity-bar:expand"));
       const refreshed = await fetchWorkspace();
       setWorkspace(refreshed);
       const targetId = refreshed.application?.id;

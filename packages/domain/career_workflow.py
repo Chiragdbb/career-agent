@@ -201,7 +201,13 @@ class CareerWorkflowService:
 
         # Create the application dossier immediately so it appears in Applications
         # while preparation runs — users should never lose the trail mid-pipeline.
-        self._ensure_application(match, meta)
+        try:
+            self._ensure_application(match, meta)
+        except DomainError as exc:
+            # Avoid orphan "queued forever" runs when start fails before execute
+            # (e.g. missing resume). Mark failed so UI can clear and show the error.
+            self._fail_unstarted_run(run, str(exc))
+            raise
         run.metadata_json = meta
         # Do NOT mark applied until approval_pause succeeds (package ready).
         if match.status == JobMatchStatus.new:
@@ -781,6 +787,25 @@ class CareerWorkflowService:
         meta["application_id"] = str(app.id)
         meta["href"] = f"/applications/{app.id}"
         return app.id
+
+    def _fail_unstarted_run(self, run: WorkflowRun, message: str) -> None:
+        """Finalize a run that never executed steps (prevents stuck queued banners)."""
+        completed = list((run.metadata_json or {}).get("completed_steps") or [])
+        if completed:
+            return
+        if run.status not in (
+            WorkflowRunStatus.queued,
+            WorkflowRunStatus.running,
+        ):
+            return
+        meta = dict(run.metadata_json or {})
+        run.status = WorkflowRunStatus.failed
+        run.error = message[:500]
+        meta["current_step"] = "failed"
+        meta["status_message"] = message[:200]
+        meta["paused"] = False
+        run.metadata_json = meta
+        self._session.commit()
 
     def _default_resume_version_id(self) -> uuid.UUID | None:
         version = (

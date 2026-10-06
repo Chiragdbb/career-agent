@@ -46,3 +46,30 @@ def test_enqueue_rescrape_job_publishes_expected_url() -> None:
     assert kwargs["body"]["match_id"] == str(match_id)
     assert kwargs["body"]["user_id"] == str(user_id)
     assert kwargs["body"]["workflow_run_id"] == str(run_id)
+
+
+def test_enqueue_career_workflow_publishes_expected_url() -> None:
+    user_id = uuid.uuid4()
+    run_id = uuid.uuid4()
+    match_id = uuid.uuid4()
+    client = QStashDiscoveryTaskClient(
+        token="tok",
+        callback_base_url="https://api.example.com",
+    )
+    with patch("packages.providers.qstash.publish_json", return_value="msg_career") as pub:
+        tid = client.enqueue_career_workflow(
+            user_id=user_id,
+            workflow_run_id=run_id,
+            match_id=match_id,
+            force=True,
+        )
+    assert tid == "msg_career"
+    kwargs = pub.call_args.kwargs
+    assert kwargs["destination_url"] == "https://api.example.com/internal/qstash/career-workflow"
+    assert kwargs["body"] == {
+        "user_id": str(user_id),
+        "workflow_run_id": str(run_id),
+        "match_id": str(match_id),
+        "permit_submit": False,
+        "force": True,
+    }

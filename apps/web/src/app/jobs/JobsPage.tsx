@@ -53,7 +53,7 @@ function JobsPageInner() {
   const [exploreQuery, setExploreQuery] = useState("");
   const [activeDiscoveryRunId, setActiveDiscoveryRunId] = useState<string | null>(null);
   const autoDiscoverAttempted = useRef(false);
-  const { activeRuns } = useProcessActivity();
+  const { activeRuns, refresh: refreshActivity } = useProcessActivity();
   const activeDiscovery = activeRuns.find((run) => run.workflow_type === "job_discovery");
   const discoveryBlocked = Boolean(activeDiscovery || activeDiscoveryRunId);
 
@@ -199,6 +199,10 @@ function JobsPageInner() {
       };
       setSelected(new Set());
       await refreshJobs();
+      if (action === "start_pipeline") {
+        await refreshActivity();
+        window.dispatchEvent(new CustomEvent("activity-bar:expand"));
+      }
       const failCount = payload.errors?.length ?? 0;
       const already = payload.already_running ?? 0;
       if (action === "save") {
@@ -247,12 +251,34 @@ function JobsPageInner() {
         const body = await response.json().catch(() => null);
         throw new Error(body?.error?.message || `API ${response.status}`);
       }
+      const payload = (await response.json()) as {
+        started?: number;
+        already_running?: number;
+        errors?: { match_id?: string; error?: string }[];
+      };
       await refreshJobs();
-      setMessage(
-        action === "save"
-          ? "Saved."
-          : "We’re preparing this application — watch progress above. You’ll approve when ready.",
-      );
+      if (action === "start_pipeline") {
+        await refreshActivity();
+        window.dispatchEvent(new CustomEvent("activity-bar:expand"));
+        const failCount = payload.errors?.length ?? 0;
+        const started = payload.started ?? 0;
+        const already = payload.already_running ?? 0;
+        if (failCount > 0 && started === 0 && already === 0) {
+          throw new Error(
+            payload.errors?.[0]?.error ||
+              "Could not start this application. Upload a resume first if you haven’t.",
+          );
+        }
+        if (already > 0) {
+          setMessage("Already in progress — watch the banner above or open Approvals.");
+        } else {
+          setMessage(
+            "We’re preparing this application — watch progress above. You’ll approve when ready.",
+          );
+        }
+      } else {
+        setMessage("Saved.");
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Action failed");
     } finally {

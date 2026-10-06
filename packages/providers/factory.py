@@ -216,14 +216,21 @@ def create_scraper_provider(settings: ProviderSettings | None = None) -> Scraper
 def create_discovery_scraper_provider(
     settings: ProviderSettings | None = None,
 ) -> ScraperProvider:
-    """Scraper chain for job discovery ingest (Scrapling first, then Firecrawl)."""
+    """Scraper chain for job discovery ingest (default: Scrapling only)."""
     return create_rescrape_scraper_provider(settings)
 
 
 def create_rescrape_scraper_provider(settings: ProviderSettings | None = None) -> ScraperProvider:
-    """Scraper chain for manual job re-scrape (Scrapling first, then Firecrawl)."""
+    """Scraper chain for discovery / re-scrape.
+
+    JOB_RESCRAPE_SCRAPER:
+      - scrapling (default) — Scrapling only (use when Firecrawl credits are exhausted)
+      - scrapling-first — Scrapling then Firecrawl
+      - firecrawl — Firecrawl only
+    """
     settings = settings or ProviderSettings.from_env()
-    mode = (os.getenv("JOB_RESCRAPE_SCRAPER") or "scrapling-first").strip().lower()
+    # Default to scrapling-only so production keeps working without Firecrawl credits.
+    mode = (os.getenv("JOB_RESCRAPE_SCRAPER") or "scrapling").strip().lower()
     scrapling = _scrapling_scraper_backend(settings)
     firecrawl = _firecrawl_scraper_backends(settings)
 
@@ -238,10 +245,9 @@ def create_rescrape_scraper_provider(settings: ProviderSettings | None = None) -
             scrapers.append(scrapling)
         scrapers.extend(firecrawl)
     else:
-        logger.warning("unknown JOB_RESCRAPE_SCRAPER=%r using scrapling-first", mode)
+        logger.warning("unknown JOB_RESCRAPE_SCRAPER=%r using scrapling", mode)
         if scrapling is not None:
             scrapers.append(scrapling)
-        scrapers.extend(firecrawl)
 
     if not scrapers:
         if mocks_allowed():
